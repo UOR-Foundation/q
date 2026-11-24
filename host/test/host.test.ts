@@ -10,7 +10,7 @@ import { chunks, ingest, type Source } from '../src/knowledge.ts';
 import { Memory, type Observed } from '../src/memory.ts';
 import { Pipeline, type Incoming, type Settings } from '../src/pipeline.ts';
 import { ANSWER_SCHEMA, CONTEXT_SCHEMA, type CloudEvent } from '../src/records.ts';
-import { withoutReasoning, type Embedder, type Llm, type RunTool, type ToolCall, type ToolSpec } from '../src/providers.ts';
+import { Gate, retrying, withoutReasoning, type Embedder, type Llm, type RunTool, type ToolCall, type ToolSpec } from '../src/providers.ts';
 import { Tools } from '../src/tools.ts';
 import { payloads } from '../src/adapter/adapter.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -18,7 +18,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { SearchIndex } from '../src/search.ts';
-import { MemoryStore } from '../src/store.ts';
+import { FileStore, isRevoked, MemoryStore } from '../src/store.ts';
 
 const HOLO = new URL('../../app/.prism/build/uor-discord-agent.holo', import.meta.url);
 
@@ -38,6 +38,7 @@ class WordEmbedder implements Embedder {
   }
 }
 class CountingLlm implements Llm {
+  readonly model = 'test-model';
   calls = 0;
   /** When set, every answer is this text instead. */
   answer?: string;
@@ -48,6 +49,8 @@ class CountingLlm implements Llm {
     // The decision reader: it gives the case only when the question states it.
     if (system.startsWith('You read a question for the inputs')) {
       const question = user.slice(user.lastIndexOf('Question:'));
+      // Like a real model: the naming app only for a question about naming.
+      if (!/naming/.test(question)) return JSON.stringify({ app: null });
       return JSON.stringify({ app: 'uor-test-naming', inputs: /lowercase/.test(question) ? { case: 'lowercase' } : {} });
     }
     this.calls++;
@@ -491,7 +494,9 @@ test('the query pool works on no more questions at once than its limit', async (
   const { pipeline, llm } = await world({ concurrency: 1 });
   let running = 0, most = 0;
   const complete = llm.complete.bind(llm);
+  // Count the answers being written: one per question, however its decision is read.
   llm.complete = async (system: string, user: string) => {
+    if (system.startsWith('You read a question')) return complete(system, user);
     running++; most = Math.max(most, running);
     await new Promise((resolve) => setTimeout(resolve, 5));
     running--;
@@ -543,4 +548,111 @@ test('MCP tools: the kernel lets a member read and refuses a member writing, and
   unlisted.llm.wants = [{ name: 'uor__lookup', arguments: {} }];
   await unlisted.pipeline.handle(ask('How are Prism applications built from a LexLean model?', { role: 'admin' }));
   assert.deepEqual(unlisted.llm.results, ['Refused: this tool is not allowed here.']);
+});
+
+test('compute once: the same question on the same evidence is answered once, and forgetting its author forgets the reuse', async () => {
+  const { pipeline, llm, store, events, index, embedder } = await world();
+  const first = await pipeline.handle(ask('How are Prism applications built from a LexLean model?', { authorId: 'asker-1' }));
+  assert.equal(llm.calls, 1);
+  // Case and spacing do not change the question; a different author asks it.
+  const again = await pipeline.handle(ask('  how are PRISM applications built   from a LexLean model? ', { authorId: 'asker-2' }));
+  assert.equal(llm.calls, 1);
+  assert.match(again!.text, /^-# Answered once before for this exact question and evidence · blake3:/m);
+  assert.equal(again!.text.split('\n-# ')[0], first!.text.split('\n-# ')[0]);
+  const answers = (await Promise.all((await store.labels('private')).map(async (label) => ({ label, item: (await store.get('private', label))! })))).filter(({ item }) => item.type === 'answer');
+  const computed = answers.find(({ item }) => item.author === 'asker-1')!;
+  const reused = answers.find(({ item }) => item.author === 'asker-2')!;
+  assert.ok(isLabel(computed.item.memo));
+  assert.equal(reused.item.memo, computed.item.memo);
+  assert.equal(reused.item.reused, computed.label);
+  assert.ok(store.edges.private.some((e) => e.source === reused.label && e.relation === 'derived-from' && e.target === computed.label));
+  assert.deepEqual(events.map((e) => e.data.reused), [false, true]);
+  // A rebuilt index recovers the memo from the answer records.
+  const rebuilt = new SearchIndex();
+  await rebuilt.rebuild(store, embedder);
+  assert.equal(rebuilt.memoGet(computed.item.memo as string)?.answer, computed.label);
+  // Forgetting the first author deletes the computed answer: the next asking computes it again.
+  await pipeline.handle(ask('', { command: 'forget-me', trigger: 'slash', authorId: 'asker-1' }));
+  await pipeline.handle(ask('How are Prism applications built from a LexLean model?', { authorId: 'asker-3' }));
+  assert.equal(llm.calls, 2);
+  assert.ok(index.count() > 0);
+});
+
+test('a different question, or different evidence, is a different key and is computed', async () => {
+  const { pipeline, llm } = await world();
+  await pipeline.handle(ask('How are Prism applications built from a LexLean model?', { authorId: 'a' }));
+  await pipeline.handle(ask('How are Prism applications verified by the Lean kernel?', { authorId: 'b' }));
+  assert.equal(llm.calls, 2);
+});
+
+test('the folder store reads its edge log incrementally, including edges another process appended', async () => {
+  const { mkdtemp, appendFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'q-store-'));
+  const store = new FileStore(root);
+  const a = await store.put('public', { type: 'chunk', text: 'a' });
+  const b = await store.put('public', { type: 'chunk', text: 'b' });
+  await store.link('public', { source: b, target: a, relation: 'section-of' });
+  assert.equal((await store.edgesTo('public', a)).length, 1);
+  // Another process appends a revocation; this store sees it on the next call.
+  await appendFile(join(root, 'public', 'edges.jsonl'), JSON.stringify({ source: b, target: a, relation: 'revocation' }) + '\n');
+  assert.ok(await isRevoked(store, 'public', a));
+  assert.deepEqual((await store.edgesTo('public', b)), []);
+});
+
+test('an empty mention is answered at once, without retrieval or the language model', async () => {
+  const { pipeline, llm, store } = await world();
+  const reply = await pipeline.handle(ask('   '));
+  assert.equal(reply?.decision, 'empty');
+  assert.match(reply!.text, /^Ask me a question about the UOR Foundation/);
+  assert.equal(llm.calls, 0);
+  assert.deepEqual(await store.labels('private'), []);
+});
+
+test('when the writer finds no answer in the sources, the reply is a plain refusal with nothing that looks like evidence', async () => {
+  const { pipeline, llm, store } = await world();
+  llm.answer = 'NO_ANSWER';
+  const reply = await pipeline.handle(ask('How are Prism applications built from a LexLean model?'));
+  assert.equal(reply?.decision, 'declined');
+  assert.equal(reply!.text, "I don't know: the sources I found do not answer that.");
+  const said = (await Promise.all((await store.labels('private')).map((l) => store.get('private', l)))).find((i) => i?.type === 'answer')!;
+  assert.equal(said.level, null);
+  assert.deepEqual(said.citations, []);
+});
+
+test('reading a decision runs beside the plain answer: no decision costs no wait, a decision writes the answer again with it', async () => {
+  const plain = await world();
+  // The naming app is retrieved, but the question is not a naming decision.
+  await plain.pipeline.handle(ask('Must a UOR repository name be lowercase?'));
+  assert.equal(plain.llm.calls, 1);
+  const decided = await world();
+  await decided.pipeline.handle(ask('Is a lowercase repository name conformant under the repository naming rule?'));
+  // The plain answer written in parallel is set aside; the decision's answer is the one sent.
+  assert.equal(decided.llm.calls, 2);
+});
+
+test('the model gate lets no more calls run at once than its limit, in order', async () => {
+  const gate = new Gate(2);
+  let running = 0, most = 0;
+  const order: number[] = [];
+  await Promise.all([0, 1, 2, 3, 4].map((i) => gate.run(async () => {
+    running++; most = Math.max(most, running);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    running--;
+    order.push(i);
+  })));
+  assert.equal(most, 2);
+  assert.equal(order.length, 5);
+});
+
+test('a busy provider is retried, after its Retry-After or a backoff, and any other failure is not', async () => {
+  const slept: number[] = [];
+  const sleep = async (ms: number) => { slept.push(ms); };
+  const answers = [new Response('busy', { status: 429, headers: { 'retry-after': '3' } }), new Response('busy', { status: 503 }), new Response('{"ok":1}', { status: 200 })];
+  const response = await retrying(async () => answers.shift()!, [1000, 2000], sleep);
+  assert.equal(response.status, 200);
+  assert.deepEqual(slept, [3000, 2000]);
+  await assert.rejects(retrying(async () => new Response('bad', { status: 400 }), [1000], sleep), /400/);
+  await assert.rejects(retrying(async () => new Response('busy', { status: 429 }), [1], sleep), /429/);
 });

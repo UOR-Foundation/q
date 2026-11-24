@@ -1,6 +1,6 @@
 // One message in, at most one reply out. Each stage asks the kernel and obeys:
 // a branch here follows an answer the kernel gave, and decides nothing of its own.
-import { isLabel, matches } from './address.ts';
+import { isLabel, labelOf, matches } from './address.ts';
 import { accepts, describe, type Decider } from './community.ts';
 import type { ChannelFacts, CommandName, Kernel, Level, SourceName } from './kernel.ts';
 import type { Memory } from './memory.ts';
@@ -18,6 +18,8 @@ export interface Incoming {
   trigger: 'none' | 'mention' | 'replyToAgent' | 'slash';
   command?: CommandName;
   text: string;
+  /** Called once the kernel has decided to answer, so the platform can show that Q is working. */
+  working?: () => void;
 }
 
 export interface Settings {
@@ -39,7 +41,27 @@ export interface Settings {
 }
 
 export interface Citation { label: string; url: string; source: SourceName; level: Level; text: string }
-interface Draft { text: string; decision: string; citations: Citation[] }
+interface Draft {
+  text: string;
+  decision: string;
+  citations: Citation[];
+  /** Milliseconds per stage of an answered or refused question. Durations only: no content. */
+  timings?: Record<string, number>;
+}
+
+/** Laps of one question through the pipeline, for the log. */
+function stopwatch() {
+  let last = performance.now();
+  const laps: Record<string, number> = {};
+  return {
+    laps,
+    lap(name: string) {
+      const now = performance.now();
+      laps[name] = (laps[name] ?? 0) + Math.round(now - last);
+      last = now;
+    },
+  };
+}
 /** A reply, and how the kernel decided it is delivered. */
 export interface Outgoing extends Draft { delivery: 'send' | 'split' | 'file' }
 
@@ -99,7 +121,7 @@ const SYSTEM = `You are Q, the UOR Foundation's assistant on its Discord server.
 
 Grounding:
 - Use only the numbered sources. Cite each claim right after it, as [1] or [1][2].
-- If the sources do not answer the question, say so in one sentence and stop.
+- If the sources do not answer the question, reply with exactly NO_ANSWER and nothing else.
 - A source marked "open" is conversation, not established fact. Say so when you rely on one.
 - Never invent or change a command, flag, number or link. Copy links exactly as the sources give them.
 
@@ -119,6 +141,15 @@ Format for Discord:
 - Lists use "- ", one line per item, five items at most, never nested.
 - Put commands, file names and code in \`backticks\`, and multi-line commands in a code block.
 - Leave a blank line between paragraphs and before a list.`;
+
+/** The prompts, by their BLAKE3 label: part of every answer key, so changing a prompt computes answers anew. */
+const PROMPT = labelOf({ type: 'prompt', system: SYSTEM, router: ROUTER });
+
+/** A question as its answer key reads it: the same words, whatever the case or spacing. */
+const QUERY_LIMIT = 1000;
+const PROMPT_QUESTION_LIMIT = 4000;
+
+const normalize = (text: string) => text.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
 
 export class Pipeline {
   kernel: Kernel;
@@ -188,6 +219,7 @@ export class Pipeline {
     if (rate === 'rate limited') return { text: 'Rate limited: try again in a minute.', decision: rate, citations: [] };
     user.push(this.now());
     channel.push(this.now());
+    message.working?.();
 
     const done = (text: string): Draft => ({ text, decision: 'allowed', citations: [] });
     switch (command) {
@@ -203,8 +235,16 @@ export class Pipeline {
         return done(`Forgot ${await this.actions.memory.forget({ author: message.authorId })} items from you. Your messages will not be indexed from now on.`);
     }
 
-    const [vector] = await this.embedder.embed([message.text], 'query');
-    const hits = this.index.search(message.text, vector, this.settings.retrieve);
+    if (!message.text.trim()) {
+      return { text: 'Ask me a question about the UOR Foundation, for example: how do I start a Prism app?', decision: 'empty', citations: [] };
+    }
+    const clock = stopwatch();
+    // Retrieval reads the question's opening: past it, a longer question costs time and finds nothing more.
+    const query = message.text.slice(0, QUERY_LIMIT);
+    const [vector] = await this.embedder.embed([query], 'query');
+    clock.lap('embed');
+    const hits = this.index.search(query, vector, this.settings.retrieve);
+    clock.lap('search');
 
     // Read each hit back from the store and recompute its label; the kernel decides whether it may be cited.
     const citations: Citation[] = [];
@@ -218,14 +258,49 @@ export class Pipeline {
       best = Math.max(best, hit.similarity);
     }
 
+    clock.lap('cite');
     const band = best >= this.settings.highSimilarity ? 'high' : best >= this.settings.mediumSimilarity ? 'medium' : 'low';
     const grounded = await this.kernel.ground(band, citations.length);
     const community = this.actions.community();
     const ordered = grounded === 'not grounded' ? [] : await this.#byTrust(citations);
-    const decision = command === 'ask' ? await this.#askCommunity(message.text, ordered, community) : null;
+    clock.lap('ground');
+
+    // Compute once. The same question on the same evidence, kernel, community, prompt and model is the
+    // same computation: its key is the BLAKE3 label of exactly those, and a computed answer is reused.
+    const namespace = await this.kernel.namespace('discord');
+    const key = grounded !== 'not grounded' && command === 'ask'
+      ? labelOf({ type: 'answer-key', question: normalize(message.text), kernel: this.kernel.holo, community: community.pin.holo, evidence: ordered.map((c) => c.label), prompt: PROMPT, model: this.llm.model })
+      : null;
+    const earlier = key ? await this.#recall(key, namespace) : undefined;
+    clock.lap('memo');
+
+    // The answer as the language model writes it, with a decision or without one.
+    const used: ToolUse[] = [];
+    const tools = this.actions.tools?.();
+    const withTools = Boolean(tools?.list().length && this.llm.completeWithTools);
+    const compose = (decided: DecisionAsked | null): Promise<string> => {
+      const sources = ordered.map((c, i) => `[${i + 1}] (${c.source}, ${c.level}, ${c.url})\n${c.text}`).join('\n\n');
+      const prompt = `Sources:\n\n${sources}${decisionBrief(decided, community)}\n\nQuestion: ${message.text.slice(0, PROMPT_QUESTION_LIMIT)}`;
+      return withTools
+        ? this.llm.completeWithTools!(SYSTEM, prompt, tools!.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools!, call, message, namespace, used))
+        : this.llm.complete(SYSTEM, prompt);
+    };
+
+    // Most questions that retrieve a decision app are not decisions. So the plain answer is written while
+    // the decision's inputs are read, and kept when there is no decision: the reading then costs no time.
+    // Never with tools: a tool call can have effects, and a discarded answer must have none.
+    let speculative: Promise<string> | undefined;
+    let decision: DecisionAsked | null = earlier ? earlier.decision : null;
+    if (!earlier && command === 'ask') {
+      if (!withTools && this.#candidates(ordered, community).length) {
+        speculative = compose(null);
+        speculative.catch(() => {});
+      }
+      decision = await this.#askCommunity(message.text, ordered, community);
+    }
+    clock.lap('decision');
 
     // The input record: everything this answer is made from, named by its label before anything is said.
-    const namespace = await this.kernel.namespace('discord');
     const turn = context({
       kernel: { holo: this.kernel.holo, model: this.kernel.model, commit: this.kernel.commit },
       community: pinOf(community.pin),
@@ -238,23 +313,34 @@ export class Pipeline {
 
     if (grounded === 'not grounded') {
       const text = "I don't know: nothing I have indexed answers that well enough to cite.";
-      await this.#said(namespace, turn, turnLabel, answer({ context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: [], author: message.authorId, channel: message.channelId, created: this.now() }), []);
-      return { text, decision: grounded, citations: [] };
+      await this.#said(namespace, turn, turnLabel, answer({ context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: [], memo: null, reused: null, author: message.authorId, channel: message.channelId, created: this.now() }), []);
+      clock.lap('record');
+      return { text, decision: grounded, citations: [], timings: clock.laps };
     }
 
     let level: Level = ordered[0].level;
-    const used: ToolUse[] = [];
     for (const citation of ordered.slice(1)) level = await this.kernel.level(level, citation.level);
     let body: string;
-    if (command === 'search') {
+    if (earlier) {
+      body = earlier.text;
+    } else if (command === 'search') {
       body = ordered.map((c, i) => `[${i + 1}] ${c.text.slice(0, 200).replace(/\s+/g, ' ')}`).join('\n');
     } else {
-      const sources = ordered.map((c, i) => `[${i + 1}] (${c.source}, ${c.level}, ${c.url})\n${c.text}`).join('\n\n');
-      const prompt = `Sources:\n\n${sources}${decisionBrief(decision, community)}\n\nQuestion: ${message.text}`;
-      const tools = this.actions.tools?.();
-      body = tools?.list().length && this.llm.completeWithTools
-        ? await this.llm.completeWithTools(SYSTEM, prompt, tools.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools, call, message, namespace, used))
-        : await this.llm.complete(SYSTEM, prompt);
+      body = speculative && !decision ? await speculative : await compose(decision);
+    }
+    clock.lap('answer');
+
+    // The writer read the sources and found no answer in them: say so plainly, with nothing that looks
+    // like evidence for a claim that was not made.
+    if (/^\s*NO_ANSWER\b/.test(body)) {
+      const text = "I don't know: the sources I found do not answer that.";
+      await this.#said(namespace, turn, turnLabel, answer({
+        context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: used,
+        memo: key && used.length === 0 ? key : null, reused: earlier?.answer ?? null,
+        author: message.authorId, channel: message.channelId, created: this.now(),
+      }), []);
+      clock.lap('record');
+      return { text, decision: 'declined', citations: [], timings: clock.laps };
     }
     // A tool's result is measured, not established: an answer that used one is open at most.
     if (used.some((u) => u.result)) level = await this.kernel.level(level, 'open');
@@ -269,26 +355,50 @@ export class Pipeline {
       ? `\n-# Decision: ${decision.app} → ${decision.answer} · proved in ${community.pin.commit.slice(0, 7)} of UOR-Foundation/community · holo ${community.pin.holo.slice(0, 15)} · inputs are Q's reading`
       : '';
     const toolLines = used.map((u) => (u.result ? `\n-# Tool: ${u.server}/${u.tool} · ${u.result.slice(0, 15)}` : `\n-# Tool refused: ${u.server}/${u.tool}`)).join('');
-    const text = `${body}${notice}\n\n-# Claim level: ${level}${decided}${toolLines}\n${sources}`;
+    const reusedLine = earlier ? `\n-# Answered once before for this exact question and evidence · ${earlier.answer.slice(0, 15)}` : '';
+    const text = `${body}${notice}\n\n-# Claim level: ${level}${decided}${toolLines}${reusedLine}\n${sources}`;
 
     await this.#said(namespace, turn, turnLabel, answer({
       context: turnLabel, outcome: grounded, level, text: body, citations: ordered.map((c) => c.label), tools: used,
+      // An answer that called a tool is never reused: a tool's result can change between calls.
+      memo: key && used.length === 0 ? key : null, reused: earlier?.answer ?? null,
       author: message.authorId, channel: message.channelId, created: this.now(),
     }), [...ordered.map((c) => c.label), ...used.flatMap((u) => (u.result ? [u.result] : []))]);
-    return { text, decision: grounded, citations: ordered };
+    clock.lap('record');
+    return { text, decision: grounded, citations: ordered, timings: clock.laps };
   }
 
   /**
    * The output record and the public event. The answer names its context, its evidence and every holo
    * that judged it; the event carries counts only.
    */
-  async #said(namespace: Namespace, turn: Context, turnLabel: string, said: Answer, evidence: string[]) {
+  async #said(namespace: Namespace, turn: Context, turnLabel: string, said: Answer, evidence: string[]): Promise<string> {
     const label = await this.store.put(namespace, said);
     await this.store.link(namespace, { source: label, target: turnLabel, relation: 'derived-from' });
+    if (said.reused) await this.store.link(namespace, { source: label, target: said.reused, relation: 'derived-from' });
     for (const target of evidence) await this.store.link(namespace, { source: label, target, relation: 'evidence-provenance' });
     await this.store.link(namespace, { source: label, target: turn.kernel.holo, relation: 'certified-by' });
     if (turn.decision?.answer) await this.store.link(namespace, { source: label, target: turn.community.holo, relation: 'certified-by' });
+    // Computed now, and reusable: index it under its key, so the same question on the same evidence is answered once.
+    if (said.memo && !said.reused) this.index.memoSet(said.memo, label, turnLabel);
     this.actions.emit(event(turn, said));
+    return label;
+  }
+
+  /**
+   * An answer computed before for this key, when both its records still exist and still have their labels.
+   * Forgetting an author deletes their records, and with them every reuse of their answers.
+   */
+  async #recall(key: string, namespace: Namespace): Promise<{ answer: string; text: string; decision: DecisionAsked | null } | undefined> {
+    const row = this.index.memoGet(key);
+    if (!row) return undefined;
+    const said = await this.store.get(namespace, row.answer);
+    const turn = await this.store.get(namespace, row.context);
+    if (!said || !turn || !matches(said, row.answer) || !matches(turn, row.context) || said.memo !== key) {
+      this.index.memoDelete(key);
+      return undefined;
+    }
+    return { answer: row.answer, text: String(said.text), decision: (turn.decision ?? null) as DecisionAsked | null };
   }
 
   /**
@@ -317,12 +427,18 @@ export class Pipeline {
    * ask the community holo. The language model only reads inputs; the holo decides. Inputs it cannot read
    * from the question are named, not guessed.
    */
-  async #askCommunity(question: string, ordered: Citation[], community: Decider): Promise<DecisionAsked | null> {
+  /** The community decision apps among the cited sources. */
+  #candidates(ordered: Citation[], community: Decider): string[] {
     const named = new Set<string>();
     for (const citation of ordered) {
       const app = /\/apps\/([a-z0-9-]+)\.prompt\.json$/.exec(citation.url)?.[1];
       if (app && community.apps.has(app)) named.add(app);
     }
+    return [...named];
+  }
+
+  async #askCommunity(question: string, ordered: Citation[], community: Decider): Promise<DecisionAsked | null> {
+    const named = new Set(this.#candidates(ordered, community));
     if (!named.size) return null;
     const apps = [...named].map((name) => community.apps.get(name)!);
     const catalog = apps.map((app) => `${app.name}: ${app.purpose}\n${app.fields.map((f) => `  ${describe(f)}`).join('\n')}`).join('\n\n');

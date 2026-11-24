@@ -48,6 +48,8 @@ npm start
 
 `npm run generate` rewrites `src/client/` after the kernel is rebuilt.
 
+`bench/stress.ts` runs the real pipeline, model, embeddings, index and community holo over `bench/questions.json` (grounded, decision, unanswerable, off-topic, injection, invented, empty and very long questions, each with the outcome a correct answer has), one at a time and then as a burst, and prints each answer, its stage timings and a summary. Run it against a copy of the data: each turn writes its records.
+
 At start the host checks that the kernel's exact bytes are a build `UOR-Foundation/uor-discord-agent`'s `holo.yml` signed from `main`, and refuses to run otherwise. A build of a published commit passes, because the build is reproducible. A model you changed and have not published does not: set `KERNEL_PROVENANCE=off` for that, on your own machine only.
 
 ## Deploy

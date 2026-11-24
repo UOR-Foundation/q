@@ -39,6 +39,8 @@ export function config() {
         : { provider: 'openai-compatible' as const, url: need('LLM_URL'), key: process.env.LLM_API_KEY ?? '', model: need('LLM_MODEL'), thinking: process.env.LLM_THINKING !== 'false' },
     // MCP servers, as JSON: [{"name": "lexlean", "url": "https://...", "allow": true}] or {"command": ..., "args": [...]}.
     mcpServers: JSON.parse(process.env.MCP_SERVERS || '[]') as ServerConfig[],
+    // Model calls at once. A provider's plan caps concurrent requests; past the cap it refuses them.
+    llmConcurrency: number('LLM_CONCURRENCY', 2),
     embeddingsUrl: need('EMBEDDINGS_URL'),
     embeddingsKey: process.env.EMBEDDINGS_API_KEY ?? '',
     embeddingsModel: need('EMBEDDINGS_MODEL'),
@@ -84,6 +86,7 @@ export function config() {
   whole(c.settings.channelLimit, 255, 'RATE_CHANNEL_LIMIT');
   whole(c.retentionDays, 254, 'RETENTION_DAYS');
   whole(c.settings.concurrency, 64, 'CONCURRENCY');
+  whole(c.llmConcurrency, 64, 'LLM_CONCURRENCY');
   return c;
 }
 export type Config = ReturnType<typeof config>;

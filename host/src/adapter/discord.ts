@@ -88,17 +88,33 @@ export function discord(config: Config, label: Labeler): Adapter {
         if (!message.author.bot) {
           const me = client.user!.id;
           const trigger = message.mentions.users.has(me) ? (message.reference && message.mentions.repliedUser?.id === me ? 'replyToAgent' : 'mention') : 'none';
-          const reply = await handlers.handle({
-            channel: facts(message.channel),
-            channelId: message.channelId,
-            authorId: message.author.id,
-            role: role(message.member),
-            trigger,
-            text: message.content.replaceAll(`<@${me}>`, '').trim(),
-          });
-          if (reply) {
-            for (const payload of payloads(reply, LIMIT)) await message.reply(send(payload));
-            log('reply', { decision: reply.decision, citations: reply.citations.length, delivery: reply.delivery });
+          // "Q is typing" from the moment the kernel decides to answer until the reply is sent; Discord
+          // shows it for ten seconds, so it is renewed.
+          let working = false;
+          let typing: ReturnType<typeof setInterval> | undefined;
+          const show = () => {
+            if ('sendTyping' in message.channel) message.channel.sendTyping().catch(() => {});
+          };
+          try {
+            const reply = await handlers.handle({
+              channel: facts(message.channel),
+              channelId: message.channelId,
+              authorId: message.author.id,
+              role: role(message.member),
+              trigger,
+              text: message.content.replaceAll(`<@${me}>`, '').trim(),
+              working: () => { working = true; show(); typing = setInterval(show, 8000); },
+            });
+            clearInterval(typing);
+            if (reply) {
+              for (const payload of payloads(reply, LIMIT)) await message.reply(send(payload));
+              log('reply', { decision: reply.decision, citations: reply.citations.length, delivery: reply.delivery, ms: reply.timings });
+            }
+          } catch (error) {
+            clearInterval(typing);
+            console.error(JSON.stringify({ event: 'error', message: String(error) }));
+            // The kernel had decided to answer: an answer that failed is said, not left as silence.
+            if (working) await message.reply(send({ content: "I couldn't answer just now: the language model is busy or unreachable. Please try again in a minute." })).catch(() => {});
           }
         }
       } catch (error) {
@@ -129,10 +145,10 @@ export function discord(config: Config, label: Labeler): Adapter {
         const [first, ...rest] = reply ? payloads(reply, LIMIT) : [{ content: 'No reply in this channel.' }];
         await interaction.editReply(send(first));
         for (const payload of rest) await interaction.followUp(send(payload));
-        log('reply', { decision: reply?.decision ?? 'silent', command: interaction.commandName, delivery: reply?.delivery ?? 'send' });
+        log('reply', { decision: reply?.decision ?? 'silent', command: interaction.commandName, delivery: reply?.delivery ?? 'send', ms: reply?.timings });
       } catch (error) {
         console.error(JSON.stringify({ event: 'error', message: String(error) }));
-        await interaction.editReply('Something failed. The error is in the log.');
+        await interaction.editReply("I couldn't answer just now: the language model is busy or unreachable. Please try again in a minute.");
       }
     });
 

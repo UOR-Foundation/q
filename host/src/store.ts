@@ -1,7 +1,7 @@
 // The store of record: items by kappa label, and typed edges between labels.
 // The relation names are the Kappa Registry's own.
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, rm, writeFile, appendFile } from 'node:fs/promises';
+import { appendFile, mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type Item, labelOf } from './address.ts';
 
@@ -84,14 +84,40 @@ export class FileStore implements Store {
     await mkdir(join(this.root, namespace), { recursive: true });
     await appendFile(this.#edges(namespace), JSON.stringify(edge) + '\n');
   }
+  /**
+   * Edges by target, read once. The edge file only grows, so each call reads only what was appended since,
+   * by this process or another (an ingest run's revocations), instead of the whole file every time.
+   */
+  #seen = new Map<Namespace, { offset: number; byTarget: Map<string, Edge[]> }>();
   async edgesTo(namespace: Namespace, label: string) {
-    let lines: string;
+    let size: number;
     try {
-      lines = await readFile(this.#edges(namespace), 'utf8');
+      size = (await stat(this.#edges(namespace))).size;
     } catch {
       return [];
     }
-    return lines.split('\n').filter(Boolean).map((line) => JSON.parse(line) as Edge).filter((edge) => edge.target === label);
+    let seen = this.#seen.get(namespace);
+    if (!seen || size < seen.offset) this.#seen.set(namespace, (seen = { offset: 0, byTarget: new Map() }));
+    if (size > seen.offset) {
+      const file = await open(this.#edges(namespace), 'r');
+      try {
+        const buffer = Buffer.alloc(size - seen.offset);
+        await file.read(buffer, 0, buffer.length, seen.offset);
+        // Only whole lines: a line still being appended is read on a later call.
+        const text = buffer.toString('utf8');
+        const complete = text.lastIndexOf('\n') + 1;
+        for (const line of text.slice(0, complete).split('\n').filter(Boolean)) {
+          const edge = JSON.parse(line) as Edge;
+          const list = seen.byTarget.get(edge.target);
+          if (list) list.push(edge);
+          else seen.byTarget.set(edge.target, [edge]);
+        }
+        seen.offset += Buffer.byteLength(text.slice(0, complete), 'utf8');
+      } finally {
+        await file.close();
+      }
+    }
+    return [...(seen.byTarget.get(label) ?? [])];
   }
   async delete(namespace: Namespace, label: string) {
     await rm(this.#file(namespace, label), { force: true });

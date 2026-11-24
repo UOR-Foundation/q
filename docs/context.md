@@ -35,11 +35,12 @@ If the network is down, the last verified holo and its provenance are read from 
 1. The kernel decides whether to reply (3), whether the session passes access control (12), whether the question passes the incoming content filter (13), whether the command is allowed (4), and whether the rate limit allows it (5). A question these stop leaves no records.
 2. Retrieval finds candidate items. Each is read back from the store, its label recomputed, and the kernel decides whether it may be cited (10).
 3. The kernel turns the best score into a grounding decision (6).
-4. If a cited item is a community decision app, the language model reads that app's inputs from the question. The community holo is asked only when every input is one the app's prompt allows. An input the question does not state is named back to the reader, never guessed.
-5. The context record is written.
-6. The language model answers. If MCP tools are configured it may ask for tool calls; the kernel decides each one (15). A call that runs leaves a `tool-result` item, private and named by its label, and makes the answer open at most.
-7. The answer record and the event are written.
-8. The reply goes through the outgoing content filter (13) and the long-text decision (14): sent, split, or attached as a file.
+4. Compute once: the answer key is the BLAKE3 label of the normalized question, Q's kernel, the community pin, the admitted evidence in order, the prompts and the model. An answer computed before for that key, whose records still exist, is reused, and the reply says so.
+5. If a cited item is a community decision app, the language model reads that app's inputs from the question. The community holo is asked only when every input is one the app's prompt allows. An input the question does not state is named back to the reader, never guessed. This runs while a plain answer is written, and the plain answer is kept when there is no decision.
+6. The context record is written.
+7. The language model answers. If MCP tools are configured it may ask for tool calls; the kernel decides each one (15). A call that runs leaves a `tool-result` item, private and named by its label, and makes the answer open at most.
+8. The answer record and the event are written. When the model finds that the sources do not answer, the reply is a plain refusal with no claim level and no sources.
+9. The reply goes through the outgoing content filter (13) and the long-text decision (14): sent, split, or attached as a file.
 
 ## Outputs
 

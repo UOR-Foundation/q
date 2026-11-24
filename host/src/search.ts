@@ -23,7 +23,22 @@ export class SearchIndex {
     this.#db.exec(`
       create table if not exists chunk (label text primary key, namespace text not null, vector blob not null);
       create virtual table if not exists words using fts5(label unindexed, body);
+      create table if not exists memo (key text primary key, answer text not null, context text not null);
     `);
+  }
+
+  /**
+   * The memo: an answer key (the BLAKE3 label of everything an answer depends on) to the answer record
+   * computed for it and its context. Derived from the answer records, like the rest of the index.
+   */
+  memoGet(key: string): { answer: string; context: string } | undefined {
+    return this.#db.prepare('select answer, context from memo where key = ?').get(key) as { answer: string; context: string } | undefined;
+  }
+  memoSet(key: string, answer: string, context: string) {
+    this.#db.prepare('insert or replace into memo values (?, ?, ?)').run(key, answer, context);
+  }
+  memoDelete(key: string) {
+    this.#db.prepare('delete from memo where key = ?').run(key);
   }
 
   has(label: string): boolean {
@@ -67,10 +82,12 @@ export class SearchIndex {
 
   /** Fill the index from the store: every chunk the store holds and has not revoked, and nothing else. */
   async rebuild(store: Store, embedder: Embedder) {
-    this.#db.exec('delete from chunk; delete from words;');
+    this.#db.exec('delete from chunk; delete from words; delete from memo;');
     for (const namespace of ['public', 'private'] as const) {
       for (const label of await store.labels(namespace)) {
         const item = await store.get(namespace, label);
+        // Only an answer computed for its key is the key's answer; one that reused it points back to it.
+        if (item?.type === 'answer' && typeof item.memo === 'string' && item.reused === null && typeof item.context === 'string') this.memoSet(item.memo, label, item.context);
         if (item?.type !== 'chunk' || typeof item.text !== 'string' || (await isRevoked(store, namespace, label))) continue;
         const [vector] = await embedder.embed([item.text]);
         this.add(label, namespace, item.text, vector);

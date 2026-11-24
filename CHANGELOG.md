@@ -12,6 +12,14 @@ This project follows Semantic Versioning and Conventional Commits.
 - A message addressed to the agent is never indexed (DA-02, `Policy.noRequestIndexed`).
 - `.github/workflows/holo.yml`: the holo built, verified, provenance-signed and published to Pages.
 
+### Added (speed and accuracy, from a stress run)
+
+- Compute once: each answer carries its answer key, the BLAKE3 label of the normalized question, the kernel, the community pin, the evidence, the prompts and the model; the same key reuses the computed answer, the reply says so, and forgetting the author forgets the reuse.
+- A decision's inputs are read while the plain answer is written, so a question that is not a decision waits for neither.
+- A gate on model calls (`LLM_CONCURRENCY`) and retry with backoff on 429 and 503: a burst queues instead of failing. A failed answer is said, not left silent. Discord shows Q typing once the kernel decides to answer.
+- An empty mention is answered at once; retrieval reads the first 1,000 characters of a question; a model that finds no answer in the sources gives a plain refusal.
+- Per-stage timings in the reply log; the folder store reads its edge log incrementally; `bench/stress.ts` and its question set.
+
 ### Added (provenance)
 
 - The host runs only a kernel whose exact bytes this repository's `holo.yml` signed from `main` (DA-20); its commit is in every context record. Provenance is one module for both holos.

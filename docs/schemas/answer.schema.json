@@ -5,7 +5,7 @@
   "description": "The output of one turn: what the agent said. Stored in the private namespace under its BLAKE3 kappa label, with edges derived-from (its context), evidence-provenance (each citation) and certified-by (the agent's holo, and the community holo when a decision was answered).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["type", "schema", "context", "outcome", "level", "text", "citations", "tools", "author", "channel", "created"],
+  "required": ["type", "schema", "context", "outcome", "level", "text", "citations", "tools", "memo", "reused", "author", "channel", "created"],
   "$defs": {
     "label": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" }
   },
@@ -31,6 +31,14 @@
           "result": { "oneOf": [{ "$ref": "#/$defs/label" }, { "type": "null" }] }
         }
       }
+    },
+    "memo": {
+      "description": "The answer key: the BLAKE3 label of the normalized question, the agent's holo, the community holo, the evidence labels in order, the prompts' label and the model. The same key is the same computation, answered once. Null for a refusal, a search, or an answer that called a tool.",
+      "oneOf": [{ "$ref": "#/$defs/label" }, { "type": "null" }]
+    },
+    "reused": {
+      "description": "The label of the earlier answer this one reused for the same key (also a derived-from edge); null when computed now.",
+      "oneOf": [{ "$ref": "#/$defs/label" }, { "type": "null" }]
     },
     "author": { "type": "string" },
     "channel": { "type": "string" },

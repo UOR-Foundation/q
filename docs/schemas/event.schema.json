@@ -19,12 +19,13 @@
     "data": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["outcome", "level", "citations", "tools", "decision", "kernel", "community"],
+      "required": ["outcome", "level", "citations", "tools", "reused", "decision", "kernel", "community"],
       "properties": {
         "outcome": { "enum": ["answer", "answer with notice", "not grounded"] },
         "level": { "enum": ["build", "some-true", "open", null] },
         "citations": { "type": "integer", "minimum": 0 },
         "tools": { "description": "How many MCP tool calls the language model asked for.", "type": "integer", "minimum": 0 },
+        "reused": { "description": "Whether the answer was computed once before for the same key and reused.", "type": "boolean" },
         "decision": { "description": "The community app asked, by name, or null.", "type": ["string", "null"] },
         "kernel": { "$ref": "#/$defs/label" },
         "community": { "$ref": "#/$defs/label" }

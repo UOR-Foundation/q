@@ -81,7 +81,7 @@ if (mode === 'ingest') {
 } else if (mode === 'backfill') {
   await discord(c, (ids) => community.label(ids)).backfill((message) => memory.observe(message));
 } else {
-  const llm = c.llm.provider === 'anthropic' ? new AnthropicLlm(c.llm.key, c.llm.model) : new OpenAiCompatibleLlm(c.llm.url, c.llm.key, c.llm.model, c.llm.thinking);
+  const llm = c.llm.provider === 'anthropic' ? new AnthropicLlm(c.llm.key, c.llm.model, 1024, c.llmConcurrency) : new OpenAiCompatibleLlm(c.llm.url, c.llm.key, c.llm.model, c.llm.thinking, 1024, c.llmConcurrency);
   // Each turn's public event, as one CloudEvents 1.0 JSON line on stdout.
   const emit = (e: object) => console.log(JSON.stringify(e));
   // MCP servers: every tool offered to the language model, every call decided by the kernel.

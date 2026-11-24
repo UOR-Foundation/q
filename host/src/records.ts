@@ -49,6 +49,14 @@ export interface AnswerFields {
   citations: string[];
   /** Every MCP tool call the language model asked for, in order, with the kernel's decision on it. */
   tools: ToolUse[];
+  /**
+   * The answer key: the BLAKE3 label of everything this answer depends on (the question, Q's kernel, the
+   * community pin, the evidence, the prompt and the model). Null when it may not be reused: a refusal,
+   * a search, or an answer that called a tool.
+   */
+  memo: string | null;
+  /** The answer this one reused, computed once for the same key; null when it was computed now. */
+  reused: string | null;
   author: string;
   channel: string;
   created: number;
@@ -65,7 +73,7 @@ export interface CloudEvent {
   id: string;
   time: string;
   datacontenttype: 'application/json';
-  data: { outcome: Answer['outcome']; level: Level | null; citations: number; tools: number; decision: string | null; kernel: string; community: string };
+  data: { outcome: Answer['outcome']; level: Level | null; citations: number; tools: number; reused: boolean; decision: string | null; kernel: string; community: string };
 }
 
 export type Context = Item & ContextFields & { type: 'context'; schema: typeof CONTEXT_SCHEMA };
@@ -83,7 +91,7 @@ export function answer(fields: AnswerFields): Answer {
 export function event(turn: Context, said: Answer): CloudEvent {
   const time = new Date(said.created).toISOString();
   const data: CloudEvent['data'] = {
-    outcome: said.outcome, level: said.level, citations: said.citations.length, tools: said.tools.length,
+    outcome: said.outcome, level: said.level, citations: said.citations.length, tools: said.tools.length, reused: said.reused !== null,
     decision: turn.decision?.app ?? null, kernel: turn.kernel.holo, community: turn.community.holo,
   };
   const id = labelOf({ type: 'event', eventType: EVENT_TYPE, time, data });
