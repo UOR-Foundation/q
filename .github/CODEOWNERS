@@ -1,0 +1,5 @@
+# Proposed ownership routing; not an Owner appointment or approval record.
+# Candidate GitHub admins verified on 2026-11-24: @afflom and @humuhumu33.
+# Resolve accountable ownership and review authority before merging this file.
+# CODEOWNERS alone does not enforce approving reviews or protect the default branch.
+* @afflom @humuhumu33
