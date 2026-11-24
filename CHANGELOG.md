@@ -10,6 +10,9 @@ This project follows Semantic Versioning and Conventional Commits.
 
 ### Added
 
+- Q reads every conversation in a server: the backfill covers every active thread and every public archived thread, so every forum post is included. A channel Q may not read is skipped, and the rest of the server is still read.
+- What is deleted or edited on Discord is withdrawn from Q's memory. A deleted message, thread or channel is forgotten. An edited message is re-indexed with its new text. When Q has a copy of the old text, it recomputes that chunk's BLAKE3 label and removes it directly; otherwise it finds the chunk by its link.
+
 - LangBot's remaining pipeline stages as proved decisions: access control (DA-16), content filter both ways (DA-17), long-text delivery (DA-18), and MCP tool calls (DA-19); an adapter interface, a query pool, an Ollama provider, and an MCP client with a tool loop for each provider.
 - The community root: the signed UOR-Foundation/community holo, pinned by its BLAKE3 label and verified SLSA provenance; its decisions answered in replies (DA-14); its channel labels; a read-policy drift check at every start (DA-13).
 - A record of every turn: context and answer records named by BLAKE3 kappa labels, and a CloudEvents event with no content (DA-15), with JSON schemas in docs/schemas.

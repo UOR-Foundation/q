@@ -23,6 +23,12 @@ export interface Observed {
 
 const DAY = 86_400_000;
 
+/** The item a message becomes, built from the message alone, so its label can be recomputed from the message. */
+const chunkOf = (message: Observed, text: string) => ({
+  type: 'chunk', source: 'discord', level: 'open', url: message.url, channel: message.channelId,
+  thread: message.threadId ?? null, author: message.authorId, replyTo: message.replyTo ?? null, created: message.createdMs, text,
+});
+
 export class Memory {
   kernel: Kernel;
   store: Store;
@@ -51,10 +57,7 @@ export class Memory {
     // A message with no text has nothing to index, whatever the decision.
     if (decision === 'skip' || !text) return 'skip';
     const namespace = await this.#namespace();
-    const label = await this.store.put(namespace, {
-      type: 'chunk', source: 'discord', level: 'open', url: message.url, channel: message.channelId,
-      thread: message.threadId ?? null, author: message.authorId, replyTo: message.replyTo ?? null, created: message.createdMs, text,
-    });
+    const label = await this.store.put(namespace, chunkOf(message, text));
     if (!this.index.has(label)) {
       const [vector] = await this.embedder.embed([text]);
       this.index.add(label, namespace, text, vector);
@@ -93,6 +96,24 @@ export class Memory {
     });
     if ('author' in match) await this.store.put(await this.#namespace(), { type: 'opt-out', author: match.author });
     return removed;
+  }
+
+  /**
+   * A message its author deleted or edited: what was indexed of it goes, as asked. When the old text is known, the
+   * chunk's BLAKE3 label is recomputed from it and names the item directly; otherwise every chunk is checked by link.
+   */
+  async withdraw(url: string, before?: Observed): Promise<number> {
+    const requested = async (ageDays: number) => (await this.kernel.retain('discord', true, ageDays, this.retentionDays)) === 'delete';
+    const text = before?.text.trim();
+    if (before && text) {
+      const namespace = await this.#namespace();
+      const label = labelOf(chunkOf(before, text));
+      if (!(await this.store.has(namespace, label))) return 0;
+      if (!(await requested(Math.floor((this.now() - before.createdMs) / DAY)))) return 0;
+      await this.#remove(namespace, label);
+      return 1;
+    }
+    return this.#each(async (_label, item, ageDays) => item.type === 'chunk' && item.url === url && (await requested(ageDays)));
   }
 
   /** Delete what is past its age limit. */

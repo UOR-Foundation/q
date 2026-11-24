@@ -8,6 +8,10 @@ import type { Incoming, Outgoing } from '../pipeline.ts';
 export interface Handlers {
   handle(message: Incoming): Promise<Outgoing | undefined>;
   observe(message: Observed): Promise<'index' | 'skip'>;
+  /** A message was deleted or edited: forget what was indexed of it. `before` is the message as it was, when known. */
+  withdraw(url: string, before?: Observed): Promise<number>;
+  /** A channel or thread was deleted: forget everything indexed from it. */
+  forgetChannel(id: string): Promise<number>;
 }
 
 export interface Adapter {

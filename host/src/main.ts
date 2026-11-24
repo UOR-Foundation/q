@@ -100,6 +100,11 @@ if (mode === 'ingest') {
     const sweep = async () => log('retention', { removed: await memory.sweep() });
     await sweep();
     setInterval(sweep, 86_400_000).unref();
-    await discord(c, (ids) => community.label(ids)).start({ handle: (message) => pipeline.handle(message), observe: (message) => memory.observe(message) });
+    await discord(c, (ids) => community.label(ids)).start({
+      handle: (message) => pipeline.handle(message),
+      observe: (message) => memory.observe(message),
+      withdraw: (url, before) => memory.withdraw(url, before),
+      forgetChannel: (id) => memory.forget({ channel: id }),
+    });
   }
 }

@@ -2,7 +2,7 @@
 // memory need, and sends back what the pipeline returns, as the kernel decided to
 // deliver it. Another platform is another implementation of ./adapter.ts.
 import { readFile, writeFile } from 'node:fs/promises';
-import { AttachmentBuilder, ChannelType, Client, Events, GatewayIntentBits, PermissionFlagsBits, SlashCommandBuilder, type GuildMember, type Message } from 'discord.js';
+import { AttachmentBuilder, ChannelType, Client, Events, GatewayIntentBits, Partials, PermissionFlagsBits, SlashCommandBuilder, type Guild, type GuildMember, type Message, type PartialMessage } from 'discord.js';
 import type { Config } from '../config.ts';
 import type { ChannelFacts, CommandName } from '../kernel.ts';
 import type { Observed } from '../memory.ts';
@@ -31,7 +31,11 @@ const log = (event: string, fields: Record<string, unknown> = {}) => console.log
 export type Labeler = (ids: string[]) => ChannelFacts['label'];
 
 export function discord(config: Config, label: Labeler): Adapter {
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+  // Partial messages: a deletion or an edit of a message sent before Q started still arrives, as its id and link.
+  const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    partials: [Partials.Message, Partials.Channel],
+  });
   const aggregator = new Aggregator<Message>(config.aggregateMs);
 
   const facts = (channel: Message['channel'] | null): ChannelFacts => {
@@ -141,6 +145,38 @@ export function discord(config: Config, label: Labeler): Adapter {
       }
     });
 
+    // What is deleted or changed on Discord is deleted or changed in Q's memory: Q never cites text its author took back.
+    const failed = (error: unknown) => console.error(JSON.stringify({ event: 'error', message: String(error) }));
+    const known = (message: Message | PartialMessage): Message | undefined => (message.partial ? undefined : message);
+    const withdraw = async (message: Message | PartialMessage) => {
+      if (message.author?.bot) return 0;
+      const before = known(message);
+      return handlers.withdraw(message.url, before && observed(before));
+    };
+    client.on(Events.MessageDelete, (message) => {
+      withdraw(message).then((removed) => log('withdrawn', { reason: 'deleted', removed }), failed);
+    });
+    client.on(Events.MessageBulkDelete, (messages) => {
+      Promise.all([...messages.values()].map(withdraw)).then((r) => log('withdrawn', { reason: 'deleted', removed: r.reduce((a, b) => a + b, 0) }), failed);
+    });
+    client.on(Events.MessageUpdate, async (old, updated) => {
+      try {
+        // An embed or a pin also arrives as an update; only an edit changes the text.
+        const message = updated.partial ? await updated.fetch() : updated;
+        if (message.author.bot || !message.editedTimestamp || (!old.partial && old.content === message.content)) return;
+        const removed = await withdraw(old);
+        log('withdrawn', { reason: 'edited', removed, decision: await handlers.observe(observed(message)) });
+      } catch (error) {
+        failed(error);
+      }
+    });
+    client.on(Events.ThreadDelete, (thread) => {
+      handlers.forgetChannel(thread.id).then((removed) => log('withdrawn', { reason: 'thread deleted', removed }), failed);
+    });
+    client.on(Events.ChannelDelete, (channel) => {
+      handlers.forgetChannel(channel.id).then((removed) => log('withdrawn', { reason: 'channel deleted', removed }), failed);
+    });
+
     client.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isChatInputCommand()) return;
       // Forgetting is between the author and the agent; everything else is answered in the open.
@@ -183,24 +219,55 @@ export function discord(config: Config, label: Labeler): Adapter {
       // No file yet: start from the newest message.
     }
     const channels = [];
-    for (const guild of (await client.guilds.fetch()).values()) channels.push(...(await (await guild.fetch()).channels.fetch()).values());
+    for (const guild of (await client.guilds.fetch()).values()) channels.push(...(await conversations(await guild.fetch())));
     for (const channel of channels) {
-      if (!channel || !channel.isTextBased() || !('messages' in channel)) continue;
+      if (!channel.isTextBased() || !('messages' in channel)) continue;
       const id = channel.id;
       let seen = 0, indexed = 0;
-      for (;;) {
-        const page = await channel.messages.fetch({ limit: 100, ...(cursors[id] ? { before: cursors[id] } : {}) });
-        if (page.size === 0) break;
-        for (const message of page.values()) {
-          seen++;
-          if ((await observe(observed(message))) === 'index') indexed++;
+      try {
+        for (;;) {
+          const page = await channel.messages.fetch({ limit: 100, ...(cursors[id] ? { before: cursors[id] } : {}) });
+          if (page.size === 0) break;
+          for (const message of page.values()) {
+            seen++;
+            if ((await observe(observed(message))) === 'index') indexed++;
+          }
+          cursors[id] = page.last()!.id;
+          await writeFile(config.backfillFile, JSON.stringify(cursors));
+          log('backfill', { channel: id, name: channel.name, seen, indexed });
         }
-        cursors[id] = page.last()!.id;
-        await writeFile(config.backfillFile, JSON.stringify(cursors));
-        log('backfill', { channel: id, seen, indexed });
+      } catch (error) {
+        // A channel Q may not read is skipped, not fatal: the rest of the server is still read.
+        log('backfill-skipped', { channel: id, name: channel.name, reason: String(error) });
       }
     }
     await client.destroy();
+  }
+
+  /**
+   * Every place a conversation happens in a server: its channels, every active thread, and every public archived
+   * thread, which is where each forum post lives. Private threads are restricted, and the kernel denies them anyway.
+   */
+  async function conversations(guild: Guild) {
+    const channels = [...(await guild.channels.fetch()).values()].filter((c) => c !== null);
+    const threads = [...(await guild.channels.fetchActiveThreads()).threads.values()];
+    for (const parent of channels) {
+      if (!('threads' in parent)) continue;
+      let before: string | undefined;
+      try {
+        for (;;) {
+          const page = await parent.threads.fetchArchived({ type: 'public', limit: 100, ...(before ? { before } : {}) });
+          threads.push(...page.threads.values());
+          const last = page.threads.last();
+          if (!page.hasMore || !last?.archiveTimestamp) break;
+          before = new Date(last.archiveTimestamp).toISOString();
+        }
+      } catch (error) {
+        log('backfill-skipped', { channel: parent.id, name: parent.name, reason: String(error) });
+      }
+    }
+    log('backfill-plan', { guild: guild.name, channels: channels.length, threads: threads.length });
+    return [...channels, ...threads];
   }
 
   return { start, backfill };

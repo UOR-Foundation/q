@@ -294,6 +294,27 @@ test('forget-channel needs the admin role and removes only that channel', async 
   assert.equal(index.count(), count - 1);
 });
 
+test('a deleted or edited message is withdrawn: by its recomputed label when its text is known, by its link when not', async () => {
+  const { memory, index, store } = await world();
+  const first = said('First draft about BLAKE3 labels', { url: 'https://discord.test/c1/m1' });
+  const second = said('Another message about Prism holos', { url: 'https://discord.test/c1/m2' });
+  await memory.observe(first);
+  await memory.observe(second);
+  const count = index.count();
+  // An edit: the old text goes, the new text is indexed in its place.
+  assert.equal(await memory.withdraw(first.url, first), 1);
+  await memory.observe({ ...first, text: 'Final text about BLAKE3 labels' });
+  assert.equal(index.count(), count);
+  const texts = (await Promise.all((await store.labels('private')).map((l) => store.get('private', l)))).filter((i) => i?.type === 'chunk').map((i) => i!.text);
+  assert.ok(texts.includes('Final text about BLAKE3 labels') && !texts.includes('First draft about BLAKE3 labels'));
+  // A deletion Q has no copy of: found by its link, and revoked.
+  assert.equal(await memory.withdraw(second.url), 1);
+  assert.equal(index.count(), count - 1);
+  assert.ok(store.edges.private.some((e) => e.relation === 'revocation'));
+  // A message never indexed withdraws nothing.
+  assert.equal(await memory.withdraw('https://discord.test/c1/none', said('never seen', { url: 'https://discord.test/c1/none' })), 0);
+});
+
 test('the retention sweep deletes what is past its limit and keeps what is at it', async () => {
   const { memory, clock, index } = await world();
   const day = 86_400_000;
