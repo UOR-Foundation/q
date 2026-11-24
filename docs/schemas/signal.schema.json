@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/signal.schema.json",
+  "title": "uor-q/signal/1",
+  "description": "A member's signal on something Q said, admitted by decision 26. It holds no words: a reply's words, when kept, are a uor-q/reply/1 record it names.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "spec",
+    "kind",
+    "about",
+    "on",
+    "by",
+    "emoji",
+    "role",
+    "author",
+    "words",
+    "subjects",
+    "created"
+  ],
+  "properties": {
+    "type": {
+      "const": "signal"
+    },
+    "spec": {
+      "const": "uor-q/signal/1"
+    },
+    "kind": {
+      "enum": [
+        "approve",
+        "disapprove",
+        "reply",
+        "confirm"
+      ]
+    },
+    "about": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$",
+      "description": "The delivery judged, or for a confirmation the reply confirmed."
+    },
+    "on": {
+      "type": "string",
+      "description": "The message reacted or replied to."
+    },
+    "by": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The member's reply, for a reply."
+    },
+    "emoji": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "role": {
+      "enum": [
+        "member",
+        "admin"
+      ]
+    },
+    "author": {
+      "type": "string",
+      "description": "A Discord user id."
+    },
+    "words": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Every member this record was made from. /forget-me for any of them removes it."
+    },
+    "created": {
+      "type": "integer",
+      "description": "Milliseconds since the epoch. Retention removes the record 180 days after it."
+    }
+  }
+}

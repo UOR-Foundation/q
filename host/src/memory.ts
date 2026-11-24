@@ -16,6 +16,8 @@ export interface Observed {
   origin: Origin;
   /** The message this one replies to, as its link. */
   replyTo?: string;
+  /** The author's role, when the platform knows it: an admin's correction needs no second member (decision 27). */
+  role?: 'member' | 'admin';
   url: string;
   createdMs: number;
   text: string;
@@ -29,6 +31,19 @@ export const chunkOf = (message: Observed, text: string) => ({
   thread: message.threadId ?? null, author: message.authorId, replyTo: message.replyTo ?? null, created: message.createdMs, text,
 });
 
+/**
+ * A member's reply to Q, kept while it may become a correction (decision 26). Not a chunk, so it is never searched
+ * until the kernel decides to learn it; built from the message alone, so its label too is recomputed on withdrawal.
+ */
+export const replyOf = (message: Observed, text: string) => ({ ...chunkOf(message, text), type: 'reply' });
+
+/** Why an item was removed, as its revocation records it: the self-model counts what Q forgot, and why. */
+export type Reason = 'forget-me' | 'forget-channel' | 'withdrawn' | 'retention' | 'unlearned';
+
+/** Whether a record names this member: as its author, or among the members it was derived from. */
+const names = (item: { [member: string]: unknown }, member: string) =>
+  item.author === member || (Array.isArray(item.subjects) && item.subjects.includes(member));
+
 export class Memory {
   kernel: Kernel;
   store: Store;
@@ -36,6 +51,8 @@ export class Memory {
   embedder: Embedder;
   retentionDays: number;
   now: () => number;
+  /** Called after an item is removed, so what was learned from it is undone too (improve.ts). */
+  removed?: (label: string, item: { type: string; [member: string]: unknown }) => Promise<void>;
 
   constructor(kernel: Kernel, store: Store, index: SearchIndex, embedder: Embedder, retentionDays: number, now: () => number = Date.now) {
     this.kernel = kernel; this.store = store; this.index = index; this.embedder = embedder; this.retentionDays = retentionDays; this.now = now;
@@ -68,14 +85,16 @@ export class Memory {
     return 'index';
   }
 
-  async #remove(namespace: Namespace, label: string) {
+  async #remove(namespace: Namespace, label: string, reason: Reason, item?: { type: string; [member: string]: unknown }) {
+    const was = item ?? (await this.store.get(namespace, label));
     await this.store.delete(namespace, label);
     this.index.remove(label);
-    const revocation = await this.store.put(namespace, { type: 'revocation', target: label, at: this.now() });
+    const revocation = await this.store.put(namespace, { type: 'revocation', target: label, reason, at: this.now() });
     await this.store.link(namespace, { source: revocation, target: label, relation: 'revocation' });
+    if (was && this.removed) await this.removed(label, was);
   }
 
-  async #each(visit: (label: string, item: { type: string; [member: string]: unknown }, ageDays: number) => Promise<boolean>): Promise<number> {
+  async #each(reason: Reason, visit: (label: string, item: { type: string; [member: string]: unknown }, ageDays: number) => Promise<boolean>): Promise<number> {
     const namespace = await this.#namespace();
     let removed = 0;
     for (const label of await this.store.labels(namespace)) {
@@ -84,17 +103,21 @@ export class Memory {
       if (!item || item.type === 'opt-out' || item.type === 'revocation') continue;
       const ageDays = Math.floor((this.now() - Number(item.created ?? this.now())) / DAY);
       if (await visit(label, item, ageDays)) {
-        await this.#remove(namespace, label);
+        await this.#remove(namespace, label, reason, item);
         removed++;
       }
     }
     return removed;
   }
 
-  /** Forget everything from one author, or from one channel. An author who asks is also opted out from then on. */
+  /**
+   * Forget everything from one author, or from one channel. For an author that is every record that names them,
+   * as its author or as a member it was derived from: their messages and turns, and the gaps, tests, signals and
+   * corrections made from them. An author who asks is also opted out from then on.
+   */
   async forget(match: { author: string } | { channel: string }): Promise<number> {
-    const removed = await this.#each(async (_label, item, ageDays) => {
-      const named = 'author' in match ? item.author === match.author : item.channel === match.channel || item.thread === match.channel;
+    const removed = await this.#each('author' in match ? 'forget-me' : 'forget-channel', async (_label, item, ageDays) => {
+      const named = 'author' in match ? names(item, match.author) : item.channel === match.channel || item.thread === match.channel;
       return named && (await this.kernel.retain('discord', true, ageDays, this.retentionDays)) === 'delete';
     });
     if ('author' in match) await this.store.put(await this.#namespace(), { type: 'opt-out', author: match.author });
@@ -110,17 +133,27 @@ export class Memory {
     const text = before?.text.trim();
     if (before && text) {
       const namespace = await this.#namespace();
-      const label = labelOf(chunkOf(before, text));
-      if (!(await this.store.has(namespace, label))) return 0;
       if (!(await requested(Math.floor((this.now() - before.createdMs) / DAY)))) return 0;
-      await this.#remove(namespace, label);
-      return 1;
+      // The message as a chunk, and as a reply to Q kept while it may become a correction.
+      let removed = 0;
+      for (const label of [labelOf(chunkOf(before, text)), labelOf(replyOf(before, text))]) {
+        if (!(await this.store.has(namespace, label))) continue;
+        await this.#remove(namespace, label, 'withdrawn');
+        removed++;
+      }
+      return removed;
     }
-    return this.#each(async (_label, item, ageDays) => item.type === 'chunk' && item.url === url && (await requested(ageDays)));
+    return this.#each('withdrawn', async (_label, item, ageDays) => (item.type === 'chunk' || item.type === 'reply') && item.url === url && (await requested(ageDays)));
   }
 
-  /** Delete what is past its age limit. */
+  /** Remove an item Q held only because of what it learned, now that the learning is undone (improve.ts). */
+  async unlearn(label: string): Promise<void> {
+    const namespace = await this.#namespace();
+    if (await this.store.has(namespace, label)) await this.#remove(namespace, label, 'unlearned');
+  }
+
+  /** Delete what is past its age limit: every record dated by `created`, which is every record made from a member. */
   sweep(): Promise<number> {
-    return this.#each(async (_label, _item, ageDays) => (await this.kernel.retain('discord', false, ageDays, this.retentionDays)) === 'delete');
+    return this.#each('retention', async (_label, _item, ageDays) => (await this.kernel.retain('discord', false, ageDays, this.retentionDays)) === 'delete');
   }
 }

@@ -29,6 +29,8 @@ export const STRATEGY = { split: 0, file: 1 } as const;
 /** Where a question came from: a Discord channel, a client of the agent's own MCP server, or a visitor to the website. */
 export const SURFACE = { discord: 0, mcp: 1, web: 2 } as const;
 export type Surface = keyof typeof SURFACE;
+/** What a member did about something Q said: approved or disapproved it, replied to it, or confirmed another's reply. */
+export const SIGNAL = { approve: 0, disapprove: 1, reply: 2, confirm: 3 } as const;
 
 export type Level = keyof typeof LEVEL;
 export type SourceName = keyof typeof SOURCE;
@@ -175,9 +177,32 @@ export class Kernel {
   fileRequest(consented: boolean, supporters: number, threshold: number, filed: boolean) {
     return this.#ask<'file' | 'hold'>(25, flag(!consented), byte(supporters), byte(threshold), flag(filed));
   }
-  /** Does an evolved genome replace the current one? Only when it measurably beats it on the same tests. */
-  promote(candidateErrPct: number, currentErrPct: number, candidateP95Seconds: number, currentP95Seconds: number, maxP95Seconds: number, breaches: number) {
+  /**
+   * Does an evolved genome replace the current one? Only when decision 24 promotes it (it measurably beats the
+   * current one on the same tests) and it leaked none of the refusal probes (decision 28).
+   */
+  promote(candidateErrPct: number, currentErrPct: number, candidateP95Seconds: number, currentP95Seconds: number, maxP95Seconds: number, breaches: number, leaked: number) {
     const pct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
-    return this.#ask<'promote' | 'keep'>(24, pct(candidateErrPct), pct(currentErrPct), byte(Math.ceil(candidateP95Seconds)), byte(Math.ceil(currentP95Seconds)), byte(maxP95Seconds), byte(breaches));
+    return this.#ask<'promote' | 'keep'>(28, pct(candidateErrPct), pct(currentErrPct), byte(Math.ceil(candidateP95Seconds)), byte(Math.ceil(currentP95Seconds)), byte(maxP95Seconds), byte(breaches), byte(leaked));
+  }
+  /**
+   * A member's signal on something Q said: is it recorded, and are its words kept? Only a human's who has not opted
+   * out, about an answer that still exists; words only for a reply in a channel Q may read (decision 26).
+   */
+  signal(kind: keyof typeof SIGNAL, human: boolean, optedOut: boolean, live: boolean, readable: boolean) {
+    return this.#ask<'drop' | 'count' | 'keep'>(26, SIGNAL[kind], flag(!human), flag(optedOut), flag(!live), flag(!readable));
+  }
+  /**
+   * A member's correction of an answer: learn it, take it to people as a dispute, or hold it. Used only with its
+   * words kept and its author's disapproval, once an admin wrote it or another human confirmed it; never learned
+   * over a source more trusted than Discord (decision 27).
+   */
+  correction(kept: boolean, disapproved: boolean, admin: boolean, confirmers: number, cited: SourceName) {
+    return this.#ask<'hold' | 'learn' | 'dispute'>(27, flag(!kept), flag(!disapproved), flag(admin), byte(confirmers), SOURCE[cited]);
+  }
+  /** A class of questions: too few to judge, weak in knowledge, weak in correctness, or sound (decision 29). */
+  classRoute(asked: number, refusedPct: number, wrongPct: number, minAsked: number, maxRefusedPct: number, maxWrongPct: number) {
+    const pct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
+    return this.#ask<'too few' | 'needs knowledge' | 'needs correction' | 'sound'>(29, byte(asked), pct(refusedPct), pct(wrongPct), byte(minAsked), pct(maxRefusedPct), pct(maxWrongPct));
   }
 }
