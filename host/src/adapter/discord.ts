@@ -56,7 +56,9 @@ export function discord(config: Config, label: Labeler): Adapter {
   const role = (member: GuildMember | null | undefined) =>
     member && (member.permissions.has(PermissionFlagsBits.ManageGuild) || member.roles.cache.some((r) => config.adminRoles.has(r.id))) ? 'admin' : 'member';
 
-  const observed = (message: Message): Observed => {
+  const addressed = (message: Message) => message.mentions.users.has(client.user!.id) || message.mentions.repliedUser?.id === client.user!.id;
+  /** `inRequest`: the message belongs to a burst that addressed the agent, so it is part of a question. */
+  const observed = (message: Message, inRequest = false): Observed => {
     const thread = message.channel.isThread() ? message.channel : null;
     return {
       channel: facts(message.channel),
@@ -64,7 +66,7 @@ export function discord(config: Config, label: Labeler): Adapter {
       threadId: thread?.id,
       authorId: message.author.id,
       // A message to the agent is a question, not knowledge: indexed, a repeated question would ground its own answer.
-      origin: message.author.bot ? 'bot' : message.mentions.users.has(client.user!.id) || message.mentions.repliedUser?.id === client.user!.id ? 'request' : 'conversation',
+      origin: message.author.bot ? 'bot' : inRequest || addressed(message) ? 'request' : 'conversation',
       replyTo: message.reference?.messageId ? `https://discord.com/channels/${message.guildId}/${message.channelId}/${message.reference.messageId}` : undefined,
       url: message.url,
       createdMs: message.createdTimestamp,
@@ -86,10 +88,13 @@ export function discord(config: Config, label: Labeler): Adapter {
     });
 
     client.on(Events.MessageCreate, async (message) => {
+      let inRequest = false;
       try {
         // LangBot's aggregator: a burst of messages from one person in one channel is one question, handled
         // when the burst ends, in reply to its last message. Earlier messages of the burst are folded in.
-        const batch = message.author.bot ? null : await aggregator.offer(`${message.channelId}:${message.author.id}`, message);
+        const burst = message.author.bot ? null : await aggregator.offer(`${message.channelId}:${message.author.id}`, message);
+        inRequest = Boolean(burst && burst.items.some(addressed));
+        const batch = burst && burst.last ? burst.items : null;
         if (batch) {
           const me = client.user!.id;
           const triggerOf = (m: Message) => (m.mentions.users.has(me) ? (m.reference && m.mentions.repliedUser?.id === me ? 'replyToAgent' : 'mention') : 'none');
@@ -130,7 +135,7 @@ export function discord(config: Config, label: Labeler): Adapter {
       }
       // Indexed only after it is answered, so a question is never cited as its own source.
       try {
-        log('observed', { decision: await handlers.observe(observed(message)) });
+        log('observed', { decision: await handlers.observe(observed(message, inRequest)) });
       } catch (error) {
         console.error(JSON.stringify({ event: 'error', message: String(error) }));
       }

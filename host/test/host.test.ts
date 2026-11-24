@@ -668,11 +668,11 @@ test('the aggregator folds a burst from one person in one channel into one batch
     aggregator.offer('c1:u1', 'exactly?'),
     aggregator.offer('c1:u2', 'unrelated'),
   ]);
-  assert.equal(a, null);
-  assert.equal(b, null);
-  assert.deepEqual(c, ['what is', 'LexLean', 'exactly?']);
-  assert.deepEqual(other, ['unrelated']);
-  assert.deepEqual(await new Aggregator<string>(0).offer('k', 'now'), ['now']);
+  // Every message of the burst learns the whole batch; only the last one is answered.
+  for (const early of [a, b]) assert.deepEqual(early, { items: ['what is', 'LexLean', 'exactly?'], last: false });
+  assert.deepEqual(c, { items: ['what is', 'LexLean', 'exactly?'], last: true });
+  assert.deepEqual(other, { items: ['unrelated'], last: true });
+  assert.deepEqual(await new Aggregator<string>(0).offer('k', 'now'), { items: ['now'], last: true });
 });
 
 test('one session works on one question at a time, in order, while other sessions run beside it', async () => {
