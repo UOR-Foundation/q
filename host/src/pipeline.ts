@@ -227,7 +227,7 @@ export class Pipeline {
     // The input record: everything this answer is made from, named by its label before anything is said.
     const namespace = await this.kernel.namespace('discord');
     const turn = context({
-      kernel: { holo: this.kernel.holo, model: this.kernel.model },
+      kernel: { holo: this.kernel.holo, model: this.kernel.model, commit: this.kernel.commit },
       community: pinOf(community.pin),
       request: { command, trigger: message.trigger, question: message.text },
       retrieval: { band, items: hits.map((hit) => hit.label) },

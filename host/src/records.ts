@@ -30,7 +30,7 @@ export interface DecisionAsked {
 }
 
 export interface ContextFields {
-  kernel: { holo: string; model: string };
+  kernel: { holo: string; model: string; commit: string | null };
   community: { holo: string; commit: string };
   request: { command: string; trigger: string; question: string };
   retrieval: { band: 'low' | 'medium' | 'high'; items: string[] };

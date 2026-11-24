@@ -13,11 +13,15 @@
     "type": { "const": "context" },
     "schema": { "const": "uor-agent/context/1" },
     "kernel": {
-      "description": "The agent's own holo, by the BLAKE3 label of its bytes, and the model identity it carries.",
+      "description": "The agent's own holo, by the BLAKE3 label of its bytes, the model identity it carries, and the commit whose signed build it is (null only when the operator turned the provenance check off).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["holo", "model"],
-      "properties": { "holo": { "$ref": "#/$defs/label" }, "model": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+      "required": ["holo", "model", "commit"],
+      "properties": {
+        "holo": { "$ref": "#/$defs/label" },
+        "model": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "commit": { "oneOf": [{ "type": "string", "pattern": "^[0-9a-f]{40}$" }, { "type": "null" }] }
+      }
     },
     "community": {
       "description": "The community pin: the signed community holo by its BLAKE3 label, and the newest commit its verified provenance names.",

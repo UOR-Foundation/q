@@ -12,6 +12,10 @@ This project follows Semantic Versioning and Conventional Commits.
 - A message addressed to the agent is never indexed (DA-02, `Policy.noRequestIndexed`).
 - `.github/workflows/holo.yml`: the holo built, verified, provenance-signed and published to Pages.
 
+### Added (provenance)
+
+- The host runs only a kernel whose exact bytes this repository's `holo.yml` signed from `main` (DA-20); its commit is in every context record. Provenance is one module for both holos.
+
 ### Changed
 
 - prism-code 0.11.1 for the build and the host runtime.

@@ -13,7 +13,8 @@ ENV KERNEL_HOLO=/agent/kernel/uor-discord-agent.holo \
     STORE_DIR=/data/store \
     INDEX_FILE=/data/index.sqlite \
     BACKFILL_FILE=/data/backfill.json \
-    COMMUNITY_CACHE_DIR=/data/community
+    COMMUNITY_CACHE_DIR=/data/community \
+    KERNEL_PROVENANCE_FILE=/data/kernel.provenance.json
 RUN mkdir -p /data && chown node:node /data
 VOLUME /data
 USER node

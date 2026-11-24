@@ -6,12 +6,11 @@
 // provenance the newest commit that built those exact bytes. That one commit then
 // fixes everything else Q reads from the community: the decision catalog, the
 // channel labels of governance/discord.json, and the knowledge it indexes.
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { kappa, load } from 'prism-code';
-import { verify } from 'sigstore';
 import type { ChannelFacts, Kernel } from './kernel.ts';
+import { attested } from './provenance.ts';
 
 export interface CommunityPin {
   /** The holo's BLAKE3 kappa label, over its exact bytes. Its identity everywhere Q records it. */
@@ -62,42 +61,12 @@ export interface CommunityOptions {
   githubToken?: string;
 }
 
-const ISSUER = 'https://token.actions.githubusercontent.com';
-const SLSA = 'https://slsa.dev/provenance/v1';
 const LABELS: Label[] = ['public', 'unlabeled', 'excluded'];
-
-interface Bundle { dsseEnvelope: { payload: string }; verificationMaterial: { tlogEntries: { integratedTime: string }[] } }
-interface Statement {
-  predicateType: string;
-  subject: { digest: { sha256?: string } }[];
-  predicate: { buildDefinition: { resolvedDependencies: { uri: string; digest: { gitCommit?: string } }[] } };
-}
 
 async function fetchOk(url: string, headers: Record<string, string> = {}): Promise<Response> {
   const response = await fetch(url, { headers: { 'user-agent': 'uor-discord-agent', ...headers } });
   if (!response.ok) throw new Error(`fetch ${url}: ${response.status}`);
   return response;
-}
-
-/**
- * Verify every SLSA provenance bundle against the signer, keep the ones whose subject is these bytes
- * and whose source is the repository, and return the newest by transparency-log time.
- */
-export async function provenance(bundles: Bundle[], sha256: string, repository: string, signer: string): Promise<{ commit: string; signedAt: string }> {
-  const found: { commit: string; at: number }[] = [];
-  for (const bundle of bundles) {
-    const statement = JSON.parse(Buffer.from(bundle.dsseEnvelope.payload, 'base64').toString('utf8')) as Statement;
-    if (statement.predicateType !== SLSA) continue;
-    if (!statement.subject.some((subject) => subject.digest.sha256 === sha256)) continue;
-    const source = statement.predicate.buildDefinition.resolvedDependencies.find((d) => d.uri.startsWith(`git+https://github.com/${repository}@`));
-    const commit = source?.digest.gitCommit;
-    if (!commit || !/^[0-9a-f]{40}$/.test(commit)) continue;
-    await verify(bundle as never, { certificateIssuer: ISSUER, certificateIdentityURI: signer });
-    found.push({ commit, at: Number(bundle.verificationMaterial.tlogEntries[0]?.integratedTime ?? 0) });
-  }
-  if (!found.length) throw new Error(`community refused: no provenance signed by ${signer} names this holo`);
-  const newest = found.reduce((a, b) => (b.at > a.at ? b : a));
-  return { commit: newest.commit, signedAt: new Date(newest.at * 1000).toISOString() };
 }
 
 export class Community implements Decider {
@@ -119,34 +88,27 @@ export class Community implements Decider {
     const signer = options.signer ?? `https://github.com/${repository}/.github/workflows/pages.yml@refs/heads/main`;
     const api: Record<string, string> = options.githubToken ? { authorization: `Bearer ${options.githubToken}` } : {};
     await mkdir(options.cacheDir, { recursive: true });
-    const cached = { holo: join(options.cacheDir, 'community.holo'), bundles: join(options.cacheDir, 'community.provenance.json') };
+    const cachedHolo = join(options.cacheDir, 'community.holo');
 
-    // The newest published holo and its provenance; the cached pair only when the network is down.
+    // The newest published holo; the cached one only when the network is down.
     let bytes: Uint8Array;
-    let bundles: Bundle[];
     try {
       bytes = new Uint8Array(await (await fetchOk(holoUrl)).arrayBuffer());
-      const sha = createHash('sha256').update(bytes).digest('hex');
-      const listed = (await (await fetchOk(`https://api.github.com/repos/${repository}/attestations/sha256:${sha}`, api)).json()) as { attestations: { bundle: Bundle }[] };
-      bundles = listed.attestations.map((a) => a.bundle);
     } catch (error) {
       try {
-        bytes = new Uint8Array(await readFile(cached.holo));
-        bundles = JSON.parse(await readFile(cached.bundles, 'utf8')) as Bundle[];
+        bytes = new Uint8Array(await readFile(cachedHolo));
       } catch {
         throw error;
       }
     }
 
-    // Verified again whichever way it came: a cached file is no more trusted than a fetched one.
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
-    const { commit, signedAt } = await provenance(bundles, sha256, repository, signer);
+    // Verified whichever way it came: a cached file is no more trusted than a fetched one.
+    const { sha256, commit, signedAt } = await attested(bytes, { repository, signer, cacheFile: join(options.cacheDir, 'community.provenance.json'), githubToken: options.githubToken });
     const app = await load(bytes);
     if (!app.identities.verified) throw new Error('community refused: the holo failed identity verification');
     const replay = await app.acceptance();
     if (replay.total === 0 || replay.passed !== replay.total) throw new Error(`community refused: ${replay.passed} of ${replay.total} acceptance vectors replayed`);
-    await writeFile(cached.holo, bytes);
-    await writeFile(cached.bundles, JSON.stringify(bundles));
+    await writeFile(cachedHolo, bytes);
 
     // Everything else at that one commit.
     const raw = (path: string) => fetchOk(`https://raw.githubusercontent.com/${repository}/${commit}/${path}`).then((r) => r.text());
@@ -176,7 +138,7 @@ export class Community implements Decider {
     const governance = JSON.parse(await raw('governance/discord.json')) as { labels: { default: string; channels: Record<string, string> } };
     const labels = channelLabels(governance.labels);
 
-    const pin: CommunityPin = { holo: kappa(bytes), sha256: `sha256:${sha256}`, commit, signer, signedAt };
+    const pin: CommunityPin = { holo: kappa(bytes), sha256, commit, signer, signedAt };
     return new Community(pin, apps, skipped, labels, repository, (request) => app.dispatch(request));
   }
 

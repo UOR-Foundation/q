@@ -49,6 +49,8 @@ export class Kernel {
   readonly model = MODEL.blake3;
   /** The holo's BLAKE3 kappa label, over its exact bytes: the kernel every record names. */
   readonly holo: string;
+  /** The commit whose signed build is this holo, once its provenance is verified; null when the check is off. */
+  commit: string | null = null;
   #client: UORDiscordAgent;
 
   private constructor(client: UORDiscordAgent, holo: string) {

@@ -173,3 +173,9 @@ statement = "A tool is called only on an allowlisted MCP server, and a tool that
 theorems = ["Policy.toolGuard"]
 failure = "refuse"
 negative = "DA-19"
+
+[[id]]
+id = "DA-20"
+level = "open"
+suite = "agent"
+statement = "The agent runs only a kernel whose exact bytes this repository's holo workflow signed from a commit on main, checked at every start, unless an operator turns the check off"

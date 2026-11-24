@@ -48,6 +48,8 @@ npm start
 
 `npm run generate` rewrites `src/client/` after the kernel is rebuilt.
 
+At start the host checks that the kernel's exact bytes are a build `UOR-Foundation/uor-discord-agent`'s `holo.yml` signed from `main`, and refuses to run otherwise. A build of a published commit passes, because the build is reproducible. A model you changed and have not published does not: set `KERNEL_PROVENANCE=off` for that, on your own machine only.
+
 ## Deploy
 
 On one machine with Docker, from the repository root:
@@ -80,7 +82,7 @@ The bot answers mentions in any public text or forum channel. Its inputs and out
 
 ## What is tested, and what is not
 
-Tested (32 tests, real kernel, in-process store, embedder and language model): labels, chunking, deduplication, index rebuild, a cited answer listing only the sources it cites, source order, refusal of an ungrounded question, a tampered item, a revoked item, silence in DMs and restricted channels, command authorization, rate limiting, message indexing, a request to the agent never indexed, the read-policy drift check with one planted difference, channel labels, both turn records and the event against their published schemas for every kind of turn, a community decision answered and one with a missing input, superseded chunks after a newer commit, access control under a whitelist and a blacklist, the content filter both ways and out of scope, long-text delivery, the query pool, MCP tools over the protocol with a read allowed, a write refused for a member and allowed for an admin, and a server not allowlisted, a Discord citation marked open, forget-me, forget-channel, the retention sweep.
+Tested (36 tests, real kernel, in-process store, embedder and language model): labels, chunking, deduplication, index rebuild, a cited answer listing only the sources it cites, source order, refusal of an ungrounded question, a tampered item, a revoked item, silence in DMs and restricted channels, command authorization, rate limiting, message indexing, a request to the agent never indexed, the read-policy drift check with one planted difference, channel labels, both turn records and the event against their published schemas for every kind of turn, a community decision answered and one with a missing input, superseded chunks after a newer commit, the kernel's and the community's provenance against real Sigstore bundles (verified, and refused for other bytes, another repository and another signer), access control under a whitelist and a blacklist, the content filter both ways and out of scope, long-text delivery, the query pool, MCP tools over the protocol with a read allowed, a write refused for a member and allowed for an admin, and a server not allowlisted, a Discord citation marked open, forget-me, forget-channel, the retention sweep.
 
 Run once by hand on 2026-11-23: the community source (39 documents) and the website source (45 pages), 612 chunks together; the GitHub source on one repository (9 files, 34 issues and pull requests).
 

@@ -6,7 +6,7 @@ Project-owned evidence for the gates in `VERIFICATION.md`. Run with prism-code 0
 
 | Command | Result |
 | --- | --- |
-| `npx prism-code@0.11.1 check --json` | exit 0; 25 of 25 theorems proved; 19 IDs, 19 scenarios, 1 authority, 1 claim; no contract violation |
+| `npx prism-code@0.11.1 check --json` | exit 0; 25 of 25 theorems proved; 20 IDs, 20 scenarios, 1 authority, 1 claim; no contract violation |
 | `npx prism-code@0.11.1 build --json` | exit 0; 115 of 115 acceptance vectors replayed |
 | `npx prism-code@0.11.1 verify --json` | exit 0; identities verified; 115 of 115 vectors on fresh instances |
 | `npx prism-code@0.11.1 manifest --json` | no finding; no capability granted |
@@ -30,7 +30,7 @@ After restoring, `build` and `verify` passed again with the figures above.
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` in `host/` | exit 0 |
-| `npm test` in `host/` | 32 of 32 tests pass, against the real holo with an in-process store, embedder, language model and community |
+| `npm test` in `host/` | 36 of 36 tests pass, against the real holo with an in-process store, embedder, language model and community |
 
 ## Not covered
 

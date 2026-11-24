@@ -38,6 +38,7 @@ The three honesty levels (R2):
 | `DA-17` | `build` | Content filtering follows LangBot's: in scope, blocked content always interrupts, and masked content is never passed on unmasked | `Policy.blockInterrupts`, `Policy.maskedNeverPlain`, refuses with `interrupt` |
 | `DA-18` | `build` | A reply longer than one Discord message is never sent as one, and a reply longer than five is never split into messages | `Policy.neverOverLimit`, `Policy.neverFlood` |
 | `DA-19` | `build` | A tool is called only on an allowlisted MCP server, and a tool that writes only for the admin role | `Policy.toolGuard`, refuses with `refuse` |
+| `DA-20` | `open` | The agent runs only a kernel whose exact bytes this repository's holo workflow signed from a commit on main, checked at every start, unless an operator turns the check off |  |
 
 ## contract
 

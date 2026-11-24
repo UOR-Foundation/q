@@ -19,6 +19,14 @@ export function config() {
   const provider = process.env.LLM_PROVIDER ?? 'anthropic';
   const c = {
     holo: process.env.KERNEL_HOLO ?? '../app/.prism/build/uor-discord-agent.holo',
+    // The kernel runs only when its exact bytes are ones this repository's holo workflow signed.
+    // off is for developing an unpublished model on one machine, never for a deployment.
+    kernel: {
+      provenance: choice('KERNEL_PROVENANCE', ['required', 'off'] as const, 'required'),
+      repository: process.env.KERNEL_REPOSITORY ?? 'UOR-Foundation/uor-discord-agent',
+      signer: process.env.KERNEL_SIGNER ?? 'https://github.com/UOR-Foundation/uor-discord-agent/.github/workflows/holo.yml@refs/heads/main',
+      cacheFile: process.env.KERNEL_PROVENANCE_FILE ?? './data/kernel.provenance.json',
+    },
     discordToken: need('DISCORD_TOKEN'),
     installedByAdmin: process.env.INSTALLED_BY_ADMIN === 'true',
     messageContentIntent: process.env.MESSAGE_CONTENT_INTENT === 'true',

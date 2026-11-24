@@ -2,10 +2,11 @@
 //   node src/main.ts            serve Discord
 //   node src/main.ts ingest     fill the knowledge base from the sources, then exit
 //   node src/main.ts backfill   index the history of the public channels, then exit
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { discord } from './adapter/discord.ts';
 import { Community, readPolicyDrift } from './community.ts';
+import { attested } from './provenance.ts';
 import { config } from './config.ts';
 import { Kernel } from './kernel.ts';
 import { CommunitySource, GitHubSource, WebsiteSource, ingest } from './knowledge.ts';
@@ -20,6 +21,16 @@ const c = config();
 const log = (event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ event, ...fields }));
 
 const kernel = await Kernel.open(c.holo);
+// The kernel's own provenance, checked as the community's is: these exact bytes must be a build
+// this repository's holo workflow signed, from a commit on main.
+if (c.kernel.provenance === 'required') {
+  await mkdir(dirname(c.kernel.cacheFile), { recursive: true });
+  const own = await attested(new Uint8Array(await readFile(c.holo)), { ...c.kernel, githubToken: c.githubToken });
+  kernel.commit = own.commit;
+  log('kernel-provenance', { holo: kernel.holo, ...own, signer: c.kernel.signer });
+} else {
+  log('kernel-provenance', { holo: kernel.holo, checked: false, warning: 'KERNEL_PROVENANCE=off: this kernel is not known to be a published build' });
+}
 const store = c.registryUrl
   ? new KappaRegistryStore(c.registryUrl, c.registryToken, { public: c.registryPublic, private: c.registryPrivate })
   : new FileStore(c.storeDir);

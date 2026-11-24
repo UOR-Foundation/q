@@ -129,3 +129,10 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.toolGuard
     Then call is answered only for an allowlisted server, and for a tool that writes only with the admin role
     And prism-code build replays a writing tool for a member and any tool on a server not allowlisted, each answered refuse
+
+  @DA-20 @open
+  Scenario: The agent runs only a kernel whose exact bytes this repository's holo workflow signed from a commit on main, checked at every start, unless an operator turns the check off
+    Given the kernel holo the host is about to run
+    When the host fetches GitHub's attestations for its SHA-256 and verifies them with Sigstore against .github/workflows/holo.yml on main
+    Then it starts only when a verified provenance names these bytes, and records that commit in every context record
+    And bytes nobody signed are refused, and the host tests refuse the real bundles for another signer, other bytes and another repository

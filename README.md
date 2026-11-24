@@ -20,8 +20,8 @@ Q's inputs and outputs are defined in [docs/context.md](docs/context.md): Q's ke
 | Kind | What |
 | --- | --- |
 | Proved | The 25 theorems named in [CONFORMANCE.md](CONFORMANCE.md), about the decision functions in `app/src/Policy.lex.tex` and the request length in `app/src/Contract.lex.tex` |
-| Tested | 115 acceptance vectors through the byte-level dispatcher; 32 host tests, including a real MCP server over the protocol and the records against their schemas |
-| Measured at every start | Q's read policy against the community's `uor-discord-read`, on all 96 requests (DA-13); the community holo's signed provenance; every vector of both holos |
+| Tested | 115 acceptance vectors through the byte-level dispatcher; 36 host tests, including a real MCP server over the protocol, the records against their schemas, and provenance against real Sigstore bundles |
+| Measured at every start | Q's own kernel is a build this repository's `holo.yml` signed (DA-20); the community holo's signed provenance; Q's read policy against the community's `uor-discord-read`, on all 96 requests (DA-13); every vector of both holos |
 | Cited | The community Discord read policy, from `UOR-Foundation/community`. DA-01 reproduces it |
 | Open | The facts the host passes in, the similarity thresholds, the language model's reading of a question, and what [host/README.md](host/README.md) lists as not run |
 
@@ -37,7 +37,7 @@ npx prism-code@0.11.1 verify --json    # judge what was built
 
 `0.11.1` is `@latest` today, and `host/package.json` pins the same runtime: the host must read the holo the build writes. To run the agent, see [host/README.md](host/README.md).
 
-On every push to `main`, `.github/workflows/holo.yml` builds the holo, signs its SLSA provenance and publishes it at `https://uor-foundation.github.io/uor-discord-agent/app.holo`.
+On every push to `main`, `.github/workflows/holo.yml` builds the holo, signs its SLSA provenance and publishes it at `https://uor-foundation.github.io/uor-discord-agent/app.holo`. The build is reproducible, so a deployment builds the same bytes itself, and the host refuses to start on a kernel no such signature names (DA-20). To run a model you changed and have not published, set `KERNEL_PROVENANCE=off`; the host then says so in its log.
 
 ## Request
 
