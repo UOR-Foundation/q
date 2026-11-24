@@ -36,9 +36,9 @@ export function candidate(text: string): boolean {
 export const TRACK_PROMPT = `You read one message from a community chat and say whether it is something that needs follow-up. Reply with exactly one JSON object and nothing else:
 {"kind":"question"|"promise"|"request"|null,"summary":"<one short line, in third person, without names>","due":"YYYY-MM-DD"|null}
 - question: a real question the writer wants answered (not rhetorical, not a greeting, not a question to the bot Q).
-- promise: the writer commits to do something (send, share, fix, review, write, deliver), with or without a date.
-- request: the writer asks others to do something or for help.
-- null: anything else, including jokes, thanks, opinions, and questions already answered in the same message.
+- promise: the writer commits to deliver something concrete that others are waiting for (send, share, fix, review, write, publish, deliver), with or without a date. A personal plan nobody is waiting on, a figurative or emotional line, or a vague intention is not a promise.
+- request: the writer asks others to do something specific or for help with something specific.
+- null: anything else, including jokes, thanks, opinions, figurative lines, personal plans, and questions already answered in the same message.
 - due: only when the message names a date or day; resolve it against today's date given below.`;
 
 export interface Item { label: string; kind: Kind; url: string; channel: string; author: string; summary: string; due: string | null; at: number; closed: string | null }
