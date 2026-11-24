@@ -56,6 +56,9 @@ export class Memory {
     const text = message.text.trim();
     // A message with no text has nothing to index, whatever the decision.
     if (decision === 'skip' || !text) return 'skip';
+    // Past the retention limit already: the next sweep would delete it, so it is never indexed (decision 9).
+    const ageDays = Math.floor((this.now() - message.createdMs) / DAY);
+    if ((await this.kernel.retain('discord', false, ageDays, this.retentionDays)) === 'delete') return 'skip';
     const namespace = await this.#namespace();
     const label = await this.store.put(namespace, chunkOf(message, text));
     if (!this.index.has(label)) {

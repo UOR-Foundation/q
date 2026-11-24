@@ -323,13 +323,25 @@ test('a deleted or edited message is withdrawn: by its recomputed label when its
 test('the retention sweep deletes what is past its limit and keeps what is at it', async () => {
   const { memory, clock, index } = await world();
   const day = 86_400_000;
-  await memory.observe(said('thirty one days old message', { createdMs: clock.now - 31 * day }));
-  await memory.observe(said('exactly thirty days old', { createdMs: clock.now - 30 * day }));
-  await memory.observe(said('four hundred days old, past one byte', { createdMs: clock.now - 400 * day }));
+  // Indexed while young, then aged: a day older than the limit goes, exactly at it stays.
+  await memory.observe(said('a message one day old', { createdMs: clock.now - day }));
+  await memory.observe(said('a message from today', { createdMs: clock.now }));
   const count = index.count();
-  assert.equal(await memory.sweep(), 2);
-  assert.equal(index.count(), count - 2);
+  clock.now += 30 * day;
+  assert.equal(await memory.sweep(), 1);
+  assert.equal(index.count(), count - 1);
   assert.equal(await memory.sweep(), 0);
+  // Past one byte of days is past any limit.
+  clock.now += 400 * day;
+  assert.equal(await memory.sweep(), 1);
+});
+
+test('a message already past the retention limit is never indexed, so a backfill does not index what the sweep would delete', async () => {
+  const { memory, clock } = await world();
+  const day = 86_400_000;
+  assert.equal(await memory.observe(said('thirty one days old message', { createdMs: clock.now - 31 * day })), 'skip');
+  assert.equal(await memory.observe(said('four hundred days old, past one byte', { createdMs: clock.now - 400 * day })), 'skip');
+  assert.equal(await memory.observe(said('exactly thirty days old', { createdMs: clock.now - 30 * day })), 'index');
 });
 
 test('reasoning a model leaks into its answer is removed', () => {
