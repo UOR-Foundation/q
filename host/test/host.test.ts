@@ -22,7 +22,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { SearchIndex } from '../src/search.ts';
 import { FileStore, isRevoked, MemoryStore } from '../src/store.ts';
 
-const HOLO = new URL('../../app/.prism/build/uor-discord-agent.holo', import.meta.url);
+const HOLO = new URL('../../app/.prism/build/q.holo', import.meta.url);
 
 /** Words hashed into 64 buckets: texts sharing words are near, and the same text always gives the same vector. */
 class WordEmbedder implements Embedder {

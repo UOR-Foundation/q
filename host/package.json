@@ -1,15 +1,15 @@
 {
-  "name": "uor-discord-agent-host",
+  "name": "q-host",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Host shell of the UOR Discord agent: every effect, no policy.",
+  "description": "Host shell of the Q: every effect, no policy.",
   "license": "(MIT OR Apache-2.0)",
   "engines": {
     "node": ">=22.18"
   },
   "scripts": {
-    "generate": "prism-code generate ../app/.prism/build/uor-discord-agent.holo --out src/client",
+    "generate": "prism-code generate ../app/.prism/build/q.holo --out src/client",
     "test": "node --test --no-warnings \"test/*.test.ts\"",
     "start": "node --no-warnings --env-file-if-exists=.env src/main.ts",
     "ingest": "node --no-warnings --env-file-if-exists=.env src/main.ts ingest",

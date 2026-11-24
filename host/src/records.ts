@@ -16,7 +16,7 @@ import type { Level } from './kernel.ts';
 export const CONTEXT_SCHEMA = 'uor-agent/context/1';
 export const ANSWER_SCHEMA = 'uor-agent/answer/1';
 export const EVENT_TYPE = 'org.uorfoundation.discord.answer';
-export const EVENT_SOURCE = 'https://github.com/UOR-Foundation/uor-discord-agent';
+export const EVENT_SOURCE = 'https://github.com/UOR-Foundation/q';
 
 export interface DecisionAsked {
   /** The community app, by name. */

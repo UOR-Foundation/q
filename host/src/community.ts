@@ -64,7 +64,7 @@ export interface CommunityOptions {
 const LABELS: Label[] = ['public', 'unlabeled', 'excluded'];
 
 async function fetchOk(url: string, headers: Record<string, string> = {}): Promise<Response> {
-  const response = await fetch(url, { headers: { 'user-agent': 'uor-discord-agent', ...headers } });
+  const response = await fetch(url, { headers: { 'user-agent': 'uor-foundation-q', ...headers } });
   if (!response.ok) throw new Error(`fetch ${url}: ${response.status}`);
   return response;
 }

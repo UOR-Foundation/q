@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/UOR-Foundation/uor-discord-agent/docs/schemas/answer.schema.json",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/answer.schema.json",
   "title": "uor-agent/answer/1",
   "description": "The output of one turn: what the agent said. Stored in the private namespace under its BLAKE3 kappa label, with edges derived-from (its context), evidence-provenance (each citation) and certified-by (the agent's holo, and the community holo when a decision was answered).",
   "type": "object",

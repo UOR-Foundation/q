@@ -3,7 +3,7 @@
 // decides nothing itself.
 import { readFile } from 'node:fs/promises';
 import { kappa, load } from 'prism-code';
-import { MODEL, UORDiscordAgent } from './client/u-o-r-discord-agent.js';
+import { MODEL, Q } from './client/q.js';
 
 export const KIND = { text: 0, forum: 1, voice: 2, dm: 3 } as const;
 export const VISIBILITY = { everyone: 0, restricted: 1 } as const;
@@ -53,9 +53,9 @@ export class Kernel {
   readonly holo: string;
   /** The commit whose signed build is this holo, once its provenance is verified; null when the check is off. */
   commit: string | null = null;
-  #client: UORDiscordAgent;
+  #client: Q;
 
-  private constructor(client: UORDiscordAgent, holo: string) {
+  private constructor(client: Q, holo: string) {
     this.#client = client;
     this.holo = holo;
   }
@@ -69,7 +69,7 @@ export class Kernel {
     if (result.passed !== result.total || result.total === 0) {
       throw new Error(`kernel refused: ${result.passed} of ${result.total} acceptance vectors replayed`);
     }
-    return new Kernel(new UORDiscordAgent((request) => app.dispatch(request)), kappa(bytes));
+    return new Kernel(new Q((request) => app.dispatch(request)), kappa(bytes));
   }
 
   async #ask<T extends string>(decision: number, ...facts: number[]): Promise<T> {

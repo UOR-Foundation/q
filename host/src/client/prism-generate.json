@@ -1,7 +1,7 @@
 {
   "files": {
-    "u-o-r-discord-agent.d.ts": "c19df3336fb816e235638898477923ca4eb6ae32ca7f13c7d3a166cffa3a15a4",
-    "u-o-r-discord-agent.js": "fad05767f824ad52e2824f2bb9b9e411bde6cdbd53c74da245d83e3dc31ea9ff",
+    "q.d.ts": "88e1fdd7bf5b2ceb31e1310fbc00304e4516b1054956005c9f46d1ba6520883f",
+    "q.js": "6479082442d83c26e673b0c30e958de4cf8aaefd00aef76e7b35687419b8173f",
     "world.d.ts": "e4555dab8820c573f34bb41b336231dad5523d35bbcaeecbb73e8b04ce8de58b",
     "world.js": "4217413d7b62ef8c98d7cd3787bff7a9db7e86966bde58e66445110f392b14ce"
   },
@@ -12,8 +12,8 @@
   },
   "language": "js",
   "model": {
-    "blake3": "22729e4d3c3dae3978219ee3cd294f87570ad10353919f638862f98acca512e7",
-    "sha256": "958b7c733257659ad0a79548735506a2746c1e191d2924b6fa760410414270d2"
+    "blake3": "27d12614e0950b452cdff258b05d48138056e1eedfeae75973be08392a9c080e",
+    "sha256": "13cecf61b900e911ed3771524224364a577c8ef54bf37b551942fcbcb2ab42f5"
   },
   "schema": "prismpm/generate-record/1",
   "world": {

@@ -68,7 +68,7 @@ export async function attested(bytes: Uint8Array, options: AttestOptions): Promi
   let bundles: Bundle[];
   try {
     const response = await fetch(`https://api.github.com/repos/${options.repository}/attestations/sha256:${sha}`, {
-      headers: { 'user-agent': 'uor-discord-agent', ...(options.githubToken ? { authorization: `Bearer ${options.githubToken}` } : {}) },
+      headers: { 'user-agent': 'uor-foundation-q', ...(options.githubToken ? { authorization: `Bearer ${options.githubToken}` } : {}) },
     });
     // 404 is an answer, not an outage: nobody signed these bytes. It never falls back to the cache.
     if (response.status === 404) throw new Refusal(`refused: no attestation in ${options.repository} names these bytes (sha256:${sha})`);

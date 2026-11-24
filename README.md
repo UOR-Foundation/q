@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/brand/orb/q-orb-256.png" width="128" height="128" alt="Q"></p>
 
-# uor-discord-agent
+# Q
 
 Q, the UOR Foundation's AI agent on Discord, as a Prism application: every decision written in LexLean and proved by Lean's kernel, every effect in a host that asks first.
 
@@ -33,13 +33,13 @@ The theorems are about the decision functions. That the dispatcher decodes a req
 
 ```bash
 npx prism-code@0.11.2 check --json     # the model checks and every theorem is proved
-npx prism-code@0.11.2 build --json     # write app/.prism/build/uor-discord-agent.holo and replay its vectors
+npx prism-code@0.11.2 build --json     # write app/.prism/build/q.holo and replay its vectors
 npx prism-code@0.11.2 verify --json    # judge what was built
 ```
 
 `0.11.2` is `@latest` today, and `host/package.json` pins the same runtime: the host must read the holo the build writes. To run the agent, see [host/README.md](host/README.md).
 
-On every push to `main`, `.github/workflows/holo.yml` builds the holo, signs its SLSA provenance and publishes it at `https://uor-foundation.github.io/uor-discord-agent/app.holo`. The build is reproducible, so a deployment builds the same bytes itself, and the host refuses to start on a kernel no such signature names (DA-20). To run a model you changed and have not published, set `KERNEL_PROVENANCE=off`; the host then says so in its log.
+On every push to `main`, `.github/workflows/holo.yml` builds the holo, signs its SLSA provenance and publishes it at `https://uor-foundation.github.io/q/app.holo`. The build is reproducible, so a deployment builds the same bytes itself, and the host refuses to start on a kernel no such signature names (DA-20). To run a model you changed and have not published, set `KERNEL_PROVENANCE=off`; the host then says so in its log.
 
 ## Request
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/UOR-Foundation/uor-discord-agent/docs/schemas/event.schema.json",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/event.schema.json",
   "title": "org.uorfoundation.discord.answer",
   "description": "The public trace of one turn, as a CloudEvents 1.0 JSON event, one per line on the agent's standard output. Counts only: no question, no answer text, no author, and no label of a record that holds any of them. Its id is the BLAKE3 kappa label of its own content.",
   "type": "object",
@@ -12,7 +12,7 @@
   "properties": {
     "specversion": { "const": "1.0" },
     "type": { "const": "org.uorfoundation.discord.answer" },
-    "source": { "const": "https://github.com/UOR-Foundation/uor-discord-agent" },
+    "source": { "const": "https://github.com/UOR-Foundation/q" },
     "id": { "$ref": "#/$defs/label" },
     "time": { "type": "string", "format": "date-time" },
     "datacontenttype": { "const": "application/json" },

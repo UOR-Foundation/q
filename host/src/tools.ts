@@ -33,7 +33,7 @@ export class Tools {
     const failed: string[] = [];
     for (const server of servers) {
       try {
-        const client = new Client({ name: 'uor-discord-agent', version: '0.1.0' });
+        const client = new Client({ name: 'uor-foundation-q', version: '0.1.0' });
         await client.connect(transport(server));
         await tools.add(server, client);
       } catch (error) {

@@ -15,7 +15,7 @@ export interface Source {
 }
 
 const get = async (url: string, headers: Record<string, string> = {}) => {
-  const response = await fetch(url, { headers: { 'user-agent': 'uor-discord-agent', ...headers } });
+  const response = await fetch(url, { headers: { 'user-agent': 'uor-foundation-q', ...headers } });
   if (!response.ok) throw new Error(`fetch ${url}: ${response.status}`);
   return response.text();
 };

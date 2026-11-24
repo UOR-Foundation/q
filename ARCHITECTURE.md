@@ -15,7 +15,7 @@ Q is the UOR Foundation's AI agent on Discord, built like LangBot with one diffe
 
 ## Repository boundary
 
-- `app/`, `model/`, `features/`: the kernel. LexLean modules, the claim ledger, the scenarios. Built by `prism-code` into `app/.prism/build/uor-discord-agent.holo`.
+- `app/`, `model/`, `features/`: the kernel. LexLean modules, the claim ledger, the scenarios. Built by `prism-code` into `app/.prism/build/q.holo`.
 - `host/`: everything with an effect. TypeScript on Node 22, no build step. It holds no policy.
 - `docs/`: the design note, the input and output spec with JSON schemas, the LangBot map, the verification record.
 - `.github/workflows/`: `ci.yml` proves and tests every change; `holo.yml` builds, signs and publishes the holo.

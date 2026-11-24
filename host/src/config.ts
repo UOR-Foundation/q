@@ -18,13 +18,13 @@ function choice<T extends string>(name: string, values: readonly T[], fallback: 
 export function config() {
   const provider = process.env.LLM_PROVIDER ?? 'anthropic';
   const c = {
-    holo: process.env.KERNEL_HOLO ?? '../app/.prism/build/uor-discord-agent.holo',
+    holo: process.env.KERNEL_HOLO ?? '../app/.prism/build/q.holo',
     // The kernel runs only when its exact bytes are ones this repository's holo workflow signed.
     // off is for developing an unpublished model on one machine, never for a deployment.
     kernel: {
       provenance: choice('KERNEL_PROVENANCE', ['required', 'off'] as const, 'required'),
-      repository: process.env.KERNEL_REPOSITORY ?? 'UOR-Foundation/uor-discord-agent',
-      signer: process.env.KERNEL_SIGNER ?? 'https://github.com/UOR-Foundation/uor-discord-agent/.github/workflows/holo.yml@refs/heads/main',
+      repository: process.env.KERNEL_REPOSITORY ?? 'UOR-Foundation/q',
+      signer: process.env.KERNEL_SIGNER ?? 'https://github.com/UOR-Foundation/q/.github/workflows/holo.yml@refs/heads/main',
       cacheFile: process.env.KERNEL_PROVENANCE_FILE ?? './data/kernel.provenance.json',
     },
     discordToken: need('DISCORD_TOKEN'),

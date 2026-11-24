@@ -50,7 +50,7 @@ services:
       BACKFILL_FILE: /data/backfill.json
       COMMUNITY_CACHE_DIR: /data/community
       KERNEL_PROVENANCE_FILE: /data/kernel.provenance.json
-      KERNEL_HOLO: /agent/kernel/uor-discord-agent.holo
+      KERNEL_HOLO: /agent/kernel/q.holo
       EMBEDDINGS_URL: http://embed:8080/v1
       EMBEDDINGS_MODEL: nomic-embed-text-v1.5
       EMBEDDINGS_API_KEY: ""

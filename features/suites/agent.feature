@@ -1,6 +1,6 @@
 Feature: agent
 
-  The decisions of the UOR Discord agent, in app/src/Policy.lex.tex: what it may
+  The decisions of the Q, in app/src/Policy.lex.tex: what it may
   read, index, answer, cite, store and delete. The host asks before every effect
   and obeys the answer.
 

@@ -4,6 +4,10 @@ This project follows Semantic Versioning and Conventional Commits.
 
 ## Unreleased
 
+### Changed
+
+- Renamed to Q: the repository is UOR-Foundation/q, the app and its holo are `q` (`q.holo`), and the kernel's signer is `UOR-Foundation/q`'s `holo.yml` on `main`. The client is regenerated as `Q`.
+
 ### Added
 
 - LangBot's remaining pipeline stages as proved decisions: access control (DA-16), content filter both ways (DA-17), long-text delivery (DA-18), and MCP tool calls (DA-19); an adapter interface, a query pool, an Ollama provider, and an MCP client with a tool loop for each provider.

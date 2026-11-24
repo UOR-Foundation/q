@@ -1,5 +1,5 @@
 [application]
-name = "uor-discord-agent"
+name = "q"
 version = "0.1.0"
 description = "The decision kernel of the UOR Foundation Discord agent."
 

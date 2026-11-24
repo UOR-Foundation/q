@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/UOR-Foundation/uor-discord-agent/docs/schemas/context.schema.json",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/context.schema.json",
   "title": "uor-agent/context/1",
   "description": "The input of one turn: everything an answer is made from. Stored in the private namespace under its BLAKE3 kappa label (uor-addr, JCS + NFC), and forgotten with its author.",
   "type": "object",
