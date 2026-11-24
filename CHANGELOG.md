@@ -24,6 +24,10 @@ This project follows Semantic Versioning and Conventional Commits.
 
 - Renamed to Q: the repository is UOR-Foundation/q, the app and its holo are `q` (`q.holo`), and the kernel's signer is `UOR-Foundation/q`'s `holo.yml` on `main`. The client is regenerated as `Q`.
 
+### Changed
+
+- `/build` is offered only where a builder service is configured (`BUILDER_URL`). Production runs without one for now: apps will be proved, built and run on the member's own machine with `npx prism-code@latest`, not on the VPS.
+
 ### Added
 
 - Apps from one prompt ([docs/apps.md](docs/apps.md)). `/build` turns a member's description into a small decision table, generates a complete Prism app from it, proves and builds it in a separate builder service, publishes it to Filebase (IPFS), and replies with a link that opens it in its own holospace, verified by its BLAKE3 label. It typically takes under a minute. Each app proves that every answer is a declared outcome and that each rule decides its outcome, and replays every combination of inputs. Its progress shows as edits of the reply.
