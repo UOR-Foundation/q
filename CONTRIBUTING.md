@@ -1,0 +1,34 @@
+# Contributing
+
+Read [AGENTS.md](AGENTS.md) first. Its six rules, R1 to R6, apply to every change.
+
+## Changing what the agent decides
+
+A decision lives in the model, never in the host.
+
+1. Add or change the row in `model/ids.toml`, then its scenario in `features/suites/`.
+2. Change the model in `app/src/`: the definition, the theorem the row names, and an acceptance vector for each accepted path and each refusal.
+3. Run `npx prism-code@0.11.1 check --json` until it exits 0, then `build` and `verify`.
+4. Plant a defect that the new theorem or vector should catch, confirm it is refused, and record it in `docs/verification.md`.
+5. In `host/`, run `npm run generate`, then add the question to `src/kernel.ts`.
+
+Never weaken a gate to pass it, and never edit `CONFORMANCE.md` or `host/src/client/` by hand.
+
+## Changing what the agent does
+
+Effects live in `host/`. If a change needs an `if` about policy, it belongs in the model instead.
+
+```bash
+cd host
+npm ci
+npm run typecheck
+npm test
+```
+
+## Commits and branches
+
+Conventional Commits 1.0.0: `type(scope): description`. Branches are `{type}/{issue#}-{short-description}`. Changes land by pull request.
+
+## Conduct and security
+
+See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md).

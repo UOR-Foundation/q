@@ -1,0 +1,72 @@
+# The agent and its embeddings model on one machine. From the repository root:
+#   host/deploy/get-model.sh            # once: the embeddings model, checksum-verified
+#   docker compose -f host/docker-compose.yml up -d --build
+# Secrets come from host/.env, which is never committed. Nothing here listens on a public port.
+name: uor-agent
+
+services:
+  embed:
+    # llama.cpp's CPU server, a few hundred MB, instead of Ollama's ~3 GB image.
+    # It answers the same OpenAI embeddings route the agent already calls.
+    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp@sha256:6fab63852916c294cc8a2f1515079c4ca40248193eea8868ae742134335b989b}
+    command:
+      - --model
+      - /models/nomic-embed-text-v1.5.Q8_0.gguf
+      - --embeddings
+      - --pooling
+      - mean
+      - --ctx-size
+      - "2048"
+      - --batch-size
+      - "2048"
+      - --ubatch-size
+      - "2048"
+      - --threads
+      - "2"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+    volumes:
+      - ./models:/models:ro
+    mem_limit: 512m
+    cpus: 2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  agent:
+    build:
+      context: ..
+      dockerfile: host/Dockerfile
+    env_file: .env
+    environment:
+      # The container's own paths win over any local ones in .env.
+      STORE_DIR: /data/store
+      INDEX_FILE: /data/index.sqlite
+      BACKFILL_FILE: /data/backfill.json
+      COMMUNITY_CACHE_DIR: /data/community
+      KERNEL_HOLO: /agent/kernel/uor-discord-agent.holo
+      EMBEDDINGS_URL: http://embed:8080/v1
+      EMBEDDINGS_MODEL: nomic-embed-text-v1.5
+      EMBEDDINGS_API_KEY: ""
+      EMBEDDINGS_QUERY_PREFIX: "search_query: "
+      EMBEDDINGS_DOCUMENT_PREFIX: "search_document: "
+      # Measured for this model on 2026-11-24 over the community and website index:
+      # 8 covered questions scored 0.605 to 0.829, 8 off-topic ones 0.461 to 0.640.
+      # A different embeddings model needs measuring again.
+      SIMILARITY_MEDIUM: "0.60"
+      SIMILARITY_HIGH: "0.70"
+    volumes:
+      - agent-data:/data
+    mem_limit: 512m
+    restart: unless-stopped
+    depends_on:
+      embed:
+        condition: service_healthy
+
+volumes:
+  agent-data:

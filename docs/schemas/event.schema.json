@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/uor-discord-agent/docs/schemas/event.schema.json",
+  "title": "org.uorfoundation.discord.answer",
+  "description": "The public trace of one turn, as a CloudEvents 1.0 JSON event, one per line on the agent's standard output. Counts only: no question, no answer text, no author, and no label of a record that holds any of them. Its id is the BLAKE3 kappa label of its own content.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["specversion", "type", "source", "id", "time", "datacontenttype", "data"],
+  "$defs": {
+    "label": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" }
+  },
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "type": { "const": "org.uorfoundation.discord.answer" },
+    "source": { "const": "https://github.com/UOR-Foundation/uor-discord-agent" },
+    "id": { "$ref": "#/$defs/label" },
+    "time": { "type": "string", "format": "date-time" },
+    "datacontenttype": { "const": "application/json" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "level", "citations", "tools", "decision", "kernel", "community"],
+      "properties": {
+        "outcome": { "enum": ["answer", "answer with notice", "not grounded"] },
+        "level": { "enum": ["build", "some-true", "open", null] },
+        "citations": { "type": "integer", "minimum": 0 },
+        "tools": { "description": "How many MCP tool calls the language model asked for.", "type": "integer", "minimum": 0 },
+        "decision": { "description": "The community app asked, by name, or null.", "type": ["string", "null"] },
+        "kernel": { "$ref": "#/$defs/label" },
+        "community": { "$ref": "#/$defs/label" }
+      }
+    }
+  }
+}

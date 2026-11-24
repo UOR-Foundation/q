@@ -1,0 +1,487 @@
+\begin{lexlean}{Policy}
+\useglossary{lexlean.std.bool@1.2.0}
+\useglossary{lexlean.std.nat@1.2.0}
+\useglossary{prism.arch@1.0.0}
+\title{Text application model}
+\begin{semanticmodule}
+definition{name: readPermit, parameters: [], result: Nat, body: 1}
+definition{name: readDeny, parameters: [], result: Nat, body: 2}
+definition{name: readNotApplicable, parameters: [], result: Nat, body: 3}
+definition{name: readIndeterminate, parameters: [], result: Nat, body: 4}
+
+definition{
+  name: readDecision,
+  parameters: [kind : Nat, visibility : Nat, label : Nat, install : Nat, intent : Nat],
+  result: Nat,
+  body: (if (not (kind <=? 1)) then (readDeny) else (if (not (install =? 0)) then (readDeny) else (if (not (visibility =? 0)) then (readDeny) else (if (label =? 1) then (readNotApplicable) else (if (not (label =? 0)) then (readDeny) else (if (not (intent =? 0)) then (readIndeterminate) else (readPermit)))))))
+}
+
+definition{
+  name: breaksReadPermitOnly,
+  parameters: [kind : Nat, visibility : Nat, label : Nat, install : Nat, intent : Nat],
+  result: Bool,
+  body: (((readDecision kind visibility label install intent) =? (readPermit)) && (not ((kind <=? 1) && ((visibility =? 0) && ((label =? 0) && ((install =? 0) && (intent =? 0)))))))
+}
+
+theorem{
+  name: readPermitOnly,
+  parameters: [kind : Nat, visibility : Nat, label : Nat, install : Nat, intent : Nat],
+  statement: ((breaksReadPermitOnly kind visibility label install intent) = false),
+  proof: linear_arithmetic{definitions: [breaksReadPermitOnly, readDecision, readDeny, readIndeterminate, readNotApplicable, readPermit]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksReadPermitWhen,
+  parameters: [kind : Nat, visibility : Nat, label : Nat, install : Nat, intent : Nat],
+  result: Bool,
+  body: (((kind <=? 1) && ((visibility =? 0) && ((label =? 0) && ((install =? 0) && (intent =? 0))))) && (not ((readDecision kind visibility label install intent) =? (readPermit))))
+}
+
+theorem{
+  name: readPermitWhen,
+  parameters: [kind : Nat, visibility : Nat, label : Nat, install : Nat, intent : Nat],
+  statement: ((breaksReadPermitWhen kind visibility label install intent) = false),
+  proof: linear_arithmetic{definitions: [breaksReadPermitWhen, readDecision, readDeny, readIndeterminate, readNotApplicable, readPermit]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: indexAdmit,
+  parameters: [read : Nat, origin : Nat, optedOut : Nat],
+  result: Bool,
+  body: ((read =? (readPermit)) && ((origin =? 0) && (optedOut =? 0)))
+}
+
+definition{
+  name: breaksIndexAdmit,
+  parameters: [read : Nat, origin : Nat, optedOut : Nat],
+  result: Bool,
+  body: ((indexAdmit read origin optedOut) && ((not (read =? 1)) || ((not (origin =? 0)) || (not (optedOut =? 0)))))
+}
+
+theorem{
+  name: indexAdmitOnly,
+  parameters: [read : Nat, origin : Nat, optedOut : Nat],
+  statement: ((breaksIndexAdmit read origin optedOut) = false),
+  proof: linear_arithmetic{definitions: [breaksIndexAdmit, indexAdmit, readPermit]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksNoRequestIndexed,
+  parameters: [read : Nat, optedOut : Nat],
+  result: Bool,
+  body: (indexAdmit read 2 optedOut)
+}
+
+theorem{
+  name: noRequestIndexed,
+  parameters: [read : Nat, optedOut : Nat],
+  statement: ((breaksNoRequestIndexed read optedOut) = false),
+  proof: linear_arithmetic{definitions: [breaksNoRequestIndexed, indexAdmit, readPermit]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: replyAllowed,
+  parameters: [kind : Nat, visibility : Nat, trigger : Nat],
+  result: Bool,
+  body: ((kind <=? 1) && ((visibility =? 0) && ((1 <=? trigger) && (trigger <=? 3))))
+}
+
+definition{
+  name: breaksReplyAllowed,
+  parameters: [kind : Nat, visibility : Nat, trigger : Nat],
+  result: Bool,
+  body: ((replyAllowed kind visibility trigger) && ((not (kind <=? 1)) || ((not (visibility =? 0)) || (trigger =? 0))))
+}
+
+theorem{
+  name: replyOnlyWhenInvited,
+  parameters: [kind : Nat, visibility : Nat, trigger : Nat],
+  statement: ((breaksReplyAllowed kind visibility trigger) = false),
+  proof: linear_arithmetic{definitions: [breaksReplyAllowed, replyAllowed]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: commandAllowed,
+  parameters: [command : Nat, role : Nat],
+  result: Bool,
+  body: ((command <=? 2) || ((command =? 5) || (((command =? 3) || (command =? 4)) && (role =? 1))))
+}
+
+definition{
+  name: breaksAdminNeedsRole,
+  parameters: [command : Nat, role : Nat],
+  result: Bool,
+  body: ((commandAllowed command role) && (((command =? 3) || (command =? 4)) && (not (role =? 1))))
+}
+
+theorem{
+  name: adminNeedsRole,
+  parameters: [command : Nat, role : Nat],
+  statement: ((breaksAdminNeedsRole command role) = false),
+  proof: linear_arithmetic{definitions: [breaksAdminNeedsRole, commandAllowed]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksForgetMeAlways,
+  parameters: [command : Nat, role : Nat],
+  result: Bool,
+  body: ((command =? 5) && (not (commandAllowed command role)))
+}
+
+theorem{
+  name: forgetMeAlways,
+  parameters: [command : Nat, role : Nat],
+  statement: ((breaksForgetMeAlways command role) = false),
+  proof: linear_arithmetic{definitions: [breaksForgetMeAlways, commandAllowed]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: rateAllowed,
+  parameters: [userCount : Nat, userLimit : Nat, channelCount : Nat, channelLimit : Nat],
+  result: Bool,
+  body: ((userCount <? userLimit) && (channelCount <? channelLimit))
+}
+
+definition{
+  name: breaksRateAllowed,
+  parameters: [userCount : Nat, userLimit : Nat, channelCount : Nat, channelLimit : Nat],
+  result: Bool,
+  body: ((rateAllowed userCount userLimit channelCount channelLimit) && ((userLimit <=? userCount) || (channelLimit <=? channelCount)))
+}
+
+theorem{
+  name: rateUnderBothLimits,
+  parameters: [userCount : Nat, userLimit : Nat, channelCount : Nat, channelLimit : Nat],
+  statement: ((breaksRateAllowed userCount userLimit channelCount channelLimit) = false),
+  proof: linear_arithmetic{definitions: [breaksRateAllowed, rateAllowed]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{name: groundAnswer, parameters: [], result: Nat, body: 1}
+definition{name: groundNotice, parameters: [], result: Nat, body: 2}
+definition{name: groundRefuse, parameters: [], result: Nat, body: 3}
+
+definition{
+  name: groundDecision,
+  parameters: [band : Nat, citations : Nat],
+  result: Nat,
+  body: (if (citations =? 0) then (groundRefuse) else (if (band =? 2) then (groundAnswer) else (if (band =? 1) then (groundNotice) else (groundRefuse))))
+}
+
+definition{
+  name: breaksNoUncitedAnswer,
+  parameters: [band : Nat, citations : Nat],
+  result: Bool,
+  body: ((citations =? 0) && (not ((groundDecision band citations) =? (groundRefuse))))
+}
+
+theorem{
+  name: noUncitedAnswer,
+  parameters: [band : Nat, citations : Nat],
+  statement: ((breaksNoUncitedAnswer band citations) = false),
+  proof: linear_arithmetic{definitions: [breaksNoUncitedAnswer, groundAnswer, groundDecision, groundNotice, groundRefuse]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksMediumCarriesNotice,
+  parameters: [band : Nat, citations : Nat],
+  result: Bool,
+  body: ((not (band =? 2)) && ((groundDecision band citations) =? (groundAnswer)))
+}
+
+theorem{
+  name: mediumCarriesNotice,
+  parameters: [band : Nat, citations : Nat],
+  statement: ((breaksMediumCarriesNotice band citations) = false),
+  proof: linear_arithmetic{definitions: [breaksMediumCarriesNotice, groundAnswer, groundDecision, groundNotice, groundRefuse]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: answerLevel,
+  parameters: [left : Nat, right : Nat],
+  result: Nat,
+  body: (if (left <=? right) then right else left)
+}
+
+definition{
+  name: breaksOpenStaysOpen,
+  parameters: [left : Nat, right : Nat],
+  result: Bool,
+  body: (((left <=? 2) && (right <=? 2)) && (((left =? 2) || (right =? 2)) && (not ((answerLevel left right) =? 2))))
+}
+
+theorem{
+  name: openStaysOpen,
+  parameters: [left : Nat, right : Nat],
+  statement: ((breaksOpenStaysOpen left right) = false),
+  proof: linear_arithmetic{definitions: [answerLevel, breaksOpenStaysOpen]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksBuiltNeedsBuilt,
+  parameters: [left : Nat, right : Nat],
+  result: Bool,
+  body: (((answerLevel left right) =? 0) && (not ((left =? 0) && (right =? 0))))
+}
+
+theorem{
+  name: builtNeedsBuilt,
+  parameters: [left : Nat, right : Nat],
+  statement: ((breaksBuiltNeedsBuilt left right) = false),
+  proof: linear_arithmetic{definitions: [answerLevel, breaksBuiltNeedsBuilt]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: preferredSource,
+  parameters: [left : Nat, right : Nat],
+  result: Nat,
+  body: (if (left <=? right) then left else right)
+}
+
+definition{
+  name: breaksPreferredIsMostTrusted,
+  parameters: [left : Nat, right : Nat],
+  result: Bool,
+  body: (not (((preferredSource left right) <=? left) && ((preferredSource left right) <=? right)))
+}
+
+theorem{
+  name: preferredIsMostTrusted,
+  parameters: [left : Nat, right : Nat],
+  statement: ((breaksPreferredIsMostTrusted left right) = false),
+  proof: linear_arithmetic{definitions: [breaksPreferredIsMostTrusted, preferredSource]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: retentionDelete,
+  parameters: [class : Nat, forget : Nat, age : Nat, limit : Nat],
+  result: Bool,
+  body: ((forget =? 1) || ((class =? 1) && (limit <? age)))
+}
+
+definition{
+  name: breaksForgetDeletes,
+  parameters: [class : Nat, forget : Nat, age : Nat, limit : Nat],
+  result: Bool,
+  body: ((forget =? 1) && (not (retentionDelete class forget age limit)))
+}
+
+theorem{
+  name: forgetDeletes,
+  parameters: [class : Nat, forget : Nat, age : Nat, limit : Nat],
+  statement: ((breaksForgetDeletes class forget age limit) = false),
+  proof: linear_arithmetic{definitions: [breaksForgetDeletes, retentionDelete]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksKeepsWithinLimit,
+  parameters: [class : Nat, forget : Nat, age : Nat, limit : Nat],
+  result: Bool,
+  body: ((retentionDelete class forget age limit) && ((not (forget =? 1)) && (age <=? limit)))
+}
+
+theorem{
+  name: keepsWithinLimit,
+  parameters: [class : Nat, forget : Nat, age : Nat, limit : Nat],
+  statement: ((breaksKeepsWithinLimit class forget age limit) = false),
+  proof: linear_arithmetic{definitions: [breaksKeepsWithinLimit, retentionDelete]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: citeAdmit,
+  parameters: [labelled : Nat, verified : Nat, revoked : Nat],
+  result: Bool,
+  body: ((labelled =? 1) && ((verified =? 1) && (revoked =? 0)))
+}
+
+definition{
+  name: breaksCiteAdmit,
+  parameters: [labelled : Nat, verified : Nat, revoked : Nat],
+  result: Bool,
+  body: ((citeAdmit labelled verified revoked) && ((not (labelled =? 1)) || ((not (verified =? 1)) || (not (revoked =? 0)))))
+}
+
+theorem{
+  name: citeOnlyVerified,
+  parameters: [labelled : Nat, verified : Nat, revoked : Nat],
+  statement: ((breaksCiteAdmit labelled verified revoked) = false),
+  proof: linear_arithmetic{definitions: [breaksCiteAdmit, citeAdmit]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: namespaceOf,
+  parameters: [source : Nat],
+  result: Nat,
+  body: (if (source <=? 2) then 0 else 1)
+}
+
+definition{
+  name: breaksDiscordPrivate,
+  parameters: [source : Nat],
+  result: Bool,
+  body: ((3 <=? source) && ((namespaceOf source) =? 0))
+}
+
+theorem{
+  name: discordPrivate,
+  parameters: [source : Nat],
+  statement: ((breaksDiscordPrivate source) = false),
+  proof: linear_arithmetic{definitions: [breaksDiscordPrivate, namespaceOf]},
+  axioms: [Quot.sound, propext]
+}
+definition{
+  name: accessContinue,
+  parameters: [mode : Nat, listed : Nat],
+  result: Bool,
+  body: (((mode =? 1) && (listed =? 1)) || ((mode =? 0) && (listed =? 0)))
+}
+
+definition{
+  name: breaksWhitelistOnlyListed,
+  parameters: [listed : Nat],
+  result: Bool,
+  body: ((accessContinue 1 listed) && (not (listed =? 1)))
+}
+
+theorem{
+  name: whitelistOnlyListed,
+  parameters: [listed : Nat],
+  statement: ((breaksWhitelistOnlyListed listed) = false),
+  proof: linear_arithmetic{definitions: [accessContinue, breaksWhitelistOnlyListed]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksBlacklistNeverListed,
+  parameters: [listed : Nat],
+  result: Bool,
+  body: ((accessContinue 0 listed) && (listed =? 1))
+}
+
+theorem{
+  name: blacklistNeverListed,
+  parameters: [listed : Nat],
+  statement: ((breaksBlacklistNeverListed listed) = false),
+  proof: linear_arithmetic{definitions: [accessContinue, breaksBlacklistNeverListed]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: filterInScope,
+  parameters: [stage : Nat, scope : Nat],
+  result: Bool,
+  body: ((scope =? 0) || (((stage =? 0) && (scope =? 1)) || ((stage =? 1) && (scope =? 2))))
+}
+
+definition{
+  name: filterOutcome,
+  parameters: [stage : Nat, scope : Nat, level : Nat],
+  result: Nat,
+  body: (if (not (filterInScope stage scope)) then 0 else (if (stage =? 0) then (if (2 <=? level) then 2 else 0) else (if (level =? 3) then 2 else (if (level =? 2) then 1 else 0))))
+}
+
+definition{
+  name: breaksBlockInterrupts,
+  parameters: [stage : Nat, scope : Nat],
+  result: Bool,
+  body: ((filterInScope stage scope) && (not ((filterOutcome stage scope 3) =? 2)))
+}
+
+theorem{
+  name: blockInterrupts,
+  parameters: [stage : Nat, scope : Nat],
+  statement: ((breaksBlockInterrupts stage scope) = false),
+  proof: linear_arithmetic{definitions: [breaksBlockInterrupts, filterInScope, filterOutcome]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksMaskedNeverPlain,
+  parameters: [stage : Nat, scope : Nat],
+  result: Bool,
+  body: ((filterInScope stage scope) && ((filterOutcome stage scope 2) =? 0))
+}
+
+theorem{
+  name: maskedNeverPlain,
+  parameters: [stage : Nat, scope : Nat],
+  statement: ((breaksMaskedNeverPlain stage scope) = false),
+  proof: linear_arithmetic{definitions: [breaksMaskedNeverPlain, filterInScope, filterOutcome]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: lengthOutcome,
+  parameters: [size : Nat, strategy : Nat],
+  result: Nat,
+  body: (if (size =? 0) then 0 else (if ((size =? 1) && (strategy =? 0)) then 1 else 2))
+}
+
+definition{
+  name: breaksNeverOverLimit,
+  parameters: [size : Nat, strategy : Nat],
+  result: Bool,
+  body: ((1 <=? size) && ((lengthOutcome size strategy) =? 0))
+}
+
+theorem{
+  name: neverOverLimit,
+  parameters: [size : Nat, strategy : Nat],
+  statement: ((breaksNeverOverLimit size strategy) = false),
+  proof: linear_arithmetic{definitions: [breaksNeverOverLimit, lengthOutcome]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksNeverFlood,
+  parameters: [size : Nat, strategy : Nat],
+  result: Bool,
+  body: ((2 <=? size) && ((lengthOutcome size strategy) =? 1))
+}
+
+theorem{
+  name: neverFlood,
+  parameters: [size : Nat, strategy : Nat],
+  statement: ((breaksNeverFlood size strategy) = false),
+  proof: linear_arithmetic{definitions: [breaksNeverFlood, lengthOutcome]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: toolAllowed,
+  parameters: [server : Nat, effect : Nat, role : Nat],
+  result: Bool,
+  body: ((server =? 0) && ((effect =? 0) || (role =? 1)))
+}
+
+definition{
+  name: breaksToolGuard,
+  parameters: [server : Nat, effect : Nat, role : Nat],
+  result: Bool,
+  body: ((toolAllowed server effect role) && ((not (server =? 0)) || ((not (effect =? 0)) && (not (role =? 1)))))
+}
+
+theorem{
+  name: toolGuard,
+  parameters: [server : Nat, effect : Nat, role : Nat],
+  statement: ((breaksToolGuard server effect role) = false),
+  proof: linear_arithmetic{definitions: [breaksToolGuard, toolAllowed]},
+  axioms: [Quot.sound, propext]
+}
+\end{semanticmodule}
+\end{lexlean}

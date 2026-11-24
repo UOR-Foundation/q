@@ -1,0 +1,5 @@
+# The identity of this project to a holospace. `prism-code init` made it once, from 32 random bytes, and never
+# rewrites it. A holospace opened from this project is named by it, so it keeps its files and storage as the
+# model changes. A copy of this folder is the same project to a holospace: change the ID to make it another.
+# No build reads this file, so it is not part of the app and does not change the app's address.
+id = "6949e53d1f3782cf631d1e8c1f54757184a8a474664f06726aedf17f09336ada"

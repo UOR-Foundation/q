@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+      # The kernel: the model checks, every theorem is proved, every vector replays.
+      - run: npx --yes prism-code@0.11.1 check --json
+      - run: npx --yes prism-code@0.11.1 build --json
+      - run: npx --yes prism-code@0.11.1 verify --json
+      # The host: locked dependencies, bindings that match the kernel just built, types, tests.
+      - run: npm ci
+        working-directory: host
+      - run: npm run generate && git diff --exit-code -- src/client
+        working-directory: host
+      - run: npm run typecheck
+        working-directory: host
+      - run: npm test
+        working-directory: host

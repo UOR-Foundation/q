@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/uor-discord-agent/docs/schemas/context.schema.json",
+  "title": "uor-agent/context/1",
+  "description": "The input of one turn: everything an answer is made from. Stored in the private namespace under its BLAKE3 kappa label (uor-addr, JCS + NFC), and forgotten with its author.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "schema", "kernel", "community", "request", "retrieval", "decision", "author", "channel", "created"],
+  "$defs": {
+    "label": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" }
+  },
+  "properties": {
+    "type": { "const": "context" },
+    "schema": { "const": "uor-agent/context/1" },
+    "kernel": {
+      "description": "The agent's own holo, by the BLAKE3 label of its bytes, and the model identity it carries.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["holo", "model"],
+      "properties": { "holo": { "$ref": "#/$defs/label" }, "model": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+    },
+    "community": {
+      "description": "The community pin: the signed community holo by its BLAKE3 label, and the newest commit its verified provenance names.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["holo", "commit"],
+      "properties": { "holo": { "$ref": "#/$defs/label" }, "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" } }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "trigger", "question"],
+      "properties": {
+        "command": { "enum": ["ask", "search"] },
+        "trigger": { "enum": ["mention", "replyToAgent", "slash"] },
+        "question": { "type": "string" }
+      }
+    },
+    "retrieval": {
+      "description": "The score band the kernel was told, and every item retrieval offered, before the kernel admitted any as a citation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["band", "items"],
+      "properties": { "band": { "enum": ["low", "medium", "high"] }, "items": { "type": "array", "items": { "$ref": "#/$defs/label" } } }
+    },
+    "decision": {
+      "description": "The community decision asked, or null when no retrieved source is a community decision app.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["app", "inputs", "missing", "answer"],
+          "properties": {
+            "app": { "type": "string" },
+            "inputs": { "description": "Read from the question by the language model: interpretation, not fact.", "type": "object", "additionalProperties": { "type": "string" } },
+            "missing": { "type": "array", "items": { "type": "string" } },
+            "answer": { "description": "The community holo's answer; null when inputs were missing and it was not asked.", "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "author": { "type": "string" },
+    "channel": { "type": "string" },
+    "created": { "description": "Milliseconds since the Unix epoch.", "type": "integer" }
+  }
+}

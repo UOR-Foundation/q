@@ -1,0 +1,24 @@
+{
+  "files": {
+    "u-o-r-discord-agent.d.ts": "d47ed86f53a813134b0153107616daab8382eea4a93cb42fbfa4d07c1b0f2f43",
+    "u-o-r-discord-agent.js": "8d4838e8578249e97944ef63aca753242b51dfa0094e3efc073977d037f4b926",
+    "world.d.ts": "e4555dab8820c573f34bb41b336231dad5523d35bbcaeecbb73e8b04ce8de58b",
+    "world.js": "4217413d7b62ef8c98d7cd3787bff7a9db7e86966bde58e66445110f392b14ce"
+  },
+  "generator": {
+    "name": "prism-code",
+    "sha256": "eb6998905a4ebd8c1dfa371387f2096464eea67bd0e5117fe85ca8acbf326deb",
+    "version": "0.11.1"
+  },
+  "language": "js",
+  "model": {
+    "blake3": "32359666bf8a4acd77ef233c064b43d402c17446f9fa56e8368a146574073745",
+    "sha256": "d3890aadb85b848ed7d5de2c608599397624a6641ad9fdf081e756667d17b2b3"
+  },
+  "schema": "prismpm/generate-record/1",
+  "world": {
+    "blake3": "0774a8ecbfa945a427712ee7d7ad406195b2d07492ceae15cca0067276c9ced8",
+    "contract": "hologram:guest/core-wasm@1",
+    "sha256": "a566c87a359cadf98f652747f1b3574aa307ff5f652a190c6d99c350db9cf369"
+  }
+}

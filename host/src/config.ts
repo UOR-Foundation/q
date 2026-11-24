@@ -1,0 +1,81 @@
+// Configuration from the environment. Secrets are read here and nowhere else,
+// and never logged.
+import type { ServerConfig } from './tools.ts';
+
+const need = (name: string): string => {
+  const value = process.env[name];
+  if (!value) throw new Error(`missing environment variable ${name}`);
+  return value;
+};
+const list = (name: string) => (process.env[name] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const number = (name: string, fallback: number) => (process.env[name] ? Number(process.env[name]) : fallback);
+function choice<T extends string>(name: string, values: readonly T[], fallback: T): T {
+  const value = process.env[name] || fallback;
+  if (!values.includes(value as T)) throw new Error(`${name} must be one of ${values.join(', ')}`);
+  return value as T;
+}
+
+export function config() {
+  const provider = process.env.LLM_PROVIDER ?? 'anthropic';
+  const c = {
+    holo: process.env.KERNEL_HOLO ?? '../app/.prism/build/uor-discord-agent.holo',
+    discordToken: need('DISCORD_TOKEN'),
+    installedByAdmin: process.env.INSTALLED_BY_ADMIN === 'true',
+    messageContentIntent: process.env.MESSAGE_CONTENT_INTENT === 'true',
+    adminRoles: new Set(list('ADMIN_ROLES')),
+    llm: provider === 'anthropic'
+      ? { provider: 'anthropic' as const, key: need('ANTHROPIC_API_KEY'), model: process.env.ANTHROPIC_MODEL ?? 'claude-opus-5-5' }
+      // Ollama speaks the same chat completions route, on its own port, with no key.
+      : provider === 'ollama'
+        ? { provider: 'openai-compatible' as const, url: process.env.LLM_URL ?? 'http://localhost:11434/v1', key: '', model: need('LLM_MODEL'), thinking: process.env.LLM_THINKING !== 'false' }
+        : { provider: 'openai-compatible' as const, url: need('LLM_URL'), key: process.env.LLM_API_KEY ?? '', model: need('LLM_MODEL'), thinking: process.env.LLM_THINKING !== 'false' },
+    // MCP servers, as JSON: [{"name": "lexlean", "url": "https://...", "allow": true}] or {"command": ..., "args": [...]}.
+    mcpServers: JSON.parse(process.env.MCP_SERVERS || '[]') as ServerConfig[],
+    embeddingsUrl: need('EMBEDDINGS_URL'),
+    embeddingsKey: process.env.EMBEDDINGS_API_KEY ?? '',
+    embeddingsModel: need('EMBEDDINGS_MODEL'),
+    // nomic-embed-text wants these; most other models want none.
+    embeddingsPrefix: { query: process.env.EMBEDDINGS_QUERY_PREFIX ?? '', document: process.env.EMBEDDINGS_DOCUMENT_PREFIX ?? '' },
+    registryUrl: process.env.KAPPA_REGISTRY_URL,
+    registryToken: process.env.KAPPA_REGISTRY_TOKEN ?? '',
+    registryPublic: process.env.KAPPA_NAMESPACE_PUBLIC ?? 'uor-agent/public',
+    registryPrivate: process.env.KAPPA_NAMESPACE_PRIVATE ?? 'uor-agent/private',
+    storeDir: process.env.STORE_DIR ?? './data/store',
+    indexFile: process.env.INDEX_FILE ?? './data/index.sqlite',
+    backfillFile: process.env.BACKFILL_FILE ?? './data/backfill.json',
+    // The community root. The commit is not configured: it is read from the holo's signed provenance.
+    community: {
+      repository: process.env.COMMUNITY_REPOSITORY ?? 'UOR-Foundation/community',
+      holoUrl: process.env.COMMUNITY_HOLO_URL ?? 'https://uor-foundation.github.io/community/app.holo',
+      signer: process.env.COMMUNITY_SIGNER ?? 'https://github.com/UOR-Foundation/community/.github/workflows/pages.yml@refs/heads/main',
+      cacheDir: process.env.COMMUNITY_CACHE_DIR ?? './data/community',
+    },
+    githubToken: process.env.GITHUB_TOKEN ?? '',
+    githubRepositories: list('GITHUB_REPOSITORIES'),
+    retentionDays: number('RETENTION_DAYS', 180),
+    settings: {
+      userLimit: number('RATE_USER_LIMIT', 5),
+      channelLimit: number('RATE_CHANNEL_LIMIT', 20),
+      windowMs: number('RATE_WINDOW_SECONDS', 60) * 1000,
+      mediumSimilarity: number('SIMILARITY_MEDIUM', 0.35),
+      highSimilarity: number('SIMILARITY_HIGH', 0.5),
+      retrieve: number('RETRIEVE', 6),
+      // LangBot's pipeline settings.
+      access: { mode: choice('ACCESS_MODE', ['blacklist', 'whitelist'] as const, 'blacklist'), list: new Set(list('ACCESS_LIST')) },
+      filter: { scope: choice('FILTER_SCOPE', ['both', 'incoming', 'outgoing'] as const, 'both'), terms: list('FILTER_TERMS') },
+      longText: choice('LONG_TEXT', ['split', 'file'] as const, 'split'),
+      concurrency: number('CONCURRENCY', 4),
+    },
+  };
+  // A limit is one byte in a kernel request, and an age past 255 days is sent as 255,
+  // so the retention limit stops at 254 for an older item still to be past it.
+  const whole = (value: number, greatest: number, name: string) => {
+    if (!Number.isInteger(value) || value < 1 || value > greatest) throw new Error(`${name} must be a whole number from 1 to ${greatest}`);
+  };
+  whole(c.settings.userLimit, 255, 'RATE_USER_LIMIT');
+  whole(c.settings.channelLimit, 255, 'RATE_CHANNEL_LIMIT');
+  whole(c.retentionDays, 254, 'RETENTION_DAYS');
+  whole(c.settings.concurrency, 64, 'CONCURRENCY');
+  return c;
+}
+export type Config = ReturnType<typeof config>;

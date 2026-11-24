@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/uor-discord-agent/docs/schemas/answer.schema.json",
+  "title": "uor-agent/answer/1",
+  "description": "The output of one turn: what the agent said. Stored in the private namespace under its BLAKE3 kappa label, with edges derived-from (its context), evidence-provenance (each citation) and certified-by (the agent's holo, and the community holo when a decision was answered).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "schema", "context", "outcome", "level", "text", "citations", "tools", "author", "channel", "created"],
+  "$defs": {
+    "label": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" }
+  },
+  "properties": {
+    "type": { "const": "answer" },
+    "schema": { "const": "uor-agent/answer/1" },
+    "context": { "description": "The BLAKE3 label of the uor-agent/context/1 record this answer was made from.", "$ref": "#/$defs/label" },
+    "outcome": { "description": "The kernel's grounding decision.", "enum": ["answer", "answer with notice", "not grounded"] },
+    "level": { "description": "The claim level the kernel combined from the citations; null for a refusal.", "enum": ["build", "some-true", "open", null] },
+    "text": { "description": "The answer's body, without the footer the reply adds.", "type": "string" },
+    "citations": { "type": "array", "items": { "$ref": "#/$defs/label" } },
+    "tools": {
+      "description": "Every MCP tool call the language model asked for, in order, with the kernel's decision (decision 15). A call that ran names the label of its stored tool-result item, which is also evidence-provenance of the answer.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["server", "tool", "decision", "result"],
+        "properties": {
+          "server": { "type": "string" },
+          "tool": { "type": "string" },
+          "decision": { "enum": ["call", "refuse"] },
+          "result": { "oneOf": [{ "$ref": "#/$defs/label" }, { "type": "null" }] }
+        }
+      }
+    },
+    "author": { "type": "string" },
+    "channel": { "type": "string" },
+    "created": { "type": "integer" }
+  }
+}

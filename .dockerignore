@@ -1,0 +1,7 @@
+host/node_modules
+host/data
+host/.env
+**/.lexlean
+**/.lake
+.git
+host/models
