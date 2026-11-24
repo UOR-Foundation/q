@@ -109,7 +109,7 @@ definition{
   name: commandAllowed,
   parameters: [command : Nat, role : Nat],
   result: Bool,
-  body: ((command <=? 2) || ((command =? 5) || (((command =? 3) || ((command =? 4) || (command =? 6))) && (role =? 1))))
+  body: ((command <=? 2) || ((command =? 5) || ((command =? 7) || (((command =? 3) || ((command =? 4) || (command =? 6))) && (role =? 1)))))
 }
 
 definition{
@@ -749,6 +749,42 @@ theorem{
   parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat],
   statement: ((breaksPromoteNeedsGain candidateErr currentErr candidateP95 currentP95 maxP95 breaches) = false),
   proof: linear_arithmetic{definitions: [breaksPromoteNeedsGain, promote]},
+  axioms: [Quot.sound, propext]
+}
+definition{
+  name: fileRequest,
+  parameters: [consented : Nat, supporters : Nat, threshold : Nat, filed : Nat],
+  result: Bool,
+  body: ((consented =? 0) && ((filed =? 0) && ((1 <=? threshold) && (threshold <=? supporters))))
+}
+
+definition{
+  name: breaksFileOnlyConsented,
+  parameters: [consented : Nat, supporters : Nat, threshold : Nat, filed : Nat],
+  result: Bool,
+  body: ((fileRequest consented supporters threshold filed) && ((not (consented =? 0)) || (not (filed =? 0))))
+}
+
+theorem{
+  name: fileOnlyConsented,
+  parameters: [consented : Nat, supporters : Nat, threshold : Nat, filed : Nat],
+  statement: ((breaksFileOnlyConsented consented supporters threshold filed) = false),
+  proof: linear_arithmetic{definitions: [breaksFileOnlyConsented, fileRequest]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksFileOnlyWithSupport,
+  parameters: [consented : Nat, supporters : Nat, threshold : Nat, filed : Nat],
+  result: Bool,
+  body: ((fileRequest consented supporters threshold filed) && ((not (threshold <=? supporters)) || (supporters =? 0)))
+}
+
+theorem{
+  name: fileOnlyWithSupport,
+  parameters: [consented : Nat, supporters : Nat, threshold : Nat, filed : Nat],
+  statement: ((breaksFileOnlyWithSupport consented supporters threshold filed) = false),
+  proof: linear_arithmetic{definitions: [breaksFileOnlyWithSupport, fileRequest]},
   axioms: [Quot.sound, propext]
 }
 \end{semanticmodule}

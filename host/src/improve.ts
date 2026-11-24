@@ -75,12 +75,23 @@ export interface LoopDeps {
   emit(event: object): void;
   now(): number;
   evaluation: { size: number; maxErrorPct: number; maxP95Seconds: number };
+  /** Members' requests: how many must support one before it is filed, and how it is filed to the community. */
+  requests: { threshold: number; file?(request: { label: string; kind: string; text: string; supporters: number }): Promise<string> };
 }
+
+const KINDS = new Set(['idea', 'problem', 'praise']);
+/** Two requests this alike are one request: the second member supports the first. */
+const ALIKE = 0.86;
+const cosine = (a: number[], b: number[]) => {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return na && nb ? dot / Math.sqrt(na * nb) : 0;
+};
 
 interface Gap { label: string; question: string; channel: string; asked: number; author: string; filled: string | null }
 interface Delivery { answer: string; question: string; grounded: boolean }
 interface Test { question: string; source: 'approval' | 'gap-fill'; added: number }
-interface Proposal { kind: 'knowledge' | 'fix' | 'regression'; subject: string; why: string }
+interface Proposal { kind: 'knowledge' | 'fix' | 'regression' | 'request'; subject: string; why: string }
 interface Measured { label: string; arm: Arm | null; outcome: 'measured' | 'waited' | 'aborted' }
 
 export interface Review {
@@ -90,6 +101,7 @@ export interface Review {
   at: number;
   self: { holo: string; model: string; commit: string | null; vectors: number; community: { holo: string; commit: string }; chunks: number; genome: string | null };
   gaps: { open: number; filled: number };
+  requests: { open: number; filed: number };
   tests: number;
   evaluation: string | null;
   evolution: string | null;
@@ -165,6 +177,66 @@ export class Loop {
     return verdict;
   }
 
+  #vectors = new Map<string, number[]>();
+
+  /** The distinct members whose live feedback supports a request. */
+  async #supporters(request: string): Promise<Set<string>> {
+    const who = new Set<string>();
+    for (const f of this.#deps.index.loopAll<{ request: string; author: string }>('feedback')) {
+      if (f.value.request === request && (await this.#live(f.key))) who.add(f.value.author);
+    }
+    return who;
+  }
+
+  /**
+   * A member's feedback or request, sent with /feedback, which says it goes to the community without their name.
+   * It joins the open request it is most alike, or opens one. When enough members support it, the kernel files it
+   * to the community as an issue (decision 25), once, named by its BLAKE3 label.
+   */
+  async feedback(f: { kind: string; text: string; authorId: string; channelId: string }): Promise<string> {
+    const text = f.text.trim().slice(0, 1500);
+    if (!text) return 'Write what you would like Q to do better, or what went wrong.';
+    const kind = KINDS.has(f.kind) ? f.kind : 'idea';
+    const { index, embedder, kernel, now } = this.#deps;
+    const [vector] = await embedder.embed([text]);
+    let best: { label: string; likeness: number } | null = null;
+    for (const r of index.loopAll<{ kind: string; text: string; filed: string | null }>('request')) {
+      if (r.value.kind !== kind || !(await this.#live(r.key))) continue;
+      let v = this.#vectors.get(r.key);
+      if (!v) { [v] = await embedder.embed([r.value.text]); this.#vectors.set(r.key, v); }
+      const likeness = cosine(vector, v);
+      if (likeness >= ALIKE && (!best || likeness > best.likeness)) best = { label: r.key, likeness };
+    }
+    const request = best?.label ?? (await this.#keep({ type: 'request', spec: 'uor-q/request/1', kind, text, author: f.authorId, at: now() }));
+    if (!best) this.#vectors.set(request, vector);
+    await this.#keep({ type: 'feedback', spec: 'uor-q/feedback/1', request, kind, text, author: f.authorId, channel: f.channelId, consented: true, at: now() });
+    const supporters = (await this.#supporters(request)).size;
+    const state = index.loopGet<{ text: string; filed: string | null }>('request', request)!;
+    const threshold = this.#deps.requests.threshold;
+    let filed = state.filed;
+    if ((await kernel.fileRequest(true, supporters, threshold, Boolean(filed))) === 'file' && this.#deps.requests.file) {
+      try {
+        filed = await this.#deps.requests.file({ label: request, kind, text: state.text, supporters });
+        await this.#keep({ type: 'request-filed', spec: 'uor-q/request-filed/1', request, issue: filed, supporters, at: now() });
+      } catch (error) {
+        console.error(JSON.stringify({ event: 'error', message: `filing ${request}: ${String(error)}` }));
+      }
+    }
+    const joined = best ? `It joins a request ${supporters - 1} other member${supporters === 2 ? '' : 's'} made.` : 'It opens a new request.';
+    const where = filed ? `It is filed for the community: <${filed}>.`
+      : supporters >= threshold ? 'It has enough support, and goes to the community as soon as filing is set up.'
+      : `It goes to the community, without your name, once ${threshold} members ask for it.`;
+    return `Thank you. Recorded as ${kind} \`${request.slice(0, 19)}\`. ${joined} ${where}`;
+  }
+
+  /** A 👎 on an answer Q sent: counted against that answer in the review. It carries no text, so it is never filed. */
+  async disapproved(sentUrl: string, human: boolean): Promise<'recorded' | 'skip'> {
+    const delivery = this.#deps.index.loopGet<Delivery>('delivery', sentUrl);
+    if (!human || !delivery || !(await this.#live(delivery.answer))) return 'skip';
+    await this.#keep({ type: 'feedback', spec: 'uor-q/feedback/1', request: null, kind: 'problem', text: null, about: delivery.answer, author: null, consented: false, at: this.#deps.now() });
+    return 'recorded';
+  }
+
   async #test(question: string, source: Test['source'], from: string, author: string | null) {
     // One test per question: the same question approved twice is one test.
     if (this.#deps.index.loopAll<Test>('test').some((t) => t.value.question === question)) return;
@@ -230,7 +302,13 @@ export class Loop {
     let tests = 0;
     for (const t of index.loopAll<Test>('test')) if (await this.#live(t.key)) tests++;
     const experiments = this.#deps.experiments();
+    const requests: { label: string; supporters: number; filed: string | null }[] = [];
+    for (const r of index.loopAll<{ filed: string | null }>('request')) {
+      if (await this.#live(r.key)) requests.push({ label: r.key, supporters: (await this.#supporters(r.key)).size, filed: r.value.filed });
+    }
+    const asked = requests.filter((r) => !r.filed).sort((a, b) => b.supporters - a.supporters);
     const proposals: Proposal[] = [
+      ...asked.slice(0, 10).map((r): Proposal => ({ kind: 'request', subject: r.label, why: `Asked by ${r.supporters} member${r.supporters === 1 ? '' : 's'}.` })),
       ...open.filter((g) => now() - g.asked >= DAY).slice(0, 10).map((g): Proposal => ({ kind: 'knowledge', subject: g.label, why: 'Asked and still unanswered: add a source that answers it, or answer it in a reply to the question.' })),
       ...experiments.filter((e) => e.verdict === 'disproved').map((e): Proposal => ({ kind: 'fix', subject: e.result, why: `${e.name}: the steady state did not hold under the fault.` })),
       ...(evaluated?.arm && evaluated.arm.steady === 'disturbed' ? [{ kind: 'regression' as const, subject: evaluated.label, why: `${evaluated.arm.wrong} of ${evaluated.arm.questions} questions did not get the outcome they used to.` }] : []),
@@ -240,7 +318,7 @@ export class Loop {
     const review: Review = {
       type: 'review', spec: 'uor-q/review/1', previous, at: now(),
       self: { holo: kernel.holo, model: kernel.model, commit: kernel.commit, vectors: kernel.vectors, community: { holo: pin.holo, commit: pin.commit }, chunks: index.count(), genome: index.loopGet<{ label: string }>('genome', 'latest')?.label ?? null },
-      gaps: { open: open.length, filled: gaps.length - open.length }, tests, evaluation: evaluated?.label ?? null, evolution: evolution?.label ?? null, experiments, proposals,
+      gaps: { open: open.length, filled: gaps.length - open.length }, requests: { open: asked.length, filed: requests.length - asked.length }, tests, evaluation: evaluated?.label ?? null, evolution: evolution?.label ?? null, experiments, proposals,
     };
     const label = await this.#keep(review);
     if (previous) await this.#deps.store.link('private', { source: label, target: previous, relation: 'derived-from' });
@@ -250,9 +328,9 @@ export class Loop {
       specversion: '1.0', type: REVIEW_EVENT, source: 'https://github.com/UOR-Foundation/q', id: labelOf({ type: 'event', eventType: REVIEW_EVENT, at: review.at, gaps: review.gaps, tests }),
       time: new Date(review.at).toISOString(), datacontenttype: 'application/json',
       data: {
-        kernel: kernel.holo, community: pin.holo, chunks: review.self.chunks, gaps: review.gaps, tests,
+        kernel: kernel.holo, community: pin.holo, chunks: review.self.chunks, gaps: review.gaps, requests: review.requests, tests,
         evaluation: evaluated?.arm ? { errorPct: evaluated.arm.errorPct, p95Seconds: evaluated.arm.p95Seconds, steady: evaluated.arm.steady } : null,
-        proposals: { knowledge: proposals.filter((p) => p.kind === 'knowledge').length, fix: proposals.filter((p) => p.kind === 'fix').length, regression: proposals.filter((p) => p.kind === 'regression').length },
+        proposals: { request: proposals.filter((p) => p.kind === 'request').length, knowledge: proposals.filter((p) => p.kind === 'knowledge').length, fix: proposals.filter((p) => p.kind === 'fix').length, regression: proposals.filter((p) => p.kind === 'regression').length },
       },
     });
     return { label, review };
@@ -287,6 +365,7 @@ export class Loop {
       genes ? `Genome: generation ${generations}, \`${review.self.genome!.slice(0, 19)}\`: medium ${genes.mediumSimilarity}, high ${genes.highSimilarity}, retrieve ${genes.retrieve}.` : 'Genome: none yet.',
       evolution ? `Evolution: tried ${JSON.stringify(evolution.candidate)}, ${evolution.decision === 'promote' ? 'promoted: it beat the current genome' : 'kept the current genome'}.` : 'Evolution: not tried (fewer than three tests, or no measurement).',
       `Gaps: ${review.gaps.open} open, ${review.gaps.filled} filled by members.`,
+      `Requests: ${review.requests?.open ?? 0} open, ${review.requests?.filed ?? 0} filed to the community.`,
       `Tests: ${review.tests}, from approved answers and filled gaps.`,
       arm ? `Evaluation: ${arm.questions - arm.wrong} of ${arm.questions} right (tests and refusal probes), p95 ${arm.p95Seconds} s, ${arm.steady}.` : `Evaluation: ${evaluation ? String(evaluation.outcome) : 'none yet'}.`,
       `Experiments: ${review.experiments.map((e) => `${e.name} ${e.verdict}`).join(', ') || 'none tried yet'}.`,
@@ -294,8 +373,8 @@ export class Loop {
     if (review.proposals.length) {
       lines.push('', '**Proposals**');
       for (const [i, p] of review.proposals.entries()) {
-        const subject = p.kind === 'knowledge' ? await store.get('private', p.subject) : undefined;
-        const asked = subject ? ` “${String(subject.question).slice(0, 160)}” in <#${subject.channel}>` : '';
+        const subject = p.kind === 'knowledge' || p.kind === 'request' ? await store.get('private', p.subject) : undefined;
+        const asked = !subject ? '' : p.kind === 'request' ? ` ${String(subject.kind)}: “${String(subject.text).slice(0, 160)}”` : ` “${String(subject.question).slice(0, 160)}” in <#${subject.channel}>`;
         lines.push(`${i + 1}. ${p.kind}:${asked} ${p.why}`);
       }
     } else {

@@ -22,6 +22,9 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { SearchIndex } from '../src/search.ts';
 import { faulty, loadExperiments, runExperiment, ShadowStore, shadowIndex, strikes, type Experiment, type ExperimentEvent } from '../src/chaos.ts';
 import { OpenAiCompatibleLlm } from '../src/providers.ts';
+import { GENE_BOUNDS, Loop, mutate, type Genes } from '../src/improve.ts';
+import { titleOf } from '../src/titles.ts';
+import type { Outgoing } from '../src/pipeline.ts';
 import { FileStore, isRevoked, MemoryStore } from '../src/store.ts';
 
 const HOLO = new URL('../../app/.prism/build/q.holo', import.meta.url);
@@ -178,7 +181,7 @@ test('a grounded question is answered with citations, a claim level and a stored
   assert.ok(reply.citations.every((c) => isLabel(c.label)));
   assert.match(reply.text, /Claim level: some-true/);
   // The answer cites only [1], so only [1] is listed, under its own number; the rest stay evidence.
-  assert.match(reply.text, /^-# \[1\] <https:\/\/example\.test\/community\/discord-read>/m);
+  assert.ok(reply.text.split('\n').includes('-# [1] [example.test › community/discord-read](<https://example.test/community/discord-read>)'));
   assert.doesNotMatch(reply.text, /https:\/\/example\.test\/site\/prism/);
   assert.ok(reply.citations.some((c) => c.url === 'https://example.test/site/prism'));
   assert.equal(llm.calls, 1);
@@ -884,4 +887,148 @@ test('the experiments in experiments/ are well formed, each named by its BLAKE3 
   const all = await loadExperiments(new URL('../../experiments', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
   assert.ok(all.length >= 6);
   for (const { label, experiment } of all) assert.equal(label, labelOf(experiment));
+});
+
+// The improvement loop.
+async function loopWorld(filed: { label: string; supporters: number }[] = []) {
+  const w = await world();
+  const events: object[] = [];
+  const clock = { now: Date.parse('2026-11-24T00:00:00Z') };
+  const live = { settings: { ...settings } as Settings };
+  const network = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'Prism applications are built from a LexLean model [1].' } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+  const loop = new Loop({
+    kernel, store: w.store, index: w.index, embedder: w.embedder, community: () => w.decider,
+    shadow: (s = live.settings) => {
+      const shadowStore = new ShadowStore(w.store);
+      const quiet = shadowIndex(w.index);
+      const model = new OpenAiCompatibleLlm('http://model.test', '', 'test-model', false, 1024, 1, network);
+      return new Pipeline(kernel, shadowStore, quiet, w.embedder, model, { ...s, userLimit: 255, channelLimit: 255, concurrency: 1 },
+        { memory: new Memory(kernel, shadowStore, quiet, w.embedder, 30), reindex: async () => '', community: () => w.decider, emit: () => {} });
+    },
+    settings: () => live.settings, adopt: (g: Genes) => { live.settings = { ...live.settings, ...g }; },
+    load: () => 0, experiments: () => [], probes: [{ text: 'zzzz qqqq xxxx', expect: 'refused' }],
+    emit: (e: object) => events.push(e), now: () => clock.now,
+    evaluation: { size: 12, maxErrorPct: 10, maxP95Seconds: 60 },
+    requests: { threshold: 2, file: async (r) => { filed.push(r); return `https://github.test/community/issues/${filed.length}`; } },
+  });
+  return { ...w, loop, events, clock, live, filed };
+}
+const cites = [{ label: 'blake3:' + '2'.repeat(64), url: 'u', source: 'website' as const, level: 'some-true' as const, text: 't' }];
+
+test('a refused question is a gap; a member reply to it fills the gap and becomes a test; forgetting the asker forgets both', async () => {
+  const w = await loopWorld();
+  const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
+  const refused: Outgoing = { text: "I don't know", decision: 'not grounded', citations: [], delivery: 'send', answer: answerLabel };
+  await w.loop.delivered({ questionUrl: 'https://discord.test/c1/q1', sentUrl: 'https://discord.test/c1/r1', question: 'Where do Prism apps keep their ledgers?', channelId: 'c1', authorId: 'asker', reply: refused });
+  assert.equal(await w.loop.observed(said('Unrelated chatter about BLAKE3'), 'index'), undefined);
+  assert.equal(await w.loop.observed(said('A bot says model ids', { replyTo: 'https://discord.test/c1/q1', origin: 'bot', url: 'https://discord.test/c1/b1' }), 'skip'), 'skip');
+  const reply = said('They live in model/ids.toml, with a scenario per ID in features/suites.', { replyTo: 'https://discord.test/c1/q1', authorId: 'helper', url: 'https://discord.test/c1/m2' });
+  assert.equal(await w.memory.observe(reply), 'index');
+  assert.equal(await w.loop.observed(reply, 'index'), 'fill');
+  assert.equal(await w.loop.observed(said('Also see CONFORMANCE.md', { replyTo: 'https://discord.test/c1/q1', authorId: 'other', url: 'https://discord.test/c1/m3' }), 'index'), 'skip');
+  const items = (await Promise.all((await w.store.labels('private')).map((l) => w.store.get('private', l)))).filter(Boolean);
+  assert.equal(items.filter((i) => i!.type === 'gap-fill').length, 1);
+  const testCase = items.find((i) => i!.type === 'test-case')!;
+  assert.equal(testCase.question, 'Where do Prism apps keep their ledgers?');
+  await w.memory.forget({ author: 'asker' });
+  const left = (await Promise.all((await w.store.labels('private')).map((l) => w.store.get('private', l)))).filter(Boolean).map((i) => i!.type);
+  assert.ok(!left.includes('gap') && !left.includes('test-case'));
+});
+
+test('a member approval makes a grounded answer a test, once; a refusal, a bot or another reaction does not', async () => {
+  const w = await loopWorld();
+  const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
+  await w.loop.delivered({ sentUrl: 'https://discord.test/a2', question: 'How are Prism applications built from a LexLean model?', channelId: 'c1', authorId: 'u2', reply: { text: 'a', decision: 'answer', citations: cites, delivery: 'send', answer: answerLabel } });
+  await w.loop.delivered({ sentUrl: 'https://discord.test/a3', question: 'Unanswerable?', channelId: 'c1', authorId: 'u3', reply: { text: 'no', decision: 'not grounded', citations: [], delivery: 'send', answer: answerLabel } });
+  assert.equal(await w.loop.approved('https://discord.test/a2', '😂', true), 'skip');
+  assert.equal(await w.loop.approved('https://discord.test/a2', '👍', false), 'skip');
+  assert.equal(await w.loop.approved('https://discord.test/a3', '👍', true), 'skip');
+  assert.equal(await w.loop.approved('https://discord.test/a2', '👍', true), 'admit');
+  assert.equal(await w.loop.approved('https://discord.test/a2', '✅', true), 'admit');
+  const tests = (await Promise.all((await w.store.labels('private')).map((l) => w.store.get('private', l)))).filter((i) => i?.type === 'test-case');
+  assert.equal(tests.length, 1);
+  assert.equal(await w.loop.disapproved('https://discord.test/a2', true), 'recorded');
+  assert.equal(await w.loop.disapproved('https://discord.test/a2', false), 'skip');
+});
+
+test('a request is filed to the community once enough members ask for it, once, and never without consent', async () => {
+  const w = await loopWorld();
+  const first = await w.loop.feedback({ kind: 'idea', text: 'Please add a command that summarises the governance channel each week', authorId: 'a', channelId: 'c1' });
+  assert.match(first, /opens a new request.*once 2 members ask/s);
+  assert.equal(w.filed.length, 0);
+  // The same member again does not count twice.
+  await w.loop.feedback({ kind: 'idea', text: 'Please add a command that summarises the governance channel each week', authorId: 'a', channelId: 'c1' });
+  assert.equal(w.filed.length, 0);
+  // A second member asking the same thing supports it, and it is filed.
+  const second = await w.loop.feedback({ kind: 'idea', text: 'Please add a command that summarises the governance channel each week', authorId: 'b', channelId: 'c2' });
+  assert.match(second, /joins a request 1 other member made.*filed for the community/s);
+  assert.equal(w.filed.length, 1);
+  assert.equal(w.filed[0].supporters, 2);
+  assert.ok(isLabel(w.filed[0].label));
+  // A third does not file it again.
+  await w.loop.feedback({ kind: 'idea', text: 'Please add a command that summarises the governance channel each week', authorId: 'c', channelId: 'c3' });
+  assert.equal(w.filed.length, 1);
+  // A different request, or a different kind, is its own request.
+  await w.loop.feedback({ kind: 'problem', text: 'Answers about LexLean cite the wrong page', authorId: 'b', channelId: 'c2' });
+  assert.equal(w.filed.length, 1);
+  // The kernel never files without consent, nor twice.
+  assert.equal(await kernel.fileRequest(false, 5, 2, false), 'hold');
+  assert.equal(await kernel.fileRequest(true, 5, 2, true), 'hold');
+  assert.equal(await kernel.fileRequest(true, 1, 2, false), 'hold');
+});
+
+test('a mutation is drawn from BLAKE3, stays within bounds, and keeps the high band above the medium band', () => {
+  const genes = { mediumSimilarity: settings.mediumSimilarity, highSimilarity: settings.highSimilarity, retrieve: settings.retrieve };
+  assert.deepEqual(mutate(genes, 'seed'), mutate(genes, 'seed'));
+  const seen = new Set<string>();
+  let g: Genes = genes;
+  for (let i = 0; i < 500; i++) {
+    g = mutate(g, `step-${i}`);
+    seen.add(JSON.stringify(g));
+    assert.ok(g.mediumSimilarity >= GENE_BOUNDS.mediumSimilarity[0] && g.mediumSimilarity <= GENE_BOUNDS.mediumSimilarity[1]);
+    assert.ok(g.highSimilarity <= GENE_BOUNDS.highSimilarity[1] && g.highSimilarity >= g.mediumSimilarity + 0.049);
+    assert.ok(g.retrieve >= GENE_BOUNDS.retrieve[0] && g.retrieve <= GENE_BOUNDS.retrieve[1]);
+  }
+  assert.ok(seen.size > 20);
+});
+
+test('a day of the loop measures, tries one mutation the kernel judges, and writes a review chained to the last', async () => {
+  const w = await loopWorld();
+  const root = await w.loop.restore();
+  assert.equal((await w.store.get('private', root))!.parent, null);
+  const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
+  for (const [i, q] of ['How are Prism applications built from a LexLean model?', 'What does a Prism application build from its LexLean model?', 'How is a LexLean model built into a Prism application?'].entries()) {
+    await w.loop.delivered({ sentUrl: `https://discord.test/a/${i}`, question: q, channelId: 'c1', authorId: 'u', reply: { text: 'a', decision: 'answer', citations: cites, delivery: 'send', answer: answerLabel } });
+    assert.equal(await w.loop.approved(`https://discord.test/a/${i}`, '👍', true), 'admit');
+  }
+  const first = await w.loop.daily();
+  assert.ok(first.evolution, 'a mutation was tried');
+  assert.ok(['promote', 'keep'].includes(first.evolution!.decision));
+  assert.equal(first.review.previous, null);
+  assert.equal(first.review.tests, 3);
+  assert.equal(first.review.self.holo, kernel.holo);
+  assert.equal(first.review.self.vectors, kernel.vectors);
+  const evaluation = (await w.store.get('private', first.review.evaluation!))!;
+  assert.equal((evaluation.arm as { questions: number }).questions, 4);
+  // The live settings always agree with the genome the lineage ends in.
+  const genome = (await w.store.get('private', first.review.self.genome!))!;
+  assert.deepEqual(genome.genes, { mediumSimilarity: w.live.settings.mediumSimilarity, highSimilarity: w.live.settings.highSimilarity, retrieve: w.live.settings.retrieve });
+  w.clock.now += 86_400_000;
+  const second = await w.loop.daily();
+  assert.equal(second.review.previous, first.label);
+  assert.ok(w.store.edges.private.some((e) => e.source === second.label && e.target === first.label && e.relation === 'derived-from'));
+  const event = w.events.at(-1) as { data: Record<string, unknown> };
+  assert.equal(event.data.kernel, kernel.holo);
+  assert.ok(!JSON.stringify(event).includes('LexLean model'));
+  assert.match(await w.loop.summary(), /Genome: generation \d+/);
+});
+
+test('a source is titled by what it is: a Discord message by channel and day, a page by site and path, a file by repository and path', () => {
+  const now = new Date('2026-11-24T00:00:00Z');
+  const names = (id: string) => (id === '1342910419370774532' ? 'general' : undefined);
+  assert.equal(titleOf('https://discord.com/channels/1342910418754076732/1342910419370774532/1568005069897736314', names, now), '#general · 5 Nov');
+  assert.equal(titleOf('https://discord.com/channels/1342910418754076732/1342910419370774532/1342914476701384835', names, now), '#general · 22 Feb 2025');
+  assert.equal(titleOf('https://uor.foundation/blog/lexlean-v0-4.md', names, now), 'uor.foundation › blog/lexlean-v0-4');
+  assert.equal(titleOf('https://github.com/UOR-Foundation/community/blob/95566d96ca6e71721788c9f9be9eb7e0876f1ab3/apps/uor-discord-read.prompt.json', names, now), 'community › apps/uor-discord-read');
+  assert.equal(titleOf('https://raw.githubusercontent.com/UOR-Foundation/community/95566d9/governance/README.md', names, now), 'community › governance/README');
 });

@@ -1,6 +1,7 @@
 // One message in, at most one reply out. Each stage asks the kernel and obeys:
 // a branch here follows an answer the kernel gave, and decides nothing of its own.
 import { isLabel, labelOf, matches } from './address.ts';
+import { titleOf } from './titles.ts';
 import { accepts, describe, type Decider } from './community.ts';
 import type { ChannelFacts, CommandName, Kernel, Level, SourceName } from './kernel.ts';
 import type { Memory } from './memory.ts';
@@ -23,6 +24,8 @@ export interface Incoming {
   working?: () => void;
   /** Where the question came from. Discord unless the agent's own MCP server asked. */
   surface?: 'discord' | 'mcp';
+  /** A command's other options, by name: /feedback's kind. */
+  options?: Record<string, string>;
 }
 
 /** One answered turn, as conversation history remembers it: labels and facts only, never text. */
@@ -107,6 +110,10 @@ export interface Actions {
   tools?(): Tools | undefined;
   /** What Q is learning and what it proposes: the latest review of the improvement loop (improve.ts). */
   improve?(): Promise<string>;
+  /** A Discord channel's or thread's name, for a cited message's title. */
+  channelName?(id: string): string | undefined;
+  /** A member's feedback or request (improve.ts): recorded, merged with others like it, filed to the community. */
+  feedback?(f: { kind: string; text: string; authorId: string; channelId: string }): Promise<string>;
 }
 
 const ROUTER = `You read a question for the inputs of one UOR Foundation community decision.
@@ -267,6 +274,10 @@ export class Pipeline {
         return done(`Forgot ${await this.actions.memory.forget({ author: message.authorId })} items from you. Your messages will not be indexed from now on.`);
       case 'improve':
         return done(this.actions.improve ? await this.actions.improve() : 'The improvement loop is not running here.');
+      case 'feedback':
+        return done(this.actions.feedback
+          ? await this.actions.feedback({ kind: message.options?.kind ?? 'idea', text: message.text, authorId: message.authorId, channelId: message.channelId })
+          : 'Feedback is not collected here.');
     }
 
     if (!message.text.trim()) {
@@ -390,7 +401,10 @@ export class Pipeline {
     const cited = new Set([...body.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]) - 1));
     const listed = ordered.map((c, i) => ({ c, i })).filter(({ i }) => cited.size === 0 || cited.has(i));
     // Discord's subtext (-#) keeps the evidence visible without competing with the answer.
-    const sources = listed.map(({ c, i }) => `-# [${i + 1}] <${c.url}> · ${c.source} · ${c.level} · ${c.label.slice(0, 15)}`).join('\n');
+    // Each source is its link alone: the claim level above says how far the answer is established, and the full
+    // record (source, level, BLAKE3 label) stays in the answer record, not in the reader's way.
+    const name = (id: string) => this.actions.channelName?.(id);
+    const sources = listed.map(({ c, i }) => `-# [${i + 1}] [${titleOf(c.url, name)}](<${c.url}>)`).join('\n');
     const notice = grounded === 'answer with notice' ? '\n\n*Low confidence: the sources only partly match the question.*' : '';
     const decided = decision?.answer
       ? `\n-# Decision: ${decision.app} → ${decision.answer} · proved in ${community.pin.commit.slice(0, 7)} of UOR-Foundation/community · holo ${community.pin.holo.slice(0, 15)} · inputs are Q's reading`

@@ -17,6 +17,7 @@ const COMMANDS: [CommandName, string, boolean][] = [
   ['forget-channel', 'Forget everything indexed from this channel (admin)', false],
   ['forget-me', 'Forget everything indexed from you, and stop indexing you', false],
   ['improve', 'What Q is learning, and what it proposes to change (admin)', false],
+  ['feedback', 'Tell Q what to do better, or ask for a feature. Shared with the community, without your name.', false],
 ];
 
 // Discord refuses a message over 2000 characters.
@@ -107,6 +108,11 @@ export function discord(config: Config, label: Labeler): Adapter {
         COMMANDS.map(([name, description, question]) => {
           const command = new SlashCommandBuilder().setName(name).setDescription(description);
           if (question) command.addStringOption((option) => option.setName('question').setDescription('What to ask').setRequired(true));
+          if (name === 'feedback') {
+            command.addStringOption((option) => option.setName('kind').setDescription('What it is').setRequired(true)
+              .addChoices({ name: 'An idea or a feature', value: 'idea' }, { name: 'Something went wrong', value: 'problem' }, { name: 'Something went well', value: 'praise' }));
+            command.addStringOption((option) => option.setName('text').setDescription('In your words').setRequired(true).setMaxLength(1500));
+          }
           return command.toJSON();
         }),
       );
@@ -233,7 +239,7 @@ export function discord(config: Config, label: Labeler): Adapter {
       // Forgetting is between the author and the agent; everything else is answered in the open.
       // Forgetting is between the author and the agent, and /improve can quote members' questions to an admin:
       // both are answered to the one who asked only. Everything else is answered in the open.
-      await interaction.deferReply({ ephemeral: interaction.commandName === 'forget-me' || interaction.commandName === 'improve' });
+      await interaction.deferReply({ ephemeral: ['forget-me', 'improve', 'feedback'].includes(interaction.commandName) });
       try {
         const reply = await handlers.handle({
           channel: facts(interaction.channel as Message['channel'] | null),
@@ -242,7 +248,8 @@ export function discord(config: Config, label: Labeler): Adapter {
           role: role(interaction.member as GuildMember | null),
           trigger: 'slash',
           command: interaction.commandName as CommandName,
-          text: interaction.options.getString('question') ?? '',
+          text: interaction.options.getString('question') ?? interaction.options.getString('text') ?? '',
+          options: { kind: interaction.options.getString('kind') ?? '' },
         });
         const [first, ...rest] = reply ? payloads(reply, LIMIT) : [{ content: 'No reply in this channel.' }];
         const sent = await interaction.editReply(send(first));
@@ -324,5 +331,10 @@ export function discord(config: Config, label: Labeler): Adapter {
     return [...channels, ...threads];
   }
 
-  return { start, backfill };
+  const channelName = (id: string) => {
+    const channel = client.channels.cache.get(id);
+    return channel && 'name' in channel && channel.name ? channel.name : undefined;
+  };
+
+  return { start, backfill, channelName };
 }

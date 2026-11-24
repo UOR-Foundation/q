@@ -20,6 +20,8 @@ export class SearchIndex {
   #db: DatabaseSync;
   constructor(path = ':memory:') {
     this.#db = new DatabaseSync(path);
+    // The live bot and a backfill share the file: a writer waits its turn instead of failing with "database is locked".
+    this.#db.exec('pragma busy_timeout = 30000');
     this.#db.exec(`
       create table if not exists chunk (label text primary key, namespace text not null, vector blob not null);
       create virtual table if not exists words using fts5(label unindexed, body);
@@ -142,6 +144,19 @@ export function loopRecord(index: SearchIndex, label: string, item: { type: stri
   }
   if (item.type === 'delivery' && typeof item.url === 'string') index.loopSet('delivery', item.url, { answer: item.answer, question: item.question, grounded: item.grounded });
   if (item.type === 'test-case') index.loopSet('test', label, { question: item.question, source: item.source, added: item.added });
+  if (item.type === 'genome') {
+    const latest = index.loopGet<{ at: number }>('genome', 'latest');
+    if (!latest || Number(item.at) >= latest.at) index.loopSet('genome', 'latest', { label, at: item.at });
+  }
+  if (item.type === 'request') {
+    const was = index.loopGet<{ filed: string | null }>('request', label);
+    index.loopSet('request', label, { kind: item.kind, text: item.text, filed: was?.filed ?? null });
+  }
+  if (item.type === 'feedback') index.loopSet('feedback', label, { request: item.request, author: item.author, kind: item.kind });
+  if (item.type === 'request-filed' && typeof item.request === 'string') {
+    const request = index.loopGet<Record<string, unknown>>('request', item.request);
+    index.loopSet('request', item.request, { ...(request ?? {}), filed: item.issue });
+  }
   if (item.type === 'review') {
     const latest = index.loopGet<{ at: number }>('review', 'latest');
     if (!latest || Number(item.at) > latest.at) index.loopSet('review', 'latest', { label, at: item.at });

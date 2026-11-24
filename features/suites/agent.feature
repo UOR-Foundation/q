@@ -198,3 +198,10 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.neverPromoteWorse and Policy.promoteNeedsGain
     Then promote is answered only for fewer wrong outcomes, or as few and faster, with no breach and within bound
     And prism-code build replays more errors, a tie, a breach and a latency over bound, each answered keep
+
+  @DA-30 @build @rejects
+  Scenario: A member's request is filed to the community only with their consent, once, and only when enough members support it
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.fileOnlyConsented and Policy.fileOnlyWithSupport
+    Then file is answered only for a consented request, not filed before, with at least the threshold of supporters
+    And prism-code build replays too few supporters, no consent and a request already filed, each answered hold

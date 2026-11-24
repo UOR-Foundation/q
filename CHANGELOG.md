@@ -10,6 +10,16 @@ This project follows Semantic Versioning and Conventional Commits.
 
 ### Added
 
+- The improvement loop ([docs/improve.md](docs/improve.md)).
+  - A refused question is a gap, and a member's reply to it fills the gap (decision 21).
+  - Approved answers and filled gaps become regression tests (22).
+  - A daily evaluation yields to real questions (23).
+  - Retrieval settings evolve as a BLAKE3-chained genome, and a mutation is adopted only when it is measurably better (24).
+  - `/feedback` collects ideas, problems and praise, merges alike requests, and files them to UOR-Foundation/community with consent and enough support (25).
+  - A daily review, chained by label, records who Q is and what it proposes.
+  - Admins read it with `/improve`.
+- Sources are listed as short titles, such as `#general · 5 Nov` or `uor.foundation › blog/lexlean-v0-4`, that link to the page.
+
 - Chaos engineering, following principlesofchaos.org and coordinated by UOR-Foundation/community ([docs/chaos.md](docs/chaos.md)). Six experiments live in `experiments/`, each a `uor-q/experiment/1` record named by its BLAKE3 label: the model busy, down, slow or malformed, the embedder down, and a burst. They run on the production host through a shadow pipeline whose writes stay in memory and whose answers go nowhere. Faults are injected at the network, on calls drawn from BLAKE3. The kernel runs an experiment only when the community approved its exact label in `automation/chaos-approvals.json`, never on live traffic, and stops it when a real question waits (decision 19, DA-24). It judges steady state on Q's output, and a broken invariant is never steady (decision 20, DA-25). Each try leaves a result record and an `org.uorfoundation.q.experiment` event, with schemas in `docs/schemas`.
 
 - Q replaces UOR Bot (carl-bot) for the rules reaction role. When a member confirms the #rules message with ✅, they get the member role, and removing the ✅ takes it away. This is decision 18, proved by `Policy.roleOnlyFromRules` and `Policy.confirmNeverRevokes` (DA-23). At start, anyone who confirmed while Q was away is given the role. Configure it with `RULES_MESSAGE`, `MEMBER_ROLE` and `RULES_EMOJI`.

@@ -15,6 +15,7 @@ import { Pipeline } from './pipeline.ts';
 import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm, type Transport } from './providers.ts';
 import { loadExperiments, runExperiment, ShadowStore, shadowIndex, type Verdict } from './chaos.ts';
 import { Loop } from './improve.ts';
+import { communityFiler } from './community-issues.ts';
 import { SearchIndex } from './search.ts';
 import { Tools } from './tools.ts';
 import { mcpServer } from './mcp-server.ts';
@@ -138,8 +139,11 @@ if (mode === 'ingest') {
       settings: () => pipeline.settings, adopt: (genes) => { pipeline.settings = { ...pipeline.settings, ...genes }; log('genome', { adopted: genes }); },
       experiments: () => [...verdicts.values()], probes, emit, now: Date.now,
       evaluation: { size: c.loop.evaluationSize, maxErrorPct: c.loop.maxErrorPct, maxP95Seconds: c.loop.maxP95Seconds },
+      requests: { threshold: c.requests.threshold, file: c.requests.token ? (r) => communityFiler({ repository: community.repository, token: c.requests.token })(r) : undefined },
     });
     actions.improve = () => loop.summary();
+    actions.feedback = (f) => loop.feedback(f);
+    log('requests', { threshold: c.requests.threshold, filing: c.requests.token ? community.repository : 'off: no COMMUNITY_ISSUES_TOKEN' });
     log('genome', { label: await loop.restore(), genes: { mediumSimilarity: pipeline.settings.mediumSimilarity, highSimilarity: pipeline.settings.highSimilarity, retrieve: pipeline.settings.retrieve } });
     if (c.loop.everyHours > 0 && shadowing) {
       const turn = () => loop.daily().then(({ label, review, evolution }) => log('review', { label, self: review.self, gaps: review.gaps, tests: review.tests, evolution: evolution?.decision ?? 'not tried', proposals: review.proposals.length })).catch(failed);
@@ -149,7 +153,9 @@ if (mode === 'ingest') {
     const sweep = async () => log('retention', { removed: await memory.sweep() });
     await sweep();
     setInterval(sweep, 86_400_000).unref();
-    await discord(c, (ids) => community.label(ids)).start({
+    const adapter = discord(c, (ids) => community.label(ids));
+    actions.channelName = (id) => adapter.channelName?.(id);
+    await adapter.start({
       handle: (message) => pipeline.handle(message),
       observe: async (message) => {
         const decision = await memory.observe(message);
@@ -157,7 +163,7 @@ if (mode === 'ingest') {
         return decision;
       },
       delivered: (d) => loop.delivered(d),
-      approve: (url, emoji, human) => loop.approved(url, emoji, human),
+      approve: (url, emoji, human) => (emoji === '👎' ? loop.disapproved(url, human).then(() => 'skip' as const) : loop.approved(url, emoji, human)),
       withdraw: (url, before) => memory.withdraw(url, before),
       forgetChannel: (id) => memory.forget({ channel: id }),
       membership: (onRules, human, added) => kernel.membership(onRules, human, added),

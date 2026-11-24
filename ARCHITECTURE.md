@@ -25,7 +25,7 @@ Q is the UOR Foundation's AI agent on Discord, built like LangBot with one diffe
 `host/src/main.ts`, in order:
 
 1. Load configuration from the environment (`config.ts`).
-2. Open the kernel: verify the holo's identities, replay its 153 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
+2. Open the kernel: verify the holo's identities, replay its 188 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
 3. Open the store and the search index.
 4. Open the community root: fetch its holo, verify its signed provenance, pin the newest commit, replay its vectors, admit each decision app whose examples it answers, read its channel labels, and check Q's read policy against it on all 96 requests (`community.ts`).
 5. Connect the configured MCP servers (`tools.ts`).
@@ -45,6 +45,8 @@ Discord adapter            adapter/discord.ts, behind adapter/adapter.ts
   → records and event      records.ts: context record, answer record, CloudEvent
   → response via adapter   adapter/adapter.ts payloads: send, split or file
 ```
+
+The improvement loop ([docs/improve.md](docs/improve.md)) turns use into knowledge, tests and an evolving genome of settings, and members' `/feedback` into requests filed to the community; every step is a kernel decision and a BLAKE3-labelled record.
 
 Chaos experiments ([docs/chaos.md](docs/chaos.md)) run a shadow of the same pipeline in production: faults at the network, writes kept in memory, answers sent nowhere. The kernel runs only experiments the community approved by BLAKE3 label, never on live traffic, and stops one when a real question is waiting.
 

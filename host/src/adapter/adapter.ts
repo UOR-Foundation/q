@@ -25,6 +25,8 @@ export interface Adapter {
   start(handlers: Handlers): Promise<void>;
   /** Offer the history the platform keeps to the memory, resumably. */
   backfill(observe: Handlers['observe']): Promise<void>;
+  /** A channel's or thread's name, when the platform knows it: a cited message reads as "#general", not as ids. */
+  channelName?(id: string): string | undefined;
 }
 
 /** One message to send: text, and a file when the kernel decided the reply goes as one. */

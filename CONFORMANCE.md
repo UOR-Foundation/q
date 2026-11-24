@@ -48,6 +48,7 @@ The three honesty levels (R2):
 | `DA-27` | `build` | An answer becomes a regression test only when a human approves it and it was grounded with citations | `Policy.admitOnlyGrounded` |
 | `DA-28` | `build` | The daily evaluation runs only while no real question is in progress, and only with test cases to run | `Policy.evalYields`, refuses with `wait` |
 | `DA-29` | `build` | An evolved genome replaces the current one only when, on the same tests, it has fewer wrong outcomes, or as few and a lower latency, with no breach and within the latency bound | `Policy.neverPromoteWorse`, `Policy.promoteNeedsGain`, refuses with `keep` |
+| `DA-30` | `build` | A member's request is filed to the community only with their consent, once, and only when enough members support it | `Policy.fileOnlyConsented`, `Policy.fileOnlyWithSupport`, refuses with `hold` |
 
 ## contract
 

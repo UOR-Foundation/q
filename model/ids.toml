@@ -256,3 +256,12 @@ statement = "An evolved genome replaces the current one only when, on the same t
 theorems = ["Policy.neverPromoteWorse", "Policy.promoteNeedsGain"]
 failure = "keep"
 negative = "DA-29"
+
+[[id]]
+id = "DA-30"
+level = "build"
+suite = "agent"
+statement = "A member's request is filed to the community only with their consent, once, and only when enough members support it"
+theorems = ["Policy.fileOnlyConsented", "Policy.fileOnlyWithSupport"]
+failure = "hold"
+negative = "DA-30"
