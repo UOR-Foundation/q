@@ -6,9 +6,9 @@ Project-owned evidence for the gates in `VERIFICATION.md`. Run with prism-code 0
 
 | Command | Result |
 | --- | --- |
-| `npx prism-code@0.11.2 check --json` | exit 0; 27 of 27 theorems proved; 22 IDs, 22 scenarios, 1 authority, 1 claim; no contract violation |
-| `npx prism-code@0.11.2 build --json` | exit 0; 128 of 128 acceptance vectors replayed |
-| `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 128 of 128 vectors on fresh instances |
+| `npx prism-code@0.11.2 check --json` | exit 0; 29 of 29 theorems proved; 23 IDs, 23 scenarios, 1 authority, 1 claim; no contract violation |
+| `npx prism-code@0.11.2 build --json` | exit 0; 136 of 136 acceptance vectors replayed |
+| `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 136 of 136 vectors on fresh instances |
 | `npx prism-code@0.11.2 manifest --json` | no finding; no capability granted |
 
 ## Planted defects

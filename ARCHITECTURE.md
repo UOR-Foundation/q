@@ -25,7 +25,7 @@ Q is the UOR Foundation's AI agent on Discord, built like LangBot with one diffe
 `host/src/main.ts`, in order:
 
 1. Load configuration from the environment (`config.ts`).
-2. Open the kernel: verify the holo's identities, replay its 128 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
+2. Open the kernel: verify the holo's identities, replay its 136 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
 3. Open the store and the search index.
 4. Open the community root: fetch its holo, verify its signed provenance, pin the newest commit, replay its vectors, admit each decision app whose examples it answers, read its channel labels, and check Q's read policy against it on all 96 requests (`community.ts`).
 5. Connect the configured MCP servers (`tools.ts`).

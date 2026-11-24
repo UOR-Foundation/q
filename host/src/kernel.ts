@@ -142,4 +142,8 @@ export class Kernel {
   expose(namespace: 'public' | 'private', surface: keyof typeof SURFACE) {
     return this.#ask<'serve' | 'withhold'>(17, namespace === 'public' ? 0 : 1, SURFACE[surface]);
   }
+  /** A reaction: does it change the member role? Only a human's confirmation on the rules message does. */
+  membership(onRules: boolean, human: boolean, added: boolean) {
+    return this.#ask<'grant' | 'revoke' | 'none'>(18, flag(!onRules), flag(!human), flag(!added));
+  }
 }

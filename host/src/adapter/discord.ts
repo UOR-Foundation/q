@@ -2,7 +2,7 @@
 // memory need, and sends back what the pipeline returns, as the kernel decided to
 // deliver it. Another platform is another implementation of ./adapter.ts.
 import { readFile, writeFile } from 'node:fs/promises';
-import { AttachmentBuilder, ChannelType, Client, Events, GatewayIntentBits, Partials, PermissionFlagsBits, SlashCommandBuilder, type Guild, type GuildMember, type Message, type PartialMessage } from 'discord.js';
+import { AttachmentBuilder, ChannelType, Client, Events, GatewayIntentBits, Partials, PermissionFlagsBits, SlashCommandBuilder, type Guild, type GuildMember, type Message, type MessageReaction, type PartialMessage, type PartialMessageReaction, type PartialUser, type User } from 'discord.js';
 import type { Config } from '../config.ts';
 import type { ChannelFacts, CommandName } from '../kernel.ts';
 import type { Observed } from '../memory.ts';
@@ -33,8 +33,8 @@ export type Labeler = (ids: string[]) => ChannelFacts['label'];
 export function discord(config: Config, label: Labeler): Adapter {
   // Partial messages: a deletion or an edit of a message sent before Q started still arrives, as its id and link.
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
-    partials: [Partials.Message, Partials.Channel],
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMessageReactions],
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User],
   });
   const aggregator = new Aggregator<Message>(config.aggregateMs);
 
@@ -80,6 +80,27 @@ export function discord(config: Config, label: Labeler): Adapter {
 
   /** Connect and serve: index what the kernel admits, answer what it allows. */
   async function start(handlers: Handlers) {
+    const settle = async (rules: NonNullable<Config['membership']>) => {
+      const channel = await client.channels.fetch(rules.channel);
+      if (!channel?.isTextBased()) return;
+      const message = await channel.messages.fetch(rules.message);
+      const reaction = message.reactions.cache.find((r) => r.emoji.name === rules.emoji);
+      if (!reaction) return;
+      const guild = await client.guilds.fetch(rules.guild);
+      let after: string | undefined, granted = 0, seen = 0;
+      for (;;) {
+        const users = await reaction.users.fetch({ limit: 100, ...(after ? { after } : {}) });
+        if (users.size === 0) break;
+        for (const user of users.values()) {
+          seen++;
+          if ((await handlers.membership(true, !user.bot, true)) !== 'grant') continue;
+          const member = await guild.members.fetch(user.id).catch(() => null);
+          if (member && !member.roles.cache.has(rules.role)) { await member.roles.add(rules.role, 'Confirmed the rules'); granted++; }
+        }
+        after = users.last()!.id;
+      }
+      log('membership-settled', { seen, granted });
+    };
     client.once(Events.ClientReady, async (ready) => {
       await ready.application.commands.set(
         COMMANDS.map(([name, description, question]) => {
@@ -89,6 +110,8 @@ export function discord(config: Config, label: Labeler): Adapter {
         }),
       );
       log('ready', { user: ready.user.tag });
+      // Anyone who confirmed while Q was away is given the role now. Only grants: a role an admin gave by hand stays.
+      if (config.membership) settle(config.membership).catch((error) => console.error(JSON.stringify({ event: 'error', message: String(error) })));
     });
 
     client.on(Events.MessageCreate, async (message) => {
@@ -176,6 +199,23 @@ export function discord(config: Config, label: Labeler): Adapter {
     client.on(Events.ChannelDelete, (channel) => {
       handlers.forgetChannel(channel.id).then((removed) => log('withdrawn', { reason: 'channel deleted', removed }), failed);
     });
+
+    // The rules reaction role: confirming the rules with the emoji gives the member role, withdrawing it takes it back.
+    // The adapter reports the facts; the kernel decides (18); the adapter obeys.
+    const rules = config.membership;
+    const react = async (reaction: MessageReaction | PartialMessageReaction, user: User | PartialUser, added: boolean) => {
+      if (!rules) return;
+      const onRules = reaction.message.id === rules.message && reaction.emoji.name === rules.emoji;
+      const human = !(user.partial ? await user.fetch() : user).bot;
+      const decision = await handlers.membership(onRules, human, added);
+      if (decision === 'none') return;
+      const member = await (await client.guilds.fetch(rules.guild)).members.fetch(user.id);
+      if (decision === 'grant') await member.roles.add(rules.role, 'Confirmed the rules');
+      else await member.roles.remove(rules.role, 'Withdrew the rules confirmation');
+      log('membership', { decision, user: user.id });
+    };
+    client.on(Events.MessageReactionAdd, (reaction, user) => { react(reaction, user, true).catch(failed); });
+    client.on(Events.MessageReactionRemove, (reaction, user) => { react(reaction, user, false).catch(failed); });
 
     client.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isChatInputCommand()) return;

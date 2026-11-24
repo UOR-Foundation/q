@@ -766,3 +766,12 @@ test("Q's MCP server serves public knowledge, withholds every Discord item, and 
   const refused = await client.callTool({ name: 'community_decide', arguments: { app: 'no-such-app', inputs: [] } });
   assert.equal(refused.isError, true);
 });
+
+test('the member role changes only on a human confirming the rules message: grant on confirm, revoke on withdraw', async () => {
+  assert.equal(await kernel.membership(true, true, true), 'grant');
+  assert.equal(await kernel.membership(true, true, false), 'revoke');
+  // A reaction elsewhere, or a bot's, changes nothing.
+  for (const [onRules, human, added] of [[false, true, true], [false, true, false], [true, false, true], [true, false, false]] as const) {
+    assert.equal(await kernel.membership(onRules, human, added), 'none');
+  }
+});

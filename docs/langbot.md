@@ -27,7 +27,7 @@ LangBot decides in code: a stage's `if` is the policy. Q's rule is that a policy
 | MCP server at `/mcp` (`api/mcp`) | exposure (17) | `mcp-server.ts` on stdio: `ask`, `search`, `status`, `community_apps`, `community_decide`; public items only | DA-22 |
 | `ARCHITECTURE.md`, `AGENTS.md`, skills | none | `ARCHITECTURE.md` in LangBot's structure, the template's `AGENTS.md`, the Prism skill | |
 
-What Q adds that LangBot has no stage for: retention and forgetting (9; DA-09), the community root and its drift check (DA-13), community decisions (DA-14), and a record of every turn (DA-15).
+What Q adds that LangBot has no stage for: retention and forgetting (9; DA-09), including what is deleted or edited on Discord; the rules reaction role that carl-bot gave as "UOR Bot" (18; DA-23), the community root and its drift check (DA-13), community decisions (DA-14), and a record of every turn (DA-15).
 
 ## What Q leaves out
 

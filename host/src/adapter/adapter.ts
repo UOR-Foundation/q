@@ -12,6 +12,8 @@ export interface Handlers {
   withdraw(url: string, before?: Observed): Promise<number>;
   /** A channel or thread was deleted: forget everything indexed from it. */
   forgetChannel(id: string): Promise<number>;
+  /** A reaction was added or removed: the kernel decides whether the member role changes. */
+  membership(onRules: boolean, human: boolean, added: boolean): Promise<'grant' | 'revoke' | 'none'>;
 }
 
 export interface Adapter {

@@ -526,5 +526,41 @@ theorem{
   proof: linear_arithmetic{definitions: [breaksPrivateStaysOnDiscord, exposeServe]},
   axioms: [Quot.sound, propext]
 }
+definition{
+  name: membershipChange,
+  parameters: [target : Nat, author : Nat, action : Nat],
+  result: Nat,
+  body: (if ((target =? 0) && (author =? 0)) then (if (action =? 0) then 1 else 2) else 0)
+}
+
+definition{
+  name: breaksRoleOnlyFromRules,
+  parameters: [target : Nat, author : Nat, action : Nat],
+  result: Bool,
+  body: ((not ((membershipChange target author action) =? 0)) && (not ((target =? 0) && (author =? 0))))
+}
+
+theorem{
+  name: roleOnlyFromRules,
+  parameters: [target : Nat, author : Nat, action : Nat],
+  statement: ((breaksRoleOnlyFromRules target author action) = false),
+  proof: linear_arithmetic{definitions: [breaksRoleOnlyFromRules, membershipChange]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksConfirmNeverRevokes,
+  parameters: [target : Nat, author : Nat],
+  result: Bool,
+  body: ((membershipChange target author 0) =? 2)
+}
+
+theorem{
+  name: confirmNeverRevokes,
+  parameters: [target : Nat, author : Nat],
+  statement: ((breaksConfirmNeverRevokes target author) = false),
+  proof: linear_arithmetic{definitions: [breaksConfirmNeverRevokes, membershipChange]},
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}

@@ -10,6 +10,8 @@ This project follows Semantic Versioning and Conventional Commits.
 
 ### Added
 
+- Q replaces UOR Bot (carl-bot) for the rules reaction role. When a member confirms the #rules message with ✅, they get the member role, and removing the ✅ takes it away. This is decision 18, proved by `Policy.roleOnlyFromRules` and `Policy.confirmNeverRevokes` (DA-23). At start, anyone who confirmed while Q was away is given the role. Configure it with `RULES_MESSAGE`, `MEMBER_ROLE` and `RULES_EMOJI`.
+
 - Q reads every conversation in a server: the backfill covers every active thread and every public archived thread, so every forum post is included. A channel Q may not read is skipped, and the rest of the server is still read.
 - What is deleted or edited on Discord is withdrawn from Q's memory. A deleted message, thread or channel is forgotten. An edited message is re-indexed with its new text. When Q has a copy of the old text, it recomputes that chunk's BLAKE3 label and removes it directly; otherwise it finds the chunk by its link.
 

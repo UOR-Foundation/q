@@ -105,6 +105,7 @@ if (mode === 'ingest') {
       observe: (message) => memory.observe(message),
       withdraw: (url, before) => memory.withdraw(url, before),
       forgetChannel: (id) => memory.forget({ channel: id }),
+      membership: (onRules, human, added) => kernel.membership(onRules, human, added),
     });
   }
 }

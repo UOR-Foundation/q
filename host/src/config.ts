@@ -8,6 +8,14 @@ const need = (name: string): string => {
   return value;
 };
 const list = (name: string) => (process.env[name] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+
+/** The rules message, from its link (https://discord.com/channels/guild/channel/message), with its role and emoji. */
+function rules(link: string | undefined, role: string | undefined, emoji: string) {
+  if (!link || !role) return null;
+  const match = /channels\/(\d+)\/(\d+)\/(\d+)$/.exec(link.trim());
+  if (!match) throw new Error('RULES_MESSAGE must be a message link: https://discord.com/channels/<guild>/<channel>/<message>');
+  return { guild: match[1], channel: match[2], message: match[3], role, emoji };
+}
 const number = (name: string, fallback: number) => (process.env[name] ? Number(process.env[name]) : fallback);
 function choice<T extends string>(name: string, values: readonly T[], fallback: T): T {
   const value = process.env[name] || fallback;
@@ -31,6 +39,8 @@ export function config() {
     installedByAdmin: process.env.INSTALLED_BY_ADMIN === 'true',
     messageContentIntent: process.env.MESSAGE_CONTENT_INTENT === 'true',
     adminRoles: new Set(list('ADMIN_ROLES')),
+    // The rules message members confirm by reacting (its link), and the role confirming gives. Unset: Q changes no role.
+    membership: rules(process.env.RULES_MESSAGE, process.env.MEMBER_ROLE, process.env.RULES_EMOJI ?? '✅'),
     llm: provider === 'anthropic'
       ? { provider: 'anthropic' as const, key: need('ANTHROPIC_API_KEY'), model: process.env.ANTHROPIC_MODEL ?? 'claude-opus-5-5' }
       // Ollama speaks the same chat completions route, on its own port, with no key.

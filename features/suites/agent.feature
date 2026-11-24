@@ -150,3 +150,10 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.privateStaysOnDiscord
     Then serve is answered off Discord only for a public item
     And prism-code build replays a private item asked for over MCP, answered withhold
+
+  @DA-23 @build @rejects
+  Scenario: The member role changes only when a human reacts with the confirmation emoji on the rules message
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.roleOnlyFromRules and Policy.confirmNeverRevokes
+    Then grant is answered for a human's confirmation on the rules message, and revoke for its withdrawal
+    And prism-code build replays a reaction elsewhere and a bot's reaction, each answered none
