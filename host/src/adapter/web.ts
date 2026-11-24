@@ -87,13 +87,18 @@ export function manual(base: string, mcp: boolean): string {
 /** An answer as a page an agent reads: the text, each source by address, and what the kernel decided. */
 export function answerPage({ label, answer }: Published, base: string): string {
   const count = answer.sources.length;
+  // Headed section by section: a reader that skims, or a small model summarising, must not mistake the answer for a preamble.
   return [
+    "# Q's answer", '',
     answer.text, '',
-    ...(count ? ['## Sources', '', ...answer.sources.map((s) => `${s.n}. ${s.url} (${s.source}, ${s.level}) \`${s.label}\``), ''] : []),
+    ...(count ? ['## Sources', '', ...answer.sources.map((s) => `${s.n}. ${s.url} (${s.source}, ${s.level}${s.cited ? ', cited' : ''}) \`${s.label}\``), ''] : []),
+    '## How far it is established', '',
     ...(answer.decision ? [`Community decision: ${answer.decision.app} answered ${answer.decision.answer}, at commit ${answer.decision.commit}.`, ''] : []),
-    `Claim level: ${answer.level ?? 'none'}. Grounding: ${answer.outcome}, from the ${answer.band} band and ${count} source${count === 1 ? '' : 's'}.`,
-    `Answer \`${label}\`. Read it again, with no question sent: ${base}/answer/${answer.key}`,
-    `How to check it: ${base}/`, '',
+    `Claim level: ${answer.level ?? 'none'}. Grounding: ${answer.outcome}, from the ${answer.band} band and ${count} source${count === 1 ? '' : 's'}.`, '',
+    '## Check it', '',
+    `- The record of this answer has the label \`${label}\`.`,
+    `- Read it again, with no question sent: ${base}/answer/${answer.key}`,
+    `- How to check it yourself: ${base}/`, '',
   ].join('\n');
 }
 
