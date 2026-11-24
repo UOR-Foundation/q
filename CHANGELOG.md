@@ -12,6 +12,9 @@ This project follows Semantic Versioning and Conventional Commits.
 - Two public records with schemas, `uor-agent/web-manifest/1` and `uor-agent/web-answer/1`. They hold no question, no author and no label of a turn's records.
 - Language models give their words as they are written (`complete(system, user, onText)`), held back while they could still be a refusal word, a discarded answer or a text the filter changes.
 - Retrieval searches only the namespaces the kernel serves on the asking surface, so off Discord a withheld item no longer takes a place among the hits.
+- Conversations on the website. A follow-up names the earlier answers by their question keys; decision 31 and `Policy.threadOnlyKnown` admit one only when the host still reads it back by its key and it is among the newest three (DA-37). The follow-up's key holds the admitted keys, so an answer with history is never stored under the key of its question alone. 55 theorems, 240 vectors.
+- A spoken register: a second prompt for answers that are heard, with its own manifest and keys. No written key changes.
+- A page that closes the connection gives its question up: the model call is aborted (`complete(system, user, onText, signal)`) and nothing is recorded.
 
 ### Added (other agents)
 

@@ -33,6 +33,8 @@ export class SearchIndex {
       create table if not exists loop (kind text not null, key text not null, value text not null, primary key (kind, key));
       create table if not exists question (key text primary key, manifest text not null, answer text not null, context text not null);
     `);
+    // The keys an answer builds on came later than the table: a file made before them gains the column.
+    if (!(this.#db.prepare('pragma table_info(question)').all() as { name: string }[]).some((column) => column.name === 'after')) this.#db.exec("alter table question add column after text not null default '[]'");
   }
 
   #revision = 0;
@@ -46,18 +48,20 @@ export class SearchIndex {
    * to the answer computed for it. A key a browser can compute alone, so a repeat needs no retrieval.
    * A cache, rebuilt by use: nothing here is not also in the answer records.
    */
-  questionGet(key: string): { manifest: string; answer: string; context: string } | undefined {
-    return this.#db.prepare('select manifest, answer, context from question where key = ?').get(key) as { manifest: string; answer: string; context: string } | undefined;
+  questionGet(key: string): { manifest: string; answer: string; context: string; after: string[] } | undefined {
+    const row = this.#db.prepare('select manifest, answer, context, after from question where key = ?').get(key) as { manifest: string; answer: string; context: string; after: string } | undefined;
+    return row && { ...row, after: JSON.parse(row.after) as string[] };
   }
-  questionSet(key: string, manifest: string, answer: string, context: string) {
-    this.#db.prepare('insert or replace into question values (?, ?, ?, ?)').run(key, manifest, answer, context);
+  /** `after` is the keys of the earlier answers this one builds on: part of its key, and of its public record. */
+  questionSet(key: string, manifest: string, answer: string, context: string, after: readonly string[] = []) {
+    this.#db.prepare('insert or replace into question (key, manifest, answer, context, after) values (?, ?, ?, ?, ?)').run(key, manifest, answer, context, JSON.stringify(after));
   }
   questionDelete(key: string) {
     this.#db.prepare('delete from question where key = ?').run(key);
   }
-  /** Keys asked under any other manifest can never be asked again: the manifest is part of the key. */
-  questionKeep(manifest: string) {
-    this.#db.prepare('delete from question where manifest <> ?').run(manifest);
+  /** Keys asked under any manifest but the current ones, one for each register, can never be asked again: the manifest is part of the key. */
+  questionKeep(manifests: readonly string[]) {
+    this.#db.prepare(`delete from question where manifest not in (${manifests.map(() => '?').join(', ')})`).run(...manifests);
   }
 
   /**

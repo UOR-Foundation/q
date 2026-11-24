@@ -17,22 +17,43 @@ A turn on the website leaves the same private context record, answer record and 
 | Label | Of what | Who computes it |
 | --- | --- | --- |
 | Manifest | [`uor-agent/web-manifest/1`](schemas/web-manifest.schema.json): the kernel, the community pin, the index the website is served (one label over its sorted chunk labels), the prompts, the model, the retrieval settings | the host; the browser recomputes it |
-| Question key | `{type: "web-question", question: <normalized>, manifest: <manifest label>}` | the browser, alone |
+| Question key | `{type: "web-question", question: <normalized>, manifest: <manifest label>}`, with `after: [<keys>]` for a follow-up | the browser, alone |
 | Answer | [`uor-agent/web-answer/1`](schemas/web-answer.schema.json): the text, the claim level, the sources, the decision | the host; the browser recomputes it |
 
 A question is normalized as NFC, lower case, runs of white space as one space, trimmed. All three are BLAKE3 kappa labels by `@uor-foundation/uor-addr`.
 
-On the website an answer has no conversation history, so the same question key is the same computation. That holds for an answer that called no tool; one that did is never remembered. A change to anything in the manifest gives every question a new key, and the old keys are forgotten.
+The same question key is the same computation. That holds for an answer that called no tool; one that did is never remembered. A change to anything in the manifest gives every question a new key, and the old keys are forgotten.
+
+## Conversations
+
+A question may follow earlier answers. The browser names them by their question keys in `after`, oldest first, and sends no text of them.
+
+Why by key: an answer with history is not a function of its question alone, so it must not be stored under the question's key. With the earlier keys inside it, the follow-up's key names the whole computation, and the same follow-up after the same answers is read back like any other answer.
+
+- The kernel decides each key (decision 31, `Policy.threadOnlyKnown`, DA-37): an earlier answer is context only when this host still reads it back by its key, and it is among the newest three presented.
+- The host counts an answer as read back when it is known under the current manifest of the same register, every source of it is still served (decisions 10 and 17), it used no tool, and it claims something: a refusal is nothing to build on.
+- The writer is given the admitted answers' text from this host's own store. It is never given text from the request, and never the question asked under an earlier key, which may have been another visitor's.
+- Retrieval reads the follow-up together with the first 300 characters of the newest admitted answer. "And how do I install it?" names nothing to look for alone.
+- The key is the label of the question, the manifest and the admitted keys. `after` is absent when none is admitted, so a question that stands alone keeps the key it always had, and an answer with history never has it.
+- The answer record lists `after` as admitted, so the browser recomputes the key from what the host used, which may be fewer keys than it presented.
+
+## Two registers
+
+An answer is written to be read, or to be heard. `register: "spoken"` asks for the second: two to four short sentences, the answer first, no markdown, the same grounding rules and the same numbered citations, which the page shows and a voice does not read out.
+
+The spoken register is a second prompt, so a second manifest (`GET /manifest?register=spoken`). Its answers have their own keys, and no key of the written register changes. An earlier answer is context only for a question in the same register.
+
+Speech itself is not the host's: recognition and synthesis run in the visitor's browser, and only the text of a new question reaches this host.
 
 ## Routes
 
 | Route | Answers |
 | --- | --- |
-| `GET /manifest` | the manifest and its label, the suggested questions with their keys, and the answer to each one already computed |
+| `GET /manifest` | the manifest and its label, the suggested questions with their keys, and the answer to each one already computed. With `?register=spoken`, the same for the spoken register |
 | `GET /answer/<question key>` | the answer computed for that key, or 404. No retrieval, no model, no question text, no new record |
 | `GET /item/<label>` | one public source as stored, so its label can be recomputed |
 | `GET /kernel/<label>` | the kernel this host runs, as bytes, when that is its label: the same decisions can then run in the browser |
-| `POST /ask` with `{"question": "..."}` | one turn, as server-sent events |
+| `POST /ask` with `{"question": "...", "register": "spoken", "after": ["<key>", ...]}` | one turn, as server-sent events. `register` and `after` are optional; `after` is at most eight keys. A body that is not this is answered 400 |
 
 A read by key still asks the kernel about every source the answer cites (decisions 10 and 17). If one is no longer cited or served, the answer is no longer known and the question is asked again.
 
@@ -51,6 +72,8 @@ Events of `POST /ask`, in order:
 Words are held back while they could still be taken back: the one word a model says when the sources do not answer, a plain answer discarded for one that states a community decision, and any answer when the outgoing filter has a term it could mask. In those cases the visitor sees the answer whole.
 
 Send the question as `text/plain`: that is a simple request, so a browser sends no preflight before it.
+
+A page that closes the connection before the answer is whole gives the turn up. The model call is aborted, no answer is recorded or remembered under any key, and the visitor's next question does not wait for it. This is how a visitor who cuts in is heard at once.
 
 ## Other agents
 

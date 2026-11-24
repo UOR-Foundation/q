@@ -144,6 +144,10 @@ export class Kernel {
   history(sameAuthor: boolean, sameChannel: boolean, recent: boolean) {
     return this.#ask<'use' | 'skip'>(16, flag(!sameAuthor), flag(!sameChannel), flag(!recent));
   }
+  /** A conversation on the website: whether an earlier answer, presented by its key, may be context for this question. */
+  thread(known: boolean, recent: boolean) {
+    return this.#ask<'use' | 'skip'>(31, flag(!known), flag(!recent));
+  }
   /** Whether an item may be served on this surface: Discord, the agent's own MCP server, or the website. */
   expose(namespace: 'public' | 'private', surface: keyof typeof SURFACE) {
     return this.#ask<'serve' | 'withhold'>(17, namespace === 'public' ? 0 : 1, SURFACE[surface]);

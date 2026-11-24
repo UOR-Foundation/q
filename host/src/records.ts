@@ -32,9 +32,10 @@ export interface DecisionAsked {
 export interface ContextFields {
   kernel: { holo: string; model: string; commit: string | null };
   community: { holo: string; commit: string };
-  request: { command: string; trigger: string; surface: Surface; question: string };
+  /** `register` is there only for the website's spoken register: the written one is the absence of it. */
+  request: { command: string; trigger: string; surface: Surface; question: string; register?: 'spoken' };
   retrieval: { band: 'low' | 'medium' | 'high'; items: string[] };
-  /** The earlier answers this question builds on, by label: a reply to Q, admitted turn by turn by the kernel. */
+  /** The earlier answers this question builds on, by label, each admitted by the kernel: a reply to Q on Discord (decision 16), or the answers a visitor to the website presented by key (decision 31). */
   history: string[];
   decision: DecisionAsked | null;
   author: string;
@@ -133,10 +134,13 @@ export function manifest(fields: ManifestFields): Manifest {
 export const normalize = (text: string) => text.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /**
- * The question key: the BLAKE3 label of a question and the manifest it is asked under. On the website an
- * answer has no history, so the same key is the same computation, and a browser can name it without asking.
+ * The question key: the BLAKE3 label of a question, the manifest it is asked under, and the keys of the
+ * earlier answers it builds on. The same key is the same computation, and a browser can name it without
+ * asking. `after` is left out when there is none, so a question that stands alone has the key it always
+ * had, and an answer with history can never have the key of the question alone.
  */
-export const questionKey = (question: string, manifestLabel: string) => labelOf({ type: 'web-question', question: normalize(question), manifest: manifestLabel });
+export const questionKey = (question: string, manifestLabel: string, after: readonly string[] = []) =>
+  labelOf({ type: 'web-question', question: normalize(question), manifest: manifestLabel, ...(after.length ? { after: [...after] } : {}) });
 
 /** One source of a website answer: a public item by its label, and whether the answer cites it. */
 export interface WebSource { n: number; label: string; url: string; source: SourceName; level: Level; cited: boolean }
@@ -160,9 +164,11 @@ export interface WebAnswerFields {
   tools: number;
   kernel: string;
   community: string;
+  /** The keys of the earlier answers this one builds on, oldest first, as the kernel admitted them (decision 31). Absent when it stands alone. */
+  after?: string[];
 }
 export type WebAnswer = Item & WebAnswerFields & { type: 'web-answer'; schema: typeof WEB_ANSWER_SCHEMA };
 
-export function webAnswer(fields: WebAnswerFields): WebAnswer {
-  return { type: 'web-answer', schema: WEB_ANSWER_SCHEMA, ...fields };
+export function webAnswer({ after, ...fields }: WebAnswerFields): WebAnswer {
+  return { type: 'web-answer', schema: WEB_ANSWER_SCHEMA, ...fields, ...(after?.length ? { after } : {}) };
 }

@@ -319,3 +319,12 @@ statement = "An open question, promise or request is closed only by a human: a q
 theorems = ["Policy.closeOnlyByHumans", "Policy.promiseNeedsConfirmation", "Policy.ownReplyNeverAnswers"]
 failure = "open"
 negative = "DA-36"
+
+[[id]]
+id = "DA-37"
+level = "build"
+suite = "agent"
+statement = "On the website an earlier answer is context for a question only when the host still reads it back by its key and it is among the newest three"
+theorems = ["Policy.threadOnlyKnown"]
+failure = "skip"
+negative = "DA-37"

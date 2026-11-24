@@ -38,11 +38,12 @@
         "command": { "enum": ["ask", "search"] },
         "trigger": { "enum": ["mention", "replyToAgent", "slash"] },
         "surface": { "description": "Discord, or a client of the agent's own MCP server, or a visitor to the website; off Discord only public items are served (decision 17).", "enum": ["discord", "mcp", "web"] },
-        "question": { "type": "string" }
+        "question": { "type": "string" },
+        "register": { "description": "On the website, an answer written to be heard. Absent for one written to be read.", "enum": ["spoken"] }
       }
     },
     "history": {
-      "description": "The earlier answers this question builds on, by label: a reply to the agent, each turn admitted by the kernel (decision 16) as the same author's, in the same channel, and recent.",
+      "description": "The earlier answers this question builds on, by label, each admitted by the kernel: on Discord a reply to the agent, as the same author's, in the same channel, and recent (decision 16); on the website the answers a visitor presented by their keys, each still read back by its key and among the newest three (decision 31).",
       "type": "array",
       "items": { "$ref": "#/$defs/label" }
     },

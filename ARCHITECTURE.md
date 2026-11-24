@@ -26,7 +26,7 @@ Q is the UOR Foundation's AI agent on Discord, built like LangBot with one diffe
 `host/src/main.ts`, in order:
 
 1. Load configuration from the environment (`config.ts`).
-2. Open the kernel: verify the holo's identities, replay its 223 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
+2. Open the kernel: verify the holo's identities, replay its 240 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
 3. Open the store and the search index.
 4. Open the community root: fetch its holo, verify its signed provenance, pin the newest commit, replay its vectors, admit each decision app whose examples it answers, read its channel labels, and check Q's read policy against it on all 96 requests (`community.ts`).
 5. Connect the configured MCP servers (`tools.ts`).
@@ -101,7 +101,7 @@ Do not confuse Q's MCP client (`tools.ts`) with Q's own MCP server (`mcp-server.
 ## Agent-facing surfaces
 
 - The MCP server (`mcp-server.ts`): `ask`, `search`, `status`, `community_apps`, `community_decide`. Public items only (DA-22).
-- The website's adapter (`adapter/web.ts`): `/manifest`, `/answer/<key>`, `/item/<label>`, `/kernel/<label>`, `/ask`. Public items only (DA-31).
+- The website's adapter (`adapter/web.ts`): `/manifest`, `/answer/<key>`, `/item/<label>`, `/kernel/<label>`, `/ask`. Public items only (DA-31). A follow-up names earlier answers by key (decision 31, DA-37), and an answer is written to be read or to be heard.
 - `AGENTS.md`, the template's rules for any agent working here, and the Prism skill in `.agents/skills/prism`.
 - `ARCHITECTURE.md` and `docs/`.
 

@@ -11,7 +11,7 @@ import { Memory, type Observed } from '../src/memory.ts';
 import { Pipeline, type Incoming, type Progress, type Published, type Settings } from '../src/pipeline.ts';
 import { ANSWER_SCHEMA, CONTEXT_SCHEMA, questionKey, type CloudEvent } from '../src/records.ts';
 import { Gate, OpenAiCompatibleLlm, retrying, visibleSoFar, withoutReasoning, type Embedder, type Llm, type RunTool, type ToolCall, type ToolSpec } from '../src/providers.ts';
-import { QUESTION_LIMIT, webServer, type WebOptions } from '../src/adapter/web.ts';
+import { AFTER_LIMIT, QUESTION_LIMIT, webServer, type WebOptions } from '../src/adapter/web.ts';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Tools } from '../src/tools.ts';
@@ -1401,6 +1401,7 @@ test('words are shown as they are written, and never a refusal word, a discarded
 test('the labels the website must compute are the ones this host computes: the shared vectors are current', async () => {
   const vectors = JSON.parse(await readFile(new URL('./fixtures/web-vectors.json', import.meta.url), 'utf8')) as {
     manifest: { record: never; label: string }; questions: { question: string; normalized: string; key: string }[]; answer: { record: never; label: string };
+    thread: { question: string; after: string[]; key: string }[]; followUp: { record: { key: string; after: string[] }; label: string };
   };
   assert.equal(labelOf(vectors.manifest.record), vectors.manifest.label);
   assert.equal(labelOf(vectors.answer.record), vectors.answer.label);
@@ -1410,6 +1411,15 @@ test('the labels the website must compute are the ones this host computes: the s
   assert.equal(vectors.questions[2].key, vectors.questions[3].key);
   assert.notEqual(vectors.questions[0].key, vectors.questions[2].key);
   assert.deepEqual(conforms(vectors.answer.record, await schema('web-answer'), await schema('web-answer')), []);
+  // A follow-up's key holds the keys before it; case and spacing are still one question; with none before it, it is the plain key.
+  for (const { question, after, key } of vectors.thread) assert.equal(questionKey(question, vectors.manifest.label, after), key);
+  assert.equal(vectors.thread[0].key, vectors.thread[1].key);
+  assert.deepEqual(vectors.thread[2].after, [vectors.questions[0].key, vectors.thread[0].key]);
+  assert.equal(vectors.thread[3].key, questionKey(vectors.thread[3].question, vectors.manifest.label));
+  assert.notEqual(vectors.thread[3].key, vectors.thread[0].key);
+  assert.equal(labelOf(vectors.followUp.record as never), vectors.followUp.label);
+  assert.equal(vectors.followUp.record.key, vectors.thread[0].key);
+  assert.deepEqual(conforms(vectors.followUp.record, await schema('web-answer'), await schema('web-answer')), []);
 });
 
 async function onTheWeb(options: Partial<WebOptions> & { withMcp?: boolean } = {}) {
@@ -1535,6 +1545,245 @@ test('another agent asks with one request: a page it can read, the record as JSO
     assert.equal(limited.status, 429);
     assert.equal((await limited.json() as { refused: string }).refused, 'rate limited');
     assert.deepEqual(await (await fetch(`${base}/nothing`)).json(), { error: 'not found', manual: `${base}/` });
+  } finally {
+    server.close();
+  }
+});
+
+// A conversation on the website: follow-ups by key, a spoken register, and a question given up.
+
+const PROVED = 'Prism applications are built from a LexLean model and proved by the Lean kernel [1].';
+const FOLLOW = 'And who checks them?';
+/** Every prompt the writer is given, in order, beside the model's own behaviour. */
+const watched = (llm: CountingLlm) => {
+  const seen: { system: string; user: string }[] = [];
+  const complete = llm.complete.bind(llm);
+  llm.complete = (system: string, user: string, onText?: (delta: string) => void) => {
+    if (!system.startsWith('You read a question for the inputs')) seen.push({ system, user });
+    return complete(system, user, onText);
+  };
+  return seen;
+};
+
+test('an earlier answer on the website is context only when it is still known by its key and among the newest three', async () => {
+  assert.equal(await kernel.thread(true, true), 'use');
+  assert.equal(await kernel.thread(false, true), 'skip');
+  assert.equal(await kernel.thread(true, false), 'skip');
+  assert.equal(await kernel.thread(false, false), 'skip');
+});
+
+test('a follow-up on the website builds on the answer it names by key, is found by reading the two together, and has a key of its own', async () => {
+  const { pipeline, llm, store } = await world();
+  llm.answer = PROVED;
+  const prompts = watched(llm);
+  const { label } = await pipeline.manifest();
+  const first = (await pipeline.handle(onWeb(QUESTION)))!.web!;
+  assert.ok(!('after' in first.answer));
+  // Alone, the follow-up names nothing to look for, and nothing is claimed.
+  const alone = (await pipeline.handle(onWeb(FOLLOW, { authorId: 'web:v2' })))!.web!;
+  assert.deepEqual([alone.answer.outcome, alone.answer.level, alone.answer.key], ['not grounded', null, questionKey(FOLLOW, label)]);
+  // After the first answer, retrieval reads the two together and the writer is given that answer's words.
+  const follow = (await pipeline.handle(onWeb(FOLLOW, { after: [first.answer.key] })))!.web!;
+  assert.notEqual(follow.answer.level, null);
+  assert.deepEqual(follow.answer.after, [first.answer.key]);
+  assert.equal(follow.answer.key, questionKey(FOLLOW, label, [first.answer.key]));
+  assert.equal(follow.label, labelOf(follow.answer));
+  assert.deepEqual(conforms(follow.answer, await schema('web-answer'), await schema('web-answer')), []);
+  const prompt = prompts.at(-1)!.user;
+  assert.match(prompt, /^Earlier in this conversation \(context for the question; cite only the sources\):\n\nYour answer: Prism applications are built from a LexLean model and proved by the Lean kernel \[1\]\.\n\nSources:/);
+  // Only Q's own words are context: the question asked before is not, whoever asked it.
+  assert.ok(!prompt.includes(QUESTION));
+  assert.ok(prompt.endsWith(`Question: ${FOLLOW}`));
+  // An answer with history is never the answer to the question alone: the plain key still names the refusal.
+  assert.notEqual(follow.answer.key, alone.answer.key);
+  assert.deepEqual(await pipeline.lookup(alone.answer.key), alone);
+  assert.deepEqual(await pipeline.lookup(follow.answer.key), follow);
+  // The same follow-up after the same answer is the same computation: read back, not written again.
+  const calls = llm.calls;
+  assert.deepEqual(await pipeline.lookup(questionKey(`  ${FOLLOW.toUpperCase()} `, label, [first.answer.key])), follow);
+  assert.equal(llm.calls, calls);
+  // The turn's private record names the earlier answer by its record's label, which the website is never sent.
+  const turn = (await privateItems(store)).find(({ item }) => item.type === 'context' && (item.request as { question: string }).question === FOLLOW && (item.history as string[]).length === 1)!;
+  assert.deepEqual(conforms(turn.item, await schema('context'), await schema('context')), []);
+  const earlier = (turn.item.history as string[])[0];
+  assert.equal((await store.get('private', earlier))!.text, PROVED);
+  assert.ok(!JSON.stringify(follow).includes(earlier));
+});
+
+test('the kernel skips a key this host does not know, a refusal, a key of the other register, and all but the newest three', async () => {
+  const { pipeline, llm } = await world({ userLimit: 20 });
+  llm.answer = PROVED;
+  const { label } = await pipeline.manifest();
+  // Never asked: nothing is admitted, so the answer stands alone under the question's own key.
+  const unknown = (await pipeline.handle(onWeb(QUESTION, { after: [questionKey('never asked', label)] })))!.web!;
+  assert.ok(!('after' in unknown.answer));
+  assert.equal(unknown.answer.key, questionKey(QUESTION, label));
+  // A refusal claims nothing, so there is nothing to build on.
+  const refused = (await pipeline.handle(onWeb('zzzz qqqq xxxx')))!.web!;
+  assert.equal(refused.answer.level, null);
+  const afterRefusal = (await pipeline.handle(onWeb('What proves a Prism application?', { after: [refused.answer.key] })))!.web!;
+  assert.ok(!('after' in afterRefusal.answer));
+  // An answer written to be heard is no part of a conversation that is read, and the other way round.
+  const heard = (await pipeline.handle(onWeb(QUESTION, { register: 'spoken' })))!.web!;
+  const mixed = (await pipeline.handle(onWeb('Which kernel proves a Prism application?', { after: [heard.answer.key] })))!.web!;
+  assert.ok(!('after' in mixed.answer));
+  const spokenFollow = (await pipeline.handle(onWeb('Which kernel proves a Prism application?', { register: 'spoken', after: [heard.answer.key, unknown.answer.key] })))!.web!;
+  assert.deepEqual(spokenFollow.answer.after, [heard.answer.key]);
+  // Four known answers presented: the newest three are context, oldest first.
+  const keys = [unknown.answer.key];
+  for (const question of ['How is a Prism application proved?', 'Which model is a Prism application built from?', 'What kind of archive is a Prism application?']) {
+    keys.push((await pipeline.handle(onWeb(question, { after: [...keys] })))!.web!.answer.key);
+  }
+  const fifth = (await pipeline.handle(onWeb('Is a Prism application self-verifying?', { after: keys })))!.web!;
+  assert.equal(keys.length, 4);
+  assert.deepEqual(fifth.answer.after, keys.slice(1));
+  assert.equal(fifth.answer.key, questionKey('Is a Prism application self-verifying?', label, keys.slice(1)));
+});
+
+test('the spoken register is a second prompt and a second manifest: its answers have their own keys, and no written key changes', async () => {
+  const { pipeline, llm, store } = await world();
+  const prompts = watched(llm);
+  const [written, spoken] = [await pipeline.manifest(), await pipeline.manifest('spoken')];
+  assert.notEqual(spoken.label, written.label);
+  assert.deepEqual({ ...spoken.manifest, prompt: written.manifest.prompt }, written.manifest);
+  assert.deepEqual(conforms(spoken.manifest, await schema('web-manifest'), await schema('web-manifest')), []);
+  const read = (await pipeline.handle(onWeb(QUESTION)))!.web!;
+  const heard = (await pipeline.handle(onWeb(QUESTION, { authorId: 'web:v2', register: 'spoken' })))!.web!;
+  // One question, two computations: the answer to be heard is written anew, never read back from the one to be read.
+  assert.equal(llm.calls, 2);
+  assert.match(prompts[0].system, /on its Discord server/);
+  assert.match(prompts[1].system, /speaking aloud with a visitor on its website/);
+  assert.match(prompts[1].system, /reply with exactly NO_ANSWER and nothing else/);
+  assert.deepEqual([read.answer.manifest, read.answer.key], [written.label, questionKey(QUESTION, written.label)]);
+  assert.deepEqual([heard.answer.manifest, heard.answer.key], [spoken.label, questionKey(QUESTION, spoken.label)]);
+  assert.deepEqual(await pipeline.lookup(read.answer.key), read);
+  assert.deepEqual(await pipeline.lookup(heard.answer.key), heard);
+  // The turn's private record says which register it was, and only when it is the spoken one.
+  const turns = (await privateItems(store)).filter(({ item }) => item.type === 'context').map(({ item }) => item.request as { register?: string });
+  assert.deepEqual(turns.map((request) => request.register).sort(), ['spoken', undefined]);
+  for (const { item } of (await privateItems(store)).filter(({ item }) => item.type === 'context')) assert.deepEqual(conforms(item, await schema('context'), await schema('context')), []);
+  // Off the website there is one register: Discord is written to, whatever a message says.
+  await pipeline.handle(ask(`${QUESTION} And by what are they proved?`, { authorId: 'd1', register: 'spoken' }));
+  assert.equal(llm.calls, 3);
+  assert.match(prompts.at(-1)!.system, /on its Discord server/);
+});
+
+test('a question given up is not answered: the model call is aborted, nothing is recorded, and the visitor may ask again at once', async () => {
+  const { pipeline, llm, store } = await world();
+  const { label } = await pipeline.manifest();
+  const gone = new AbortController();
+  let given: AbortSignal | undefined;
+  const complete = llm.complete.bind(llm);
+  // A model still writing when the visitor leaves: it stops only when its call is aborted.
+  llm.complete = (system: string, user: string, onText?: (delta: string) => void, signal?: AbortSignal) => {
+    if (system.startsWith('You read a question for the inputs')) return complete(system, user);
+    given = signal;
+    onText?.('Prism ');
+    return new Promise<string>((_, reject) => {
+      signal!.addEventListener('abort', () => reject(signal!.reason));
+      setTimeout(() => gone.abort(), 5);
+    });
+  };
+  const shown: string[] = [];
+  await assert.rejects(pipeline.handle(onWeb(QUESTION, { signal: gone.signal, progress: (stage) => { if (stage.stage === 'text') shown.push(stage.delta); } })), { name: 'AbortError' });
+  assert.ok(given?.aborted);
+  assert.equal((await privateItems(store)).filter(({ item }) => item.type === 'answer').length, 0);
+  assert.equal(await pipeline.lookup(questionKey(QUESTION, label)), undefined);
+  assert.equal(pipeline.load, 0);
+  // A question given up before its turn came is not asked at all: no model call, no record, no count against the limit.
+  const before = (await store.labels('private')).length;
+  given = undefined;
+  await assert.rejects(pipeline.handle(onWeb(QUESTION, { signal: gone.signal })), { name: 'AbortError' });
+  assert.equal(given, undefined);
+  assert.equal((await store.labels('private')).length, before);
+  // The same visitor asks again and is answered: the turn that was given up holds no place.
+  llm.complete = complete;
+  const again = (await pipeline.handle(onWeb(QUESTION)))!.web!;
+  assert.equal(again.answer.key, questionKey(QUESTION, label));
+  assert.deepEqual(await pipeline.lookup(again.answer.key), again);
+});
+
+test('a provider call that is aborted stops reading, fails, and gives its place to the next call', async () => {
+  let reached = 0;
+  const transport = ((_url: string | URL | Request, init?: RequestInit) => {
+    reached++;
+    if (reached === 1) return new Promise<Response>((_, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason)));
+    return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: 'A holo is a packaged app [1].' } }] }), { status: 200, headers: { 'content-type': 'application/json' } }));
+  }) as typeof fetch;
+  const llm = new OpenAiCompatibleLlm('http://model.test/v1', 'key', 'model', false, 64, 1, transport);
+  const gone = new AbortController();
+  const first = llm.complete('system', 'user', () => {}, gone.signal);
+  // One call at a time here: the second waits for the first, and is answered once the first is given up.
+  const second = llm.complete('system', 'user');
+  gone.abort();
+  await assert.rejects(first, { name: 'AbortError' });
+  assert.equal(await second, 'A holo is a packaged app [1].');
+  // A call already given up when its turn comes never reaches the network.
+  await assert.rejects(llm.complete('system', 'user', undefined, gone.signal), { name: 'AbortError' });
+  assert.equal(reached, 2);
+});
+
+test("the website's adapter serves each register its manifest, takes a follow-up by its keys, and refuses a request that is not one", async () => {
+  const { server, base, llm } = await onTheWeb();
+  llm.answer = PROVED;
+  const send = (body: unknown) => fetch(`${base}/ask`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(body) });
+  try {
+    const written = await (await fetch(`${base}/manifest`)).json() as { label: string; suggestions: { key: string }[] };
+    const spoken = await (await fetch(`${base}/manifest?register=spoken`)).json() as typeof written;
+    assert.notEqual(spoken.label, written.label);
+    assert.deepEqual(spoken.suggestions, [{ question: QUESTION, key: questionKey(QUESTION, spoken.label) }]);
+    assert.equal((await (await fetch(`${base}/manifest?register=written`)).json() as typeof written).label, written.label);
+    assert.equal((await fetch(`${base}/manifest?register=sung`)).status, 400);
+    // A spoken question, then a spoken follow-up that names it by key.
+    const first = (await sse(await send({ question: QUESTION, register: 'spoken' }))).at(-1)!.data as unknown as Published;
+    assert.equal(first.answer.key, questionKey(QUESTION, spoken.label));
+    const events = await sse(await send({ question: FOLLOW, register: 'spoken', after: [first.answer.key] }));
+    assert.deepEqual([...new Set(events.map((e) => e.event))], ['queued', 'decided', 'sources', 'text', 'answer']);
+    const follow = events.at(-1)!.data as unknown as Published;
+    assert.deepEqual(follow.answer.after, [first.answer.key]);
+    assert.equal(follow.answer.key, questionKey(FOLLOW, spoken.label, [first.answer.key]));
+    // By its key the follow-up is read back like any answer, and under the question's own key there is none.
+    assert.deepEqual(await (await fetch(`${base}/answer/${follow.answer.key}`)).json(), { label: follow.label, answer: follow.answer });
+    assert.equal((await fetch(`${base}/answer/${questionKey(FOLLOW, spoken.label)}`)).status, 404);
+    // A suggested question answered in the spoken register comes with the spoken manifest, not the written one.
+    assert.deepEqual(Object.keys((await (await fetch(`${base}/manifest?register=spoken`)).json() as { answers: object }).answers), [first.answer.key]);
+    assert.deepEqual((await (await fetch(`${base}/manifest`)).json() as { answers: object }).answers, {});
+    for (const body of [
+      { question: QUESTION, register: 'sung' },
+      { question: QUESTION, after: 'blake3:' + '0'.repeat(64) },
+      { question: QUESTION, after: ['not a label'] },
+      { question: QUESTION, after: Array.from({ length: AFTER_LIMIT + 1 }, () => first.answer.key) },
+      [QUESTION],
+    ]) assert.equal((await send(body)).status, 400);
+  } finally {
+    server.close();
+  }
+});
+
+test("the website's adapter gives up a question whose page closed the connection, and answers that visitor's next one", async () => {
+  const { server, base, llm } = await onTheWeb();
+  const complete = llm.complete.bind(llm);
+  let stopped: () => void = () => {};
+  const aborted = new Promise<void>((resolve) => { stopped = resolve; });
+  llm.complete = (system: string, user: string, onText?: (delta: string) => void, signal?: AbortSignal) => {
+    if (system.startsWith('You read a question for the inputs')) return complete(system, user);
+    onText?.('Prism applications ');
+    return new Promise<string>((_, reject) => signal!.addEventListener('abort', () => { stopped(); reject(signal!.reason); }));
+  };
+  try {
+    const leaving = new AbortController();
+    const response = await fetch(`${base}/ask`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ question: QUESTION }), signal: leaving.signal });
+    const reader = response.body!.getReader();
+    // The page hears the first words, then closes the connection, as it does when a visitor cuts in.
+    let heard = '';
+    while (!heard.includes('event: text')) heard += new TextDecoder().decode((await reader.read()).value);
+    leaving.abort();
+    await aborted;
+    // One question at a time here: the next is answered only because the one given up let go of its place.
+    llm.complete = complete;
+    const next = await sse(await post(base, QUESTION));
+    assert.equal(next.at(-1)!.event, 'answer');
+    assert.equal(llm.calls, 1);
   } finally {
     server.close();
   }
