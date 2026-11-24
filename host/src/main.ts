@@ -120,7 +120,9 @@ if (mode === 'ingest') {
   // The website's adapter, beside Discord or alone: the same pipeline on the `web` surface.
   const serveWeb = async () => {
     const suggestions = JSON.parse(await readFile(c.web.suggestionsFile, 'utf8')) as string[];
-    const server = webServer(pipeline, { origins: c.web.origins, suggestions, concurrency: c.web.concurrency, trustProxy: c.web.trustProxy, log, kernel: { label: kernel.holo, bytes: new Uint8Array(await readFile(c.holo)) } });
+    // Other agents reach Q's MCP server at /mcp of the same address: each caller its own author, on the `mcp` surface.
+    const mcp = (asker: Pick<Pipeline, 'handle'>, author: string) => mcpServer(asker, kernel, () => community, author);
+    const server = webServer(pipeline, { origins: c.web.origins, suggestions, concurrency: c.web.concurrency, trustProxy: c.web.trustProxy, log, mcp, kernel: { label: kernel.holo, bytes: new Uint8Array(await readFile(c.holo)) } });
     await new Promise<void>((resolve) => server.listen(c.web.port, c.web.host, resolve));
     log('web', { host: c.web.host, port: c.web.port, origins: c.web.origins, suggestions: suggestions.length, manifest: (await pipeline.manifest()).label });
   };

@@ -43,7 +43,7 @@ After restoring, `build` and `verify` passed again with the figures above.
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` in `host/` | exit 0 |
-| `npm test` in `host/` | 88 of 88 tests pass, against the real holo with an in-process store, embedder, language model and community |
+| `npm test` in `host/` | 90 of 90 tests pass, against the real holo with an in-process store, embedder, language model and community |
 
 ## Host planted defects
 

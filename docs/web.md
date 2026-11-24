@@ -52,6 +52,23 @@ Words are held back while they could still be taken back: the one word a model s
 
 Send the question as `text/plain`: that is a simple request, so a browser sends no preflight before it.
 
+## Other agents
+
+An agent that is not a browser on uor.foundation needs less: one address, one request, one response.
+
+| Route | Answers |
+| --- | --- |
+| `GET /` and `GET /llms.txt` | how to ask, as Markdown, with this host's own address in every example |
+| `GET /ask?q=<question>` | the answer whole, as Markdown: the text, each source with its level and label, the claim level, and the address to read it again by its key. The answer record instead when `Accept` names `application/json` |
+| `POST /ask` that accepts `application/json` or `text/markdown` | the same, with the question in the body instead of the URL |
+| `POST /mcp` | Q's MCP server (`host/src/mcp-server.ts`) over Streamable HTTP: `ask`, `search`, `status`, `community_apps`, `community_decide` |
+
+Why a GET: most agents that read the web can only fetch an address. An answer read that way is the same turn as any other on the `web` surface, with the same record and the same key. A turn the kernel stops answers 429 when it is the rate limit and 422 otherwise.
+
+The MCP server keeps no session and opens no stream: each POST is one message and its response, so a client needs nothing but the address. It runs on the `mcp` surface, where the kernel withholds every private item as it does on the website. Each caller is its own author for the rate limit, and an `ask` waits in the same line as the website's questions.
+
+A request with no `Origin` is not from a page and is served. A page on an origin outside `WEB_ORIGINS` is refused on every route, these included.
+
 ## Who is asking
 
 A visitor is a salted hash of an address, kept in memory for the rate limit (decision 5) and for one question at a time. The salt is made at start and never written, so the hash names nobody once the process ends. A request from a page on any origin not in `WEB_ORIGINS` is refused.

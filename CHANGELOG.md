@@ -13,6 +13,13 @@ This project follows Semantic Versioning and Conventional Commits.
 - Language models give their words as they are written (`complete(system, user, onText)`), held back while they could still be a refusal word, a discarded answer or a text the filter changes.
 - Retrieval searches only the namespaces the kernel serves on the asking surface, so off Discord a withheld item no longer takes a place among the hits.
 
+### Added (other agents)
+
+- `GET /` of the website's adapter says how to ask, as Markdown, so an agent that has only Q's address can use it.
+- `GET /ask?q=` answers one question in one response: Markdown with each source by its address, or the answer record when JSON is accepted. A `POST /ask` that accepts JSON or Markdown is answered whole too; without that it streams as before.
+- Q's MCP server over Streamable HTTP at `/mcp`, with no session and no sign-in. Each caller is its own author for the rate limit, and a question waits in the website's line.
+- No kernel change: these are the `web` and `mcp` surfaces decision 17 already decides.
+
 ### Changed
 
 - Renamed to Q: the repository is UOR-Foundation/q, the app and its holo are `q` (`q.holo`), and the kernel's signer is `UOR-Foundation/q`'s `holo.yml` on `main`. The client is regenerated as `Q`.
