@@ -79,6 +79,15 @@ export function config() {
       signer: process.env.COMMUNITY_SIGNER ?? 'https://github.com/UOR-Foundation/community/.github/workflows/pages.yml@refs/heads/main',
       cacheDir: process.env.COMMUNITY_CACHE_DIR ?? './data/community',
     },
+    // The website's adapter. No port means no web surface: nothing listens unless an operator names one.
+    web: {
+      port: number('WEB_PORT', 0),
+      host: process.env.WEB_HOST ?? '127.0.0.1',
+      origins: process.env.WEB_ORIGINS ? list('WEB_ORIGINS') : ['https://uor.foundation'],
+      suggestionsFile: process.env.WEB_SUGGESTIONS ?? './web/suggestions.json',
+      concurrency: number('WEB_CONCURRENCY', 1),
+      trustProxy: process.env.WEB_TRUST_PROXY === 'true',
+    },
     githubToken: process.env.GITHUB_TOKEN ?? '',
     githubRepositories: list('GITHUB_REPOSITORIES'),
     retentionDays: number('RETENTION_DAYS', 180),
@@ -107,6 +116,8 @@ export function config() {
   whole(c.retentionDays, 254, 'RETENTION_DAYS');
   whole(c.settings.concurrency, 64, 'CONCURRENCY');
   whole(c.llmConcurrency, 64, 'LLM_CONCURRENCY');
+  whole(c.web.concurrency, 64, 'WEB_CONCURRENCY');
+  if (!Number.isInteger(c.web.port) || c.web.port < 0 || c.web.port > 65535) throw new Error('WEB_PORT must be a port number, or 0 for no web surface');
   return c;
 }
 export type Config = ReturnType<typeof config>;

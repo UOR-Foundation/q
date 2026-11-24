@@ -1,10 +1,13 @@
-// Wires the parts. Three ways to run:
-//   node src/main.ts            serve Discord
+// Wires the parts. Five ways to run:
+//   node src/main.ts            serve Discord, and the website too when WEB_PORT is set
+//   node src/main.ts web        serve the website alone, on WEB_PORT
+//   node src/main.ts mcp        serve Q's own MCP server on stdio
 //   node src/main.ts ingest     fill the knowledge base from the sources, then exit
 //   node src/main.ts backfill   index the history of the public channels, then exit
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { discord } from './adapter/discord.ts';
+import { webServer } from './adapter/web.ts';
 import { Community, readPolicyDrift } from './community.ts';
 import { attested } from './provenance.ts';
 import { config } from './config.ts';
@@ -96,11 +99,23 @@ if (mode === 'ingest') {
   log('tools', { servers: c.mcpServers.map((s) => ({ name: s.name, allow: s.allow === true })), tools: tools.list().length, failed });
   const actions: ConstructorParameters<typeof Pipeline>[6] = { memory, reindex, community: () => community, emit, tools: () => tools };
   const pipeline = new Pipeline(kernel, store, index, embedder, llm, c.settings, actions);
+  // The website's adapter, beside Discord or alone: the same pipeline on the `web` surface.
+  const serveWeb = async () => {
+    const suggestions = JSON.parse(await readFile(c.web.suggestionsFile, 'utf8')) as string[];
+    const server = webServer(pipeline, { origins: c.web.origins, suggestions, concurrency: c.web.concurrency, trustProxy: c.web.trustProxy, log, kernel: { label: kernel.holo, bytes: new Uint8Array(await readFile(c.holo)) } });
+    await new Promise<void>((resolve) => server.listen(c.web.port, c.web.host, resolve));
+    log('web', { host: c.web.host, port: c.web.port, origins: c.web.origins, suggestions: suggestions.length, manifest: (await pipeline.manifest()).label });
+  };
   if (mode === 'mcp') {
     // Q's own MCP server on stdio: a client launches this process and talks to it; no port is opened.
     await mcpServer(pipeline, kernel, () => community).connect(new StdioServerTransport());
     log('mcp', { tools: ['ask', 'search', 'status', 'community_apps', 'community_decide'] });
+  } else if (mode === 'web') {
+    // The website alone, without Discord: for a preview on one machine.
+    if (!c.web.port) throw new Error('web mode needs WEB_PORT');
+    await serveWeb();
   } else {
+    if (c.web.port) await serveWeb();
     // Chaos experiments, on the production host but never on live traffic: a shadow pipeline over the same
     // model, embedder, index, community and kernel, whose writes stay in memory and whose answers go nowhere.
     const experiments = await loadExperiments(c.chaos.dir);

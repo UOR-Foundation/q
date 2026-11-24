@@ -265,3 +265,12 @@ statement = "A member's request is filed to the community only with their consen
 theorems = ["Policy.fileOnlyConsented", "Policy.fileOnlyWithSupport"]
 failure = "hold"
 negative = "DA-30"
+
+[[id]]
+id = "DA-31"
+level = "build"
+suite = "agent"
+statement = "An item in the private namespace is never served on any surface but Discord: the website, like the MCP server, serves only public items"
+theorems = ["Policy.privateNeverLeavesDiscord"]
+failure = "withhold"
+negative = "DA-31"

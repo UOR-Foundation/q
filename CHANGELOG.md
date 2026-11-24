@@ -4,6 +4,15 @@ This project follows Semantic Versioning and Conventional Commits.
 
 ## Unreleased
 
+### Added (the website)
+
+- A third surface in decision 17, the website, and `Policy.privateNeverLeavesDiscord`: a private item is served on no surface but Discord (DA-31). 42 theorems, 190 vectors.
+- `adapter/web.ts`: Q over HTTP for uor.foundation, on the same pipeline. A question is answered as server-sent events: the kernel's decision, the sources found, the words as they are written, then the answer.
+- The question key: the BLAKE3 label of a normalized question and the manifest (kernel, community pin, served index, prompts, model). A browser computes it alone, and an answer already computed is read back by it with no retrieval, no model and no question text sent.
+- Two public records with schemas, `uor-agent/web-manifest/1` and `uor-agent/web-answer/1`. They hold no question, no author and no label of a turn's records.
+- Language models give their words as they are written (`complete(system, user, onText)`), held back while they could still be a refusal word, a discarded answer or a text the filter changes.
+- Retrieval searches only the namespaces the kernel serves on the asking surface, so off Discord a withheld item no longer takes a place among the hits.
+
 ### Changed
 
 - Renamed to Q: the repository is UOR-Foundation/q, the app and its holo are `q` (`q.holo`), and the kernel's signer is `UOR-Foundation/q`'s `holo.yml` on `main`. The client is regenerated as `Q`.

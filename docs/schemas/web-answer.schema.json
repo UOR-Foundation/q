@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/web-answer.schema.json",
+  "title": "uor-agent/web-answer/1",
+  "description": "One answer as the website is given it. Public: it holds no question, no author, no time, and no label of a turn's records. Named by its question key, the BLAKE3 kappa label of the normalized question and the manifest label, which a browser computes itself. The record's own label (uor-addr, JCS + NFC) is sent beside it, so a browser can check what it received.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "schema", "key", "manifest", "outcome", "band", "level", "text", "decision", "sources", "tools", "kernel", "community"],
+  "$defs": {
+    "label": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "level": { "enum": ["build", "some-true", "open"] }
+  },
+  "properties": {
+    "type": { "const": "web-answer" },
+    "schema": { "const": "uor-agent/web-answer/1" },
+    "key": { "description": "The question key: the label of {type: web-question, question: <normalized question>, manifest: <manifest label>}.", "$ref": "#/$defs/label" },
+    "manifest": { "description": "The label of the uor-agent/web-manifest/1 record this answer was computed under.", "$ref": "#/$defs/label" },
+    "outcome": { "description": "The kernel's grounding decision (decision 6).", "enum": ["answer", "answer with notice", "not grounded"] },
+    "band": { "description": "The score band the kernel was told. With the number of sources it is what decision 6 was asked.", "enum": ["low", "medium", "high"] },
+    "level": { "description": "The claim level the kernel combined from the sources (decision 7); null when nothing is claimed.", "oneOf": [{ "$ref": "#/$defs/level" }, { "type": "null" }] },
+    "text": { "description": "The answer, after the outgoing content filter (decision 13).", "type": "string" },
+    "decision": {
+      "description": "A community decision the answer states, answered by the community holo at this commit; null when there is none.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["app", "answer", "commit"],
+          "properties": { "app": { "type": "string" }, "answer": { "type": "string" }, "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" } }
+        }
+      ]
+    },
+    "sources": {
+      "description": "Every source the answer was written from, most trusted first (decision 8), each a public item the kernel serves on the website (decisions 10 and 17). Empty when nothing is claimed.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["n", "label", "url", "source", "level", "cited"],
+        "properties": {
+          "n": { "description": "The number the answer cites it by.", "type": "integer" },
+          "label": { "$ref": "#/$defs/label" },
+          "url": { "type": "string" },
+          "source": { "enum": ["community", "website", "github", "discord"] },
+          "level": { "$ref": "#/$defs/level" },
+          "cited": { "description": "Whether the answer cites it by number. An answer that cites none is shown them all.", "type": "boolean" }
+        }
+      }
+    },
+    "tools": { "description": "How many tool calls the answer used. An answer that used one is open at most and is never reused.", "type": "integer" },
+    "kernel": { "description": "The agent's holo, by the BLAKE3 label of its bytes.", "$ref": "#/$defs/label" },
+    "community": { "description": "The community holo, by the BLAKE3 label of its bytes.", "$ref": "#/$defs/label" }
+  }
+}

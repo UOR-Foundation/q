@@ -205,3 +205,10 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.fileOnlyConsented and Policy.fileOnlyWithSupport
     Then file is answered only for a consented request, not filed before, with at least the threshold of supporters
     And prism-code build replays too few supporters, no consent and a request already filed, each answered hold
+
+  @DA-31 @build @rejects
+  Scenario: An item in the private namespace is never served on any surface but Discord: the website, like the MCP server, serves only public items
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.privateNeverLeavesDiscord
+    Then serve is answered on the website only for a public item
+    And prism-code build replays a private item asked for on the website, answered withhold

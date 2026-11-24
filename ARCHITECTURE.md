@@ -11,7 +11,8 @@ Q is the UOR Foundation's AI agent on Discord, built like LangBot with one diffe
 - a pipeline of stages, each asking the kernel before it acts;
 - providers (Anthropic, OpenAI-compatible, Ollama) with a tool loop, an MCP client, and retrieval over a BLAKE3-addressed store;
 - the community root: UOR-Foundation/community's signed holo, its decisions, labels and knowledge, at one pinned commit;
-- an MCP server on stdio exposing a curated, public-only subset of the same service layer.
+- an MCP server on stdio exposing a curated, public-only subset of the same service layer;
+- a web adapter over HTTP for uor.foundation, public-only in the same way.
 
 ## Repository boundary
 
@@ -25,11 +26,11 @@ Q is the UOR Foundation's AI agent on Discord, built like LangBot with one diffe
 `host/src/main.ts`, in order:
 
 1. Load configuration from the environment (`config.ts`).
-2. Open the kernel: verify the holo's identities, replay its 188 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
+2. Open the kernel: verify the holo's identities, replay its 190 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
 3. Open the store and the search index.
 4. Open the community root: fetch its holo, verify its signed provenance, pin the newest commit, replay its vectors, admit each decision app whose examples it answers, read its channel labels, and check Q's read policy against it on all 96 requests (`community.ts`).
 5. Connect the configured MCP servers (`tools.ts`).
-6. Serve: the Discord adapter (`npm start`), or the MCP server on stdio (`node src/main.ts mcp`).
+6. Serve: the Discord adapter (`npm start`), with the web adapter beside it when `WEB_PORT` is set; or the MCP server on stdio (`node src/main.ts mcp`); or the web adapter alone (`node src/main.ts web`).
 
 ## Runtime graph
 
@@ -56,13 +57,22 @@ The MCP server is a parallel entrypoint into the same pipeline:
 MCP client → src/main.ts mcp (stdio) → mcp-server.ts tools → pipeline on the mcp surface
 ```
 
+So is the website's adapter:
+
+```text
+browser → adapter/web.ts (HTTP, server-sent events) → pipeline on the web surface
+          GET /answer/<question key> → pipeline.lookup: no retrieval, no model
+```
+
+[docs/web.md](docs/web.md) is its protocol.
+
 ## Message flow
 
 1. The Discord adapter turns an event into facts: the channel's kind, visibility and label, the install, the intent, the author's role, the trigger.
 2. The aggregator folds quick follow-up messages from the same person in the same channel into one question.
 3. The controller runs one question per session at a time; the pool caps the total.
 4. The pipeline asks the kernel at each stage. A stage the kernel stops ends the turn: silence, or a typed refusal.
-5. Retrieval finds candidates; the kernel decides which may be cited and, on the MCP surface, withholds every private item.
+5. Retrieval finds candidates; the kernel decides which may be cited and, off Discord (the MCP server and the website), withholds every private item.
 6. The answer key, a BLAKE3 label of everything the answer depends on, reuses an answer computed before.
 7. A reply to Q builds on the same author's recent turns, each admitted by the kernel.
 8. The language model writes the answer, calling MCP tools the kernel allows.
@@ -70,7 +80,7 @@ MCP client → src/main.ts mcp (stdio) → mcp-server.ts tools → pipeline on t
 
 ## Platform layer
 
-`host/src/adapter/`. `adapter.ts` is the interface every platform implements; `discord.ts` is the one implementation. An adapter translates platform events into facts and sends replies. It holds no pipeline rules and no policy: adding a platform is adding an adapter, and the kernel does not change.
+`host/src/adapter/`. `adapter.ts` is the interface every platform implements; `discord.ts` implements it. `web.ts` is the website's adapter: HTTP in, the pipeline's stages out as server-sent events. An adapter translates platform events into facts and sends replies. It holds no pipeline rules and no policy: adding a platform is adding an adapter, and the kernel does not change.
 
 ## Pipeline layer
 
@@ -78,7 +88,7 @@ MCP client → src/main.ts mcp (stdio) → mcp-server.ts tools → pipeline on t
 
 ## Providers, RAG and tools
 
-- `providers.ts`: language models behind one interface, each with a tool loop, a call gate (`LLM_CONCURRENCY`) and retry on 429 and 503; OpenAI-compatible embeddings.
+- `providers.ts`: language models behind one interface, each with a tool loop, a call gate (`LLM_CONCURRENCY`), retry on 429 and 503, and the answer's words as they are written for a surface that can show them; OpenAI-compatible embeddings.
 - `knowledge.ts`, `search.ts`, `store.ts`: sources (community, uor.foundation, GitHub, Discord), chunking, hybrid keyword and vector search, and the store of record by BLAKE3 label.
 - `tools.ts`: the MCP client. Every tool of every configured server is offered; the kernel decides every call (15).
 
@@ -91,6 +101,7 @@ Do not confuse Q's MCP client (`tools.ts`) with Q's own MCP server (`mcp-server.
 ## Agent-facing surfaces
 
 - The MCP server (`mcp-server.ts`): `ask`, `search`, `status`, `community_apps`, `community_decide`. Public items only (DA-22).
+- The website's adapter (`adapter/web.ts`): `/manifest`, `/answer/<key>`, `/item/<label>`, `/kernel/<label>`, `/ask`. Public items only (DA-31).
 - `AGENTS.md`, the template's rules for any agent working here, and the Prism skill in `.agents/skills/prism`.
 - `ARCHITECTURE.md` and `docs/`.
 
@@ -99,7 +110,7 @@ When one of these changes, update the others. Drift is a bug.
 ## Persistence
 
 - The store of record: a folder, or the Kappa Registry. Items by BLAKE3 label, typed edges with the registry's relation names. Discord items and turn records are private.
-- The search index: SQLite, derived from the store and rebuildable from it, including the answer memo.
+- The search index: SQLite, derived from the store and rebuildable from it, including the answer memo. The website's question keys are a cache beside it, filled again by use.
 
 ## Where to change things
 

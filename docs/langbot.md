@@ -31,8 +31,8 @@ What Q adds that LangBot has no stage for: retention and forgetting (9; DA-09), 
 
 ## What Q leaves out
 
-- Platforms other than Discord. Adding one is a new `Adapter`; the kernel does not change.
-- The web admin panel and HTTP API. Administration is slash commands and configuration; other agents use the MCP server.
+- Chat platforms other than Discord. Adding one is a new `Adapter`; the kernel does not change. The website is not one of LangBot's platforms: it is a public-only surface like the MCP server (DA-31), described in [web.md](web.md).
+- The web admin panel and its HTTP API. Administration is slash commands and configuration; other agents use the MCP server. The website's adapter answers questions and administers nothing.
 - Webhook pushing from the runtime bot, and per-bot configurable stage chains: Q's stage order is fixed, and each stage's rule is a proved decision.
 - The plugin system and marketplace, and the sandbox.
 - Multi-tenancy, voice, and LangBot's other forty-odd model providers. Most speak the OpenAI-compatible route Q already has.

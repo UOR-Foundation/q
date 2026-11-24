@@ -26,8 +26,9 @@ export const FILTER = { pass: 0, warn: 1, masked: 2, block: 3 } as const;
 /** A reply's size against Discord's 2,000-character message: one message, up to five, or more. */
 export const SIZE = { one: 0, few: 1, many: 2 } as const;
 export const STRATEGY = { split: 0, file: 1 } as const;
-/** Where a question came from: a Discord channel, or a client of the agent's own MCP server. */
-export const SURFACE = { discord: 0, mcp: 1 } as const;
+/** Where a question came from: a Discord channel, a client of the agent's own MCP server, or a visitor to the website. */
+export const SURFACE = { discord: 0, mcp: 1, web: 2 } as const;
+export type Surface = keyof typeof SURFACE;
 
 export type Level = keyof typeof LEVEL;
 export type SourceName = keyof typeof SOURCE;
@@ -141,7 +142,7 @@ export class Kernel {
   history(sameAuthor: boolean, sameChannel: boolean, recent: boolean) {
     return this.#ask<'use' | 'skip'>(16, flag(!sameAuthor), flag(!sameChannel), flag(!recent));
   }
-  /** Whether an item may be served on this surface: Discord, or the agent's own MCP server. */
+  /** Whether an item may be served on this surface: Discord, the agent's own MCP server, or the website. */
   expose(namespace: 'public' | 'private', surface: keyof typeof SURFACE) {
     return this.#ask<'serve' | 'withhold'>(17, namespace === 'public' ? 0 : 1, SURFACE[surface]);
   }

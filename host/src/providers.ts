@@ -9,7 +9,8 @@ export type RunTool = (call: ToolCall) => Promise<string>;
 export interface Llm {
   /** The model, by the name its provider gives it: part of every answer key. */
   readonly model: string;
-  complete(system: string, user: string): Promise<string>;
+  /** With `onText`, the answer's words are also given as they are written; the whole answer is still returned. */
+  complete(system: string, user: string, onText?: (delta: string) => void): Promise<string>;
   /** The same, with tools the model may ask for; each call goes through `run`. At most `rounds` rounds of calls. */
   completeWithTools?(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds?: number): Promise<string>;
 }
@@ -40,13 +41,10 @@ export class AnthropicLlm implements Llm {
     this.maxTokens = maxTokens;
     this.#gate = new Gate(concurrency);
   }
-  async complete(system: string, user: string) {
-    const message = await this.#gate.run(() => this.#client.messages.create({
-      model: this.model,
-      max_tokens: this.maxTokens,
-      system,
-      messages: [{ role: 'user', content: user }],
-    }));
+  async complete(system: string, user: string, onText?: (delta: string) => void) {
+    const request = { model: this.model, max_tokens: this.maxTokens, system, messages: [{ role: 'user' as const, content: user }] };
+    // The gate is held until the last word: a stream still being written is a call in flight.
+    const message = await this.#gate.run(() => (onText ? this.#client.messages.stream(request).on('text', onText).finalMessage() : this.#client.messages.create(request)));
     return message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('');
   }
   async completeWithTools(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds = 3) {
@@ -70,6 +68,32 @@ export const withoutReasoning = (text: string) => {
   const end = text.lastIndexOf('</think>');
   return (end >= 0 ? text.slice(end + '</think>'.length) : text).trim();
 };
+
+/** What of a stream so far is answer: nothing while the model is still reasoning, then what follows its reasoning. */
+export const visibleSoFar = (text: string) => {
+  const end = text.lastIndexOf('</think>');
+  if (end >= 0) return text.slice(end + '</think>'.length).trimStart();
+  const start = text.trimStart();
+  return start.startsWith('<think>') || '<think>'.startsWith(start) ? '' : start;
+};
+
+/** The words of a streamed chat completion, as the provider sends them: one server-sent event per piece. */
+export async function* deltas(body: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for await (const bytes of body) {
+    buffer += decoder.decode(bytes, { stream: true });
+    for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+      const line = buffer.slice(0, end).trim();
+      buffer = buffer.slice(end + 1);
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice('data:'.length).trim();
+      if (data === '[DONE]') return;
+      const delta = (JSON.parse(data) as { choices?: { delta?: { content?: unknown } }[] }).choices?.[0]?.delta?.content;
+      if (typeof delta === 'string' && delta) yield delta;
+    }
+  }
+}
 
 /**
  * At most `limit` calls at once; the rest wait their turn in order. A provider's plan caps concurrent
@@ -136,24 +160,39 @@ export class OpenAiCompatibleLlm implements Llm {
     this.#gate = new Gate(concurrency);
     this.#transport = transport;
   }
-  /** One chat completion, inside the gate, retried when the provider is busy. */
-  #post(body: Record<string, unknown>) {
-    return this.#gate.run(() => retrying(() => this.#transport(`${this.#baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  /** One chat completion, inside the gate until its answer is read, retried when the provider is busy. */
+  #post<T>(body: Record<string, unknown>, read: (response: Response) => Promise<T>): Promise<T> {
+    return this.#gate.run(async () => read(await retrying(() => this.#transport(`${this.#baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` },
       body: JSON.stringify(body),
-    })));
+    }))));
   }
-  async complete(system: string, user: string) {
-    const response = await this.#post({
+  async complete(system: string, user: string, onText?: (delta: string) => void) {
+    const body = {
       model: this.model,
       max_tokens: this.maxTokens,
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       // Reasoning models (Qwen3, GLM, DeepSeek) otherwise write their reasoning into the answer.
       ...(this.thinking ? {} : { chat_template_kwargs: { enable_thinking: false } }),
+    };
+    if (!onText) {
+      return this.#post(body, async (response) => {
+        const { choices } = (await response.json()) as { choices: { message: { content: string } }[] };
+        return withoutReasoning(choices[0]?.message.content ?? '');
+      });
+    }
+    return this.#post({ ...body, stream: true }, async (response) => {
+      let full = '';
+      let shown = 0;
+      for await (const delta of deltas(response.body as AsyncIterable<Uint8Array>)) {
+        full += delta;
+        const visible = visibleSoFar(full);
+        if (visible.length > shown) onText(visible.slice(shown));
+        shown = Math.max(shown, visible.length);
+      }
+      return withoutReasoning(full);
     });
-    const { choices } = (await response.json()) as { choices: { message: { content: string } }[] };
-    return withoutReasoning(choices[0]?.message.content ?? '');
   }
   async completeWithTools(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds = 3) {
     type Call = { id: string; type: 'function'; function: { name: string; arguments: string } };
@@ -161,12 +200,11 @@ export class OpenAiCompatibleLlm implements Llm {
     const messages: Message[] = [{ role: 'system', content: system }, { role: 'user', content: user }];
     const specs = tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
     for (let round = 0; ; round++) {
-      const response = await this.#post({
+      const { choices } = await this.#post({
         model: this.model, max_tokens: this.maxTokens, messages,
         ...(round < rounds ? { tools: specs } : {}),
         ...(this.thinking ? {} : { chat_template_kwargs: { enable_thinking: false } }),
-      });
-      const { choices } = (await response.json()) as { choices: { message: Message }[] };
+      }, (response) => response.json() as Promise<{ choices: { message: Message }[] }>);
       const reply = choices[0]?.message;
       if (!reply?.tool_calls?.length) return withoutReasoning(reply?.content ?? '');
       messages.push({ role: 'assistant', content: reply.content ?? null, tool_calls: reply.tool_calls });

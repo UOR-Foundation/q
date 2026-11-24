@@ -1,12 +1,12 @@
 // One message in, at most one reply out. Each stage asks the kernel and obeys:
 // a branch here follows an answer the kernel gave, and decides nothing of its own.
-import { isLabel, labelOf, matches } from './address.ts';
+import { isLabel, labelOf, matches, type Item } from './address.ts';
 import { titleOf } from './titles.ts';
 import { accepts, describe, type Decider } from './community.ts';
-import type { ChannelFacts, CommandName, Kernel, Level, SourceName } from './kernel.ts';
+import type { ChannelFacts, CommandName, Kernel, Level, SourceName, Surface } from './kernel.ts';
 import type { Memory } from './memory.ts';
 import type { Embedder, Llm, ToolCall } from './providers.ts';
-import { answer, context, event, pinOf, type Answer, type CloudEvent, type Context, type DecisionAsked, type ToolUse } from './records.ts';
+import { answer, context, event, manifest, normalize, pinOf, questionKey, webAnswer, type Answer, type CloudEvent, type Context, type DecisionAsked, type Manifest, type ToolUse, type WebAnswer, type WebSource } from './records.ts';
 import type { SearchIndex } from './search.ts';
 import type { Tools } from './tools.ts';
 import { isRevoked, type Namespace, type Store } from './store.ts';
@@ -22,11 +22,21 @@ export interface Incoming {
   text: string;
   /** Called once the kernel has decided to answer, so the platform can show that Q is working. */
   working?: () => void;
-  /** Where the question came from. Discord unless the agent's own MCP server asked. */
-  surface?: 'discord' | 'mcp';
+  /** Called as the answer takes shape, for a platform that can show it: the sources found, then the words as they are written. */
+  progress?: (event: Progress) => void;
+  /** Where the question came from. Discord unless the agent's own MCP server or the website asked. */
+  surface?: Surface;
   /** A command's other options, by name: /feedback's kind. */
   options?: Record<string, string>;
 }
+
+/** A stage of one answer that a platform may show before the answer is whole. Never anything the kernel has not admitted. */
+export type Progress =
+  | { stage: 'sources'; outcome: Answer['outcome']; sources: Omit<WebSource, 'cited'>[] }
+  | { stage: 'text'; delta: string };
+
+/** An answer as the website is given it, with the label of exactly that record. */
+export interface Published { label: string; answer: WebAnswer }
 
 /** One answered turn, as conversation history remembers it: labels and facts only, never text. */
 interface Turn { author: string; channel: string; answer: string; context: string; created: number }
@@ -60,6 +70,40 @@ interface Draft {
   timings?: Record<string, number>;
   /** The label of the answer record this turn left, when it left one. */
   answer?: string;
+  /** On the website: the public record of this answer, named by its question key. */
+  web?: Published;
+}
+
+const SENTINEL = 'NO_ANSWER';
+
+/**
+ * Holds a model's words until they are known to be the answer. Two things can still take them back:
+ * the answer may be discarded for one that states a decision, and a model that finds no answer says
+ * so with one word that is never shown.
+ */
+function valve(emit: ((delta: string) => void) | undefined) {
+  let held = '';
+  let open = false;
+  let dropped = false;
+  let answering = false;
+  const flush = () => {
+    if (!emit || !open || dropped || !held) return;
+    if (!answering) {
+      const start = held.trimStart();
+      if (SENTINEL.startsWith(start.slice(0, SENTINEL.length))) {
+        if (start.length >= SENTINEL.length) dropped = true;
+        return;
+      }
+      answering = true;
+    }
+    emit(held);
+    held = '';
+  };
+  return {
+    push(delta: string) { if (!dropped) { held += delta; flush(); } },
+    open() { open = true; flush(); },
+    drop() { dropped = true; held = ''; },
+  };
 }
 
 /** Laps of one question through the pipeline, for the log. */
@@ -164,11 +208,14 @@ Format for Discord:
 /** The prompts, by their BLAKE3 label: part of every answer key, so changing a prompt computes answers anew. */
 const PROMPT = labelOf({ type: 'prompt', system: SYSTEM, router: ROUTER });
 
-/** A question as its answer key reads it: the same words, whatever the case or spacing. */
 const QUERY_LIMIT = 1000;
 const PROMPT_QUESTION_LIMIT = 4000;
 
-const normalize = (text: string) => text.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+/** The sources the answer cites by number, or all of them when it cites none: the reader still sees what it was given. */
+const citedIn = (body: string, count: number): boolean[] => {
+  const cited = new Set([...body.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]) - 1));
+  return Array.from({ length: count }, (_, i) => cited.size === 0 || cited.has(i));
+};
 
 export class Pipeline {
   kernel: Kernel;
@@ -288,7 +335,8 @@ export class Pipeline {
     const query = message.text.slice(0, QUERY_LIMIT);
     const [vector] = await this.embedder.embed([query], 'query');
     clock.lap('embed');
-    const hits = this.index.search(query, vector, this.settings.retrieve);
+    // Retrieval looks only where the kernel serves on this surface: an item it would withhold takes no place among the hits.
+    const hits = this.index.search(query, vector, this.settings.retrieve, await this.#served(surface));
     clock.lap('search');
 
     // Read each hit back from the store and recompute its label; the kernel decides whether it may be cited.
@@ -310,6 +358,7 @@ export class Pipeline {
     const community = this.actions.community();
     const ordered = grounded === 'not grounded' ? [] : await this.#byTrust(citations);
     clock.lap('ground');
+    message.progress?.({ stage: 'sources', outcome: grounded, sources: ordered.map((c, i) => ({ n: i + 1, label: c.label, url: c.url, source: c.source, level: c.level })) });
 
     // Compute once. The same question on the same evidence, kernel, community, prompt and model is the
     // same computation: its key is the BLAKE3 label of exactly those, and a computed answer is reused.
@@ -326,7 +375,9 @@ export class Pipeline {
     const used: ToolUse[] = [];
     const tools = this.actions.tools?.();
     const withTools = Boolean(tools?.list().length && this.llm.completeWithTools);
-    const compose = (decided: DecisionAsked | null): Promise<string> => {
+    // Words are shown as they are written only when the kernel would let every text the filter can produce go out unchanged.
+    const shown = message.progress && !withTools && command === 'ask' && (await this.#unfiltered()) ? (delta: string) => message.progress!({ stage: 'text', delta }) : undefined;
+    const compose = (decided: DecisionAsked | null, onText?: (delta: string) => void): Promise<string> => {
       const sources = ordered.map((c, i) => `[${i + 1}] (${c.source}, ${c.level}, ${c.url})\n${c.text}`).join('\n\n');
       const earlierTurns = history.length
         ? `Earlier in this conversation (context for the question; cite only the sources):\n\n${history.map((h) => `Question: ${h.question}\nYour answer: ${h.text}`).join('\n\n')}\n\n`
@@ -334,17 +385,19 @@ export class Pipeline {
       const prompt = `${earlierTurns}Sources:\n\n${sources}${decisionBrief(decided, community)}\n\nQuestion: ${message.text.slice(0, PROMPT_QUESTION_LIMIT)}`;
       return withTools
         ? this.llm.completeWithTools!(SYSTEM, prompt, tools!.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools!, call, message, namespace, used))
-        : this.llm.complete(SYSTEM, prompt);
+        : this.llm.complete(SYSTEM, prompt, onText);
     };
 
     // Most questions that retrieve a decision app are not decisions. So the plain answer is written while
     // the decision's inputs are read, and kept when there is no decision: the reading then costs no time.
     // Never with tools: a tool call can have effects, and a discarded answer must have none.
     let speculative: Promise<string> | undefined;
+    // The plain answer's words are held until it is known to be the answer, and dropped when it is not.
+    const plain = valve(shown);
     let decision: DecisionAsked | null = earlier ? earlier.decision : null;
     if (!earlier && command === 'ask') {
       if (!withTools && this.#candidates(ordered, community).length) {
-        speculative = compose(null);
+        speculative = compose(null, plain.push);
         speculative.catch(() => {});
       }
       decision = await this.#askCommunity(message.text, ordered, community);
@@ -365,9 +418,11 @@ export class Pipeline {
 
     if (grounded === 'not grounded') {
       const text = "I don't know: nothing I have indexed answers that well enough to cite.";
-      const said = await this.#said(namespace, turn, turnLabel, answer({ context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: [], memo: null, reused: null, author: message.authorId, channel: message.channelId, created: this.now() }), []);
+      const said = answer({ context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: [], memo: null, reused: null, author: message.authorId, channel: message.channelId, created: this.now() });
+      const saidLabel = await this.#said(namespace, turn, turnLabel, said, []);
+      const web = await this.#publish(message, turn, turnLabel, said, saidLabel, []);
       clock.lap('record');
-      return { text, decision: grounded, citations: [], timings: clock.laps, answer: said };
+      return { text, decision: grounded, citations: [], timings: clock.laps, answer: saidLabel, web };
     }
 
     let level: Level = ordered[0].level;
@@ -377,8 +432,14 @@ export class Pipeline {
       body = earlier.text;
     } else if (command === 'search') {
       body = ordered.map((c, i) => `[${i + 1}] ${c.text.slice(0, 200).replace(/\s+/g, ' ')}`).join('\n');
+    } else if (speculative && !decision) {
+      plain.open();
+      body = await speculative;
     } else {
-      body = speculative && !decision ? await speculative : await compose(decision);
+      plain.drop();
+      const decided = valve(shown);
+      decided.open();
+      body = await compose(decision, decided.push);
     }
     clock.lap('answer');
 
@@ -386,20 +447,21 @@ export class Pipeline {
     // like evidence for a claim that was not made.
     if (/^\s*NO_ANSWER\b/.test(body)) {
       const text = "I don't know: the sources I found do not answer that.";
-      const said = await this.#said(namespace, turn, turnLabel, answer({
+      const said = answer({
         context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: used,
         memo: key && used.length === 0 ? key : null, reused: earlier?.answer ?? null,
         author: message.authorId, channel: message.channelId, created: this.now(),
-      }), []);
+      });
+      const saidLabel = await this.#said(namespace, turn, turnLabel, said, []);
+      const web = await this.#publish(message, turn, turnLabel, said, saidLabel, []);
       clock.lap('record');
-      return { text, decision: 'declined', citations: [], timings: clock.laps, answer: said };
+      return { text, decision: 'declined', citations: [], timings: clock.laps, answer: saidLabel, web };
     }
     // A tool's result is measured, not established: an answer that used one is open at most.
     if (used.some((u) => u.result)) level = await this.kernel.level(level, 'open');
     // List only the sources the answer cites, keeping their numbers so inline references still match.
-    // An answer that cites none lists them all: the reader still sees what it was given.
-    const cited = new Set([...body.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]) - 1));
-    const listed = ordered.map((c, i) => ({ c, i })).filter(({ i }) => cited.size === 0 || cited.has(i));
+    const cited = citedIn(body, ordered.length);
+    const listed = ordered.map((c, i) => ({ c, i })).filter(({ i }) => cited[i]);
     // Discord's subtext (-#) keeps the evidence visible without competing with the answer.
     // Each source is its link alone: the claim level above says how far the answer is established, and the full
     // record (source, level, BLAKE3 label) stays in the answer record, not in the reader's way.
@@ -413,14 +475,124 @@ export class Pipeline {
     const reusedLine = earlier ? `\n-# Answered once before for this exact question and evidence · ${earlier.answer.slice(0, 15)}` : '';
     const text = `${body}${notice}\n\n-# Claim level: ${level}${decided}${toolLines}${reusedLine}\n${sources}`;
 
-    const said = await this.#said(namespace, turn, turnLabel, answer({
+    const said = answer({
       context: turnLabel, outcome: grounded, level, text: body, citations: ordered.map((c) => c.label), tools: used,
       // An answer that called a tool is never reused: a tool's result can change between calls.
       memo: key && used.length === 0 ? key : null, reused: earlier?.answer ?? null,
       author: message.authorId, channel: message.channelId, created: this.now(),
-    }), [...ordered.map((c) => c.label), ...used.flatMap((u) => (u.result ? [u.result] : []))]);
+    });
+    const saidLabel = await this.#said(namespace, turn, turnLabel, said, [...ordered.map((c) => c.label), ...used.flatMap((u) => (u.result ? [u.result] : []))]);
+    const web = await this.#publish(message, turn, turnLabel, said, saidLabel, ordered);
     clock.lap('record');
-    return { text, decision: grounded, citations: ordered, timings: clock.laps, answer: said };
+    return { text, decision: grounded, citations: ordered, timings: clock.laps, answer: saidLabel, web };
+  }
+
+  /** The namespaces the kernel serves on a surface (decision 17). */
+  async #served(surface: Surface): Promise<Namespace[]> {
+    const served: Namespace[] = [];
+    for (const space of ['public', 'private'] as const) if ((await this.kernel.expose(space, surface)) === 'serve') served.push(space);
+    return served;
+  }
+
+  /** Whether the outgoing filter can change no answer: the kernel lets through both a clean text and, if terms are set, one that holds a term. */
+  async #unfiltered(): Promise<boolean> {
+    const { scope, terms } = this.settings.filter;
+    if ((await this.kernel.filter('outgoing', scope, 'pass')) !== 'continue') return false;
+    return terms.length === 0 || (await this.kernel.filter('outgoing', scope, 'masked')) === 'continue';
+  }
+
+  #manifest?: { at: string; label: string; manifest: Manifest };
+
+  /**
+   * Everything an answer on the website depends on besides the question, as one record and its label.
+   * A change to the kernel, the community pin, the served index, the prompts or the model is a new
+   * manifest, and with it a new key for every question.
+   */
+  async manifest(): Promise<{ label: string; manifest: Manifest }> {
+    const community = this.actions.community();
+    // The count as well as the revision: another process (an ingest) can add chunks this one never saw added.
+    const at = `${this.index.revision}:${this.index.count()}:${community.pin.holo}:${community.pin.commit}`;
+    if (this.#manifest?.at !== at) {
+      const items = (await this.#served('web')).flatMap((space) => this.index.labels(space)).sort();
+      const record = manifest({
+        kernel: { holo: this.kernel.holo, commit: this.kernel.commit },
+        community: pinOf(community.pin),
+        corpus: labelOf({ type: 'corpus', items }),
+        prompt: PROMPT,
+        model: this.llm.model,
+        retrieval: { embedder: this.embedder.model, retrieve: this.settings.retrieve, medium: String(this.settings.mediumSimilarity), high: String(this.settings.highSimilarity) },
+      });
+      this.#manifest = { at, label: labelOf(record), manifest: record };
+      this.index.questionKeep(this.#manifest.label);
+    }
+    return { label: this.#manifest.label, manifest: this.#manifest.manifest };
+  }
+
+  /**
+   * A turn on the website, as its public record. An answer that called no tool is remembered under its
+   * question key, so the same question under the same manifest is read back without retrieval or the model.
+   */
+  async #publish(message: Incoming, turn: Context, turnLabel: string, said: Answer, saidLabel: string, ordered: Citation[]): Promise<Published | undefined> {
+    if (message.surface !== 'web' || turn.request.command !== 'ask') return undefined;
+    const { label } = await this.manifest();
+    const key = questionKey(message.text, label);
+    if (said.tools.length === 0) this.index.questionSet(key, label, saidLabel, turnLabel);
+    return this.#project(key, label, said, turn, ordered);
+  }
+
+  /** The public record of an answer: what a visitor is shown, and nothing of who asked or what they asked. */
+  async #project(key: string, manifestLabel: string, said: Answer, turn: Context, sources: Pick<Citation, 'label' | 'url' | 'source' | 'level'>[]): Promise<Published> {
+    // The outgoing content filter, as on every surface: the kernel decides what the filter's finding means.
+    const screened = screen(said.text, this.settings.filter.terms, 'outgoing');
+    const outgoing = await this.kernel.filter('outgoing', this.settings.filter.scope, screened.level);
+    const text = outgoing === 'interrupt' ? "I can't send that answer." : outgoing === 'masked' ? screened.text : said.text;
+    const cited = citedIn(said.text, sources.length);
+    const record = webAnswer({
+      key, manifest: manifestLabel, outcome: said.outcome, band: turn.retrieval.band, level: said.level, text,
+      decision: turn.decision?.answer ? { app: turn.decision.app, answer: turn.decision.answer, commit: turn.community.commit } : null,
+      sources: sources.map((c, i) => ({ n: i + 1, label: c.label, url: c.url, source: c.source, level: c.level, cited: cited[i] })),
+      tools: said.tools.length, kernel: turn.kernel.holo, community: turn.community.holo,
+    });
+    return { label: labelOf(record), answer: record };
+  }
+
+  /**
+   * The answer already computed for a question key, if there is one: no retrieval, no model, and no question
+   * text, since the key is all that is asked. Each source is read back and decided again by the kernel, as it
+   * was when the answer was written (10, 17); if any is no longer served, the answer is no longer known.
+   */
+  async lookup(key: string): Promise<Published | undefined> {
+    if (!isLabel(key)) return undefined;
+    const row = this.index.questionGet(key);
+    const { label } = await this.manifest();
+    if (!row || row.manifest !== label) return undefined;
+    const forget = () => { this.index.questionDelete(key); return undefined; };
+    const namespace = await this.kernel.namespace('discord');
+    const said = await this.store.get(namespace, row.answer);
+    const turn = await this.store.get(namespace, row.context);
+    if (!said || !turn || said.type !== 'answer' || turn.type !== 'context' || !matches(said, row.answer) || !matches(turn, row.context)) return forget();
+    const sources: Pick<Citation, 'label' | 'url' | 'source' | 'level'>[] = [];
+    for (const cited of (said as Answer).citations) {
+      const item = await this.item(cited);
+      if (!item) return forget();
+      sources.push({ label: cited, url: String(item.url), source: item.source as SourceName, level: item.level as Level });
+    }
+    this.metrics.set('lookup', (this.metrics.get('lookup') ?? 0) + 1);
+    return this.#project(key, label, said as Answer, turn as Context, sources);
+  }
+
+  /**
+   * One chunk as the website may read it: found where the kernel serves on the web (17), with its label
+   * recomputed and the kernel's citation decision on it (10). A visitor can recompute the same label.
+   */
+  async item(label: string): Promise<Item | undefined> {
+    if (!isLabel(label)) return undefined;
+    for (const space of await this.#served('web')) {
+      const item = await this.store.get(space, label);
+      if (item?.type !== 'chunk') continue;
+      if ((await this.kernel.cite(true, matches(item, label), await isRevoked(this.store, space, label))) === 'cite') return item;
+    }
+    return undefined;
   }
 
   /**

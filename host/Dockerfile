@@ -8,6 +8,7 @@ WORKDIR /agent/host
 COPY host/package.json host/package-lock.json ./
 RUN npm ci --omit=dev
 COPY host/src ./src
+COPY host/web ./web
 COPY app/.prism/build/q.holo /agent/kernel/q.holo
 COPY experiments /agent/experiments
 ENV KERNEL_HOLO=/agent/kernel/q.holo \

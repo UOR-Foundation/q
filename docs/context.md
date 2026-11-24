@@ -10,7 +10,7 @@ A Discord answer about a community's rules is only as good as the rules it was r
 
 | Input | What it is | Identity | How it is fixed |
 | --- | --- | --- | --- |
-| The kernel | Q's own decisions, twenty-five of them | the label of `q.holo` | built by prism-code 0.11.2; at every start its 188 vectors replay, and its exact bytes must be a build that `UOR-Foundation/q`'s `holo.yml` signed from `main` (verified with Sigstore, as for the community); the context record names that commit |
+| The kernel | Q's own decisions, twenty-five of them | the label of `q.holo` | built by prism-code 0.11.2; at every start its 190 vectors replay, and its exact bytes must be a build that `UOR-Foundation/q`'s `holo.yml` signed from `main` (verified with Sigstore, as for the community); the context record names that commit |
 | The community root | `UOR-Foundation/community`: its 35 decision apps, its channel labels, its documents | the label of the community `app.holo` | see below |
 | The question | the text, the channel's facts, the author's role, the trigger | the label of the turn's context record | read by the Discord adapter; message text never enters the kernel |
 
@@ -61,6 +61,8 @@ Both records hold a person's question, so both are private and are deleted by `/
 
 A refusal is a turn too: both records and an event, with outcome `not grounded`.
 
+On the website a turn leaves the same two private records and the same event. What the visitor is sent is a third, public record, [`uor-agent/web-answer/1`](schemas/web-answer.schema.json), which holds no question, no author and neither record's label. [web.md](web.md) defines it, the manifest and the question key.
+
 ## What is established, and how
 
 | Claim | Level | Evidence |
@@ -70,6 +72,6 @@ A refusal is a turn too: both records and an event, with outcome `not grounded`.
 | Every turn leaves both records and a content-free event | open (DA-15) | host tests check every kind of turn against the three schemas |
 | The community holo was built by the community's own workflow from the commit Q names | Sigstore verification of GitHub's SLSA provenance | checked at every start, not proved |
 | Q's own kernel is a build its repository's `holo.yml` signed | open (DA-20) | checked at every start; host tests check the verifier against real bundles |
-| Q's decisions | build | the 41 theorems in `CONFORMANCE.md` |
+| Q's decisions | build | the 42 theorems in `CONFORMANCE.md` |
 
 The inputs a language model reads from a question are interpretation. The answer says so, and records them as such.

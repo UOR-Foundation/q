@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/web-manifest.schema.json",
+  "title": "uor-agent/web-manifest/1",
+  "description": "Everything an answer on the website depends on besides the question. Public. Its BLAKE3 kappa label (uor-addr, JCS + NFC) is part of every question key, so a change to any member gives every question a new key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "schema", "kernel", "community", "corpus", "prompt", "model", "retrieval"],
+  "$defs": {
+    "label": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" }
+  },
+  "properties": {
+    "type": { "const": "web-manifest" },
+    "schema": { "const": "uor-agent/web-manifest/1" },
+    "kernel": {
+      "description": "The agent's holo by the label of its bytes, and the commit whose signed build it is (null only when the operator turned the provenance check off).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["holo", "commit"],
+      "properties": { "holo": { "$ref": "#/$defs/label" }, "commit": { "oneOf": [{ "type": "string", "pattern": "^[0-9a-f]{40}$" }, { "type": "null" }] } }
+    },
+    "community": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["holo", "commit"],
+      "properties": { "holo": { "$ref": "#/$defs/label" }, "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" } }
+    },
+    "corpus": { "description": "The label of {type: corpus, items: <sorted labels of every indexed chunk the kernel serves on the website>}.", "$ref": "#/$defs/label" },
+    "prompt": { "description": "The label of the prompts.", "$ref": "#/$defs/label" },
+    "model": { "description": "The language model, by the name its provider gives it.", "type": "string" },
+    "retrieval": {
+      "description": "What retrieval was run with. The similarities are strings, because a label is canonical only over strings and integers.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["embedder", "retrieve", "medium", "high"],
+      "properties": { "embedder": { "type": "string" }, "retrieve": { "type": "integer" }, "medium": { "type": "string" }, "high": { "type": "string" } }
+    }
+  }
+}

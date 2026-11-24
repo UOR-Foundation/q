@@ -526,6 +526,21 @@ theorem{
   proof: linear_arithmetic{definitions: [breaksPrivateStaysOnDiscord, exposeServe]},
   axioms: [Quot.sound, propext]
 }
+
+definition{
+  name: breaksPrivateNeverLeavesDiscord,
+  parameters: [space : Nat, surface : Nat],
+  result: Bool,
+  body: ((exposeServe space surface) && ((not (space =? 0)) && (not (surface =? 0))))
+}
+
+theorem{
+  name: privateNeverLeavesDiscord,
+  parameters: [space : Nat, surface : Nat],
+  statement: ((breaksPrivateNeverLeavesDiscord space surface) = false),
+  proof: linear_arithmetic{definitions: [breaksPrivateNeverLeavesDiscord, exposeServe]},
+  axioms: [Quot.sound, propext]
+}
 definition{
   name: membershipChange,
   parameters: [target : Nat, author : Nat, action : Nat],

@@ -21,8 +21,8 @@ Q's inputs and outputs are defined in [docs/context.md](docs/context.md): Q's ke
 
 | Kind | What |
 | --- | --- |
-| Proved | The 41 theorems named in [CONFORMANCE.md](CONFORMANCE.md), about the decision functions in `app/src/Policy.lex.tex` and the request length in `app/src/Contract.lex.tex` |
-| Tested | 188 acceptance vectors through the byte-level dispatcher; 64 host tests, including a real MCP server over the protocol, the records against their schemas, and provenance against real Sigstore bundles |
+| Proved | The 42 theorems named in [CONFORMANCE.md](CONFORMANCE.md), about the decision functions in `app/src/Policy.lex.tex` and the request length in `app/src/Contract.lex.tex` |
+| Tested | 190 acceptance vectors through the byte-level dispatcher; 74 host tests, including a real MCP server over the protocol, the website's adapter over HTTP, the records against their schemas, and provenance against real Sigstore bundles |
 | Measured at every start | Q's own kernel is a build this repository's `holo.yml` signed (DA-20); the community holo's signed provenance; Q's read policy against the community's `uor-discord-read`, on all 96 requests (DA-13); every vector of both holos |
 | Cited | The community Discord read policy, from `UOR-Foundation/community`. DA-01 reproduces it |
 | Open | The facts the host passes in, the similarity thresholds, the language model's reading of a question, and what [host/README.md](host/README.md) lists as not run |
@@ -93,7 +93,7 @@ Fact codes:
 | author, channel | 0 the same, 1 another |
 | age | 0 within the window, 1 older |
 | namespace | 0 public, 1 private |
-| surface | 0 Discord, 1 the agent's MCP server |
+| surface | 0 Discord, 1 the agent's MCP server, 2 the website |
 | yes or no | 0 no, 1 yes |
 
 Counts, ages and limits are one byte, 0 to 255, in units the host fixes.

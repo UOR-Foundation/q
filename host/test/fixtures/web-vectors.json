@@ -1,0 +1,88 @@
+{
+  "manifest": {
+    "record": {
+      "type": "web-manifest",
+      "schema": "uor-agent/web-manifest/1",
+      "kernel": {
+        "holo": "blake3:36b339f26c8b361999fbb5030199ebc4f08d4e92110b92a941e14f2ccf8e5425",
+        "commit": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "community": {
+        "holo": "blake3:86bc686f26aace361032e86df9e48446a20058499cd6ee0016ae890f8f6c6e6b",
+        "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "corpus": "blake3:1992fb7334c93fdafce37d9c07d9ef6448eb5b0604d998c63697ca94e9b07e59",
+      "prompt": "blake3:ba5a09b770d179341be6fcbc4731de651abb96212e7530162a7c9cc2f204cca3",
+      "model": "test-model",
+      "retrieval": {
+        "embedder": "test-words",
+        "retrieve": 6,
+        "medium": "0.6",
+        "high": "0.7"
+      }
+    },
+    "label": "blake3:42d9fb867d442cfb495ed5f58df7141ef7bf13d9fafabca335be93003cd40903"
+  },
+  "questions": [
+    {
+      "question": "What is a holo?",
+      "normalized": "what is a holo?",
+      "key": "blake3:8c382f98bfa38ca8d25141ba064cc65a7dceecf897bec3e3cf1dc01bafcd3a3d"
+    },
+    {
+      "question": "  WHAT   is a\tHolo?\n",
+      "normalized": "what is a holo?",
+      "key": "blake3:8c382f98bfa38ca8d25141ba064cc65a7dceecf897bec3e3cf1dc01bafcd3a3d"
+    },
+    {
+      "question": "Que\u0301 es UOR?",
+      "normalized": "qu\u00e9 es uor?",
+      "key": "blake3:5a566fa42b2cd9cb32d3bbc40970d466bff137bbbc69c7862ea1bdc7ca0648f3"
+    },
+    {
+      "question": "Qu\u00e9 es UOR?",
+      "normalized": "qu\u00e9 es uor?",
+      "key": "blake3:5a566fa42b2cd9cb32d3bbc40970d466bff137bbbc69c7862ea1bdc7ca0648f3"
+    },
+    {
+      "question": "",
+      "normalized": "",
+      "key": "blake3:6e6b11577223239f370ef852d6356e6da1cf2ca89e9d4c695bf100002ce0382a"
+    }
+  ],
+  "answer": {
+    "record": {
+      "type": "web-answer",
+      "schema": "uor-agent/web-answer/1",
+      "key": "blake3:8c382f98bfa38ca8d25141ba064cc65a7dceecf897bec3e3cf1dc01bafcd3a3d",
+      "manifest": "blake3:42d9fb867d442cfb495ed5f58df7141ef7bf13d9fafabca335be93003cd40903",
+      "outcome": "answer",
+      "band": "high",
+      "level": "open",
+      "text": "A **holo** is a packaged app that checks itself [1].\n\n- Built by `prism-code`\n- Named by its label",
+      "decision": null,
+      "sources": [
+        {
+          "n": 1,
+          "label": "blake3:eee14ea109290956376391d8e5c95e34cd6d7d43dbbdcaf992d556cbac07f898",
+          "url": "https://uor.foundation/docs/holo.md",
+          "source": "website",
+          "level": "some-true",
+          "cited": true
+        },
+        {
+          "n": 2,
+          "label": "blake3:df31beb569e7c9e69e4f3ddfc0dfee32d15d8981947201b4889c908343d7504c",
+          "url": "https://github.com/UOR-Foundation/prism",
+          "source": "github",
+          "level": "open",
+          "cited": false
+        }
+      ],
+      "tools": 0,
+      "kernel": "blake3:36b339f26c8b361999fbb5030199ebc4f08d4e92110b92a941e14f2ccf8e5425",
+      "community": "blake3:86bc686f26aace361032e86df9e48446a20058499cd6ee0016ae890f8f6c6e6b"
+    },
+    "label": "blake3:01f8d148f28b8fb7dd471573721f39da70b9a6d8522eeb8b2eda440c6ad61554"
+  }
+}

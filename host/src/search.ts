@@ -31,7 +31,33 @@ export class SearchIndex {
       create virtual table if not exists words using fts5(label unindexed, body);
       create table if not exists memo (key text primary key, answer text not null, context text not null);
       create table if not exists loop (kind text not null, key text not null, value text not null, primary key (kind, key));
+      create table if not exists question (key text primary key, manifest text not null, answer text not null, context text not null);
     `);
+  }
+
+  #revision = 0;
+  /** Counts every change to the indexed chunks since this process opened the index, so what is derived from them can be cached. */
+  get revision(): number {
+    return this.#revision;
+  }
+
+  /**
+   * The website's memo: a question key (the BLAKE3 label of a question and the manifest it was asked under)
+   * to the answer computed for it. A key a browser can compute alone, so a repeat needs no retrieval.
+   * A cache, rebuilt by use: nothing here is not also in the answer records.
+   */
+  questionGet(key: string): { manifest: string; answer: string; context: string } | undefined {
+    return this.#db.prepare('select manifest, answer, context from question where key = ?').get(key) as { manifest: string; answer: string; context: string } | undefined;
+  }
+  questionSet(key: string, manifest: string, answer: string, context: string) {
+    this.#db.prepare('insert or replace into question values (?, ?, ?, ?)').run(key, manifest, answer, context);
+  }
+  questionDelete(key: string) {
+    this.#db.prepare('delete from question where key = ?').run(key);
+  }
+  /** Keys asked under any other manifest can never be asked again: the manifest is part of the key. */
+  questionKeep(manifest: string) {
+    this.#db.prepare('delete from question where manifest <> ?').run(manifest);
   }
 
   /**
@@ -79,11 +105,13 @@ export class SearchIndex {
     if (this.has(label)) return;
     this.#db.prepare('insert into chunk values (?, ?, ?)').run(label, namespace, new Uint8Array(new Float32Array(vector).buffer));
     this.#db.prepare('insert into words values (?, ?)').run(label, text);
+    this.#revision++;
   }
   remove(label: string) {
     this.#vectors.delete(label);
     this.#db.prepare('delete from chunk where label = ?').run(label);
     this.#db.prepare('delete from words where label = ?').run(label);
+    this.#revision++;
   }
   labels(namespace: Namespace): string[] {
     return (this.#db.prepare('select label from chunk where namespace = ?').all(namespace) as { label: string }[]).map((row) => row.label);
@@ -107,11 +135,13 @@ export class SearchIndex {
     }
   }
 
-  search(text: string, vector: number[], limit: number): Hit[] {
+  /** Only the namespaces given are searched: the ones the kernel serves on the surface that asked. */
+  search(text: string, vector: number[], limit: number, namespaces: readonly Namespace[] = ['public', 'private']): Hit[] {
     this.#catchUp();
     const query = unit(new Float32Array(vector));
     const scored: Hit[] = [];
     for (const [label, { namespace, unit: v }] of this.#vectors) {
+      if (!namespaces.includes(namespace)) continue;
       let dot = 0;
       for (let i = 0; i < v.length; i++) dot += query[i] * v[i];
       scored.push({ label, namespace, similarity: dot });
@@ -125,14 +155,15 @@ export class SearchIndex {
     const fused = new Map<string, number>();
     for (const ranking of [byVector, byWords]) ranking.forEach((label, rank) => fused.set(label, (fused.get(label) ?? 0) + 1 / (60 + rank)));
     const hits = new Map(scored.map((hit) => [hit.label, hit]));
-    return [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([label]) => hits.get(label)!);
+    return [...fused.entries()].filter(([label]) => hits.has(label)).sort((a, b) => b[1] - a[1]).slice(0, limit).map(([label]) => hits.get(label)!);
   }
 
   /** Fill the index from the store: every chunk the store holds and has not revoked, and nothing else. */
   async rebuild(store: Store, embedder: Embedder) {
-    this.#db.exec('delete from chunk; delete from words; delete from memo; delete from loop;');
+    this.#db.exec('delete from chunk; delete from words; delete from memo; delete from loop; delete from question;');
     this.#vectors.clear();
     this.#seen = 0;
+    this.#revision++;
     const fills: { gap: string; chunk: string }[] = [];
     for (const namespace of ['public', 'private'] as const) {
       for (const label of await store.labels(namespace)) {

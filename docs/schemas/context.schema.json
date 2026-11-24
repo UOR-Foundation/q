@@ -37,7 +37,7 @@
       "properties": {
         "command": { "enum": ["ask", "search"] },
         "trigger": { "enum": ["mention", "replyToAgent", "slash"] },
-        "surface": { "description": "Discord, or a client of the agent's own MCP server, where only public items are served (decision 17).", "enum": ["discord", "mcp"] },
+        "surface": { "description": "Discord, or a client of the agent's own MCP server, or a visitor to the website; off Discord only public items are served (decision 17).", "enum": ["discord", "mcp", "web"] },
         "question": { "type": "string" }
       }
     },

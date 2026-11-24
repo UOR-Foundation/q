@@ -8,9 +8,12 @@ import { channelLabels, readPolicyDrift, type Decider, type DecisionApp } from '
 import { Kernel, type ChannelFacts } from '../src/kernel.ts';
 import { chunks, ingest, type Source } from '../src/knowledge.ts';
 import { Memory, type Observed } from '../src/memory.ts';
-import { Pipeline, type Incoming, type Settings } from '../src/pipeline.ts';
-import { ANSWER_SCHEMA, CONTEXT_SCHEMA, type CloudEvent } from '../src/records.ts';
-import { Gate, retrying, withoutReasoning, type Embedder, type Llm, type RunTool, type ToolCall, type ToolSpec } from '../src/providers.ts';
+import { Pipeline, type Incoming, type Progress, type Published, type Settings } from '../src/pipeline.ts';
+import { ANSWER_SCHEMA, CONTEXT_SCHEMA, questionKey, type CloudEvent } from '../src/records.ts';
+import { Gate, OpenAiCompatibleLlm, retrying, visibleSoFar, withoutReasoning, type Embedder, type Llm, type RunTool, type ToolCall, type ToolSpec } from '../src/providers.ts';
+import { QUESTION_LIMIT, webServer, type WebOptions } from '../src/adapter/web.ts';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Tools } from '../src/tools.ts';
 import { payloads } from '../src/adapter/adapter.ts';
 import { Aggregator } from '../src/aggregator.ts';
@@ -21,7 +24,6 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { SearchIndex } from '../src/search.ts';
 import { faulty, loadExperiments, runExperiment, ShadowStore, shadowIndex, strikes, type Experiment, type ExperimentEvent } from '../src/chaos.ts';
-import { OpenAiCompatibleLlm } from '../src/providers.ts';
 import { GENE_BOUNDS, Loop, mutate, type Genes } from '../src/improve.ts';
 import { titleOf } from '../src/titles.ts';
 import type { Outgoing } from '../src/pipeline.ts';
@@ -52,7 +54,7 @@ class CountingLlm implements Llm {
   /** The tool calls a tool-using model asks for, in order. */
   wants: ToolCall[] = [];
   results: string[] = [];
-  async complete(system: string, user: string) {
+  async complete(system: string, user: string, onText?: (delta: string) => void) {
     // The decision reader: it gives the case only when the question states it.
     if (system.startsWith('You read a question for the inputs')) {
       const question = user.slice(user.lastIndexOf('Question:'));
@@ -61,7 +63,10 @@ class CountingLlm implements Llm {
       return JSON.stringify({ app: 'uor-test-naming', inputs: /lowercase/.test(question) ? { case: 'lowercase' } : {} });
     }
     this.calls++;
-    return this.answer ?? `Answer drawn from ${(user.match(/^\[\d+\]/gm) ?? []).length} sources [1].`;
+    const text = this.answer ?? `${user.includes('\n\nDecision:') ? 'Decided answer' : 'Answer'} drawn from ${(user.match(/^\[\d+\]/gm) ?? []).length} sources [1].`;
+    // A streaming model gives its words a few characters at a time.
+    if (onText) for (let at = 0; at < text.length; at += 7) onText(text.slice(at, at + 7));
+    return text;
   }
   async completeWithTools(system: string, user: string, _tools: ToolSpec[], run: RunTool) {
     for (const call of this.wants) this.results.push(await run(call));
@@ -1043,4 +1048,255 @@ test('a source is titled by what it is: a Discord message by channel and day, a 
   assert.equal(titleOf('https://uor.foundation/blog/lexlean-v0-4.md', names, now), 'uor.foundation › blog/lexlean-v0-4');
   assert.equal(titleOf('https://github.com/UOR-Foundation/community/blob/95566d96ca6e71721788c9f9be9eb7e0876f1ab3/apps/uor-discord-read.prompt.json', names, now), 'community › apps/uor-discord-read');
   assert.equal(titleOf('https://raw.githubusercontent.com/UOR-Foundation/community/95566d9/governance/README.md', names, now), 'community › governance/README');
+});
+
+// The website: a third surface on the same pipeline.
+
+const QUESTION = 'How are Prism applications built from a LexLean model?';
+const onWeb = (text: string, more: Partial<Incoming> = {}): Incoming => ({ surface: 'web', channelId: 'web', authorId: 'web:v1', role: 'member', trigger: 'slash', command: 'ask', text, ...more });
+const privateItems = async (store: MemoryStore) => Promise.all((await store.labels('private')).map(async (label) => ({ label, item: (await store.get('private', label))! })));
+
+test('the website is a third surface: the kernel serves a public item there and withholds a private one', async () => {
+  assert.equal(await kernel.expose('public', 'web'), 'serve');
+  assert.equal(await kernel.expose('private', 'web'), 'withhold');
+  assert.equal(await kernel.expose('private', 'discord'), 'serve');
+});
+
+test('a question on the website is answered from public sources only, and its public record holds no question and no author', async () => {
+  const { pipeline, memory, store } = await world();
+  await memory.observe(said('Prism applications are built from a LexLean model, with a secret detail said on Discord'));
+  const reply = await pipeline.handle(onWeb(QUESTION));
+  const { label, answer } = reply!.web!;
+  assert.equal(label, labelOf(answer));
+  assert.deepEqual(conforms(answer, await schema('web-answer'), await schema('web-answer')), []);
+  assert.ok(answer.sources.length > 0);
+  assert.ok(answer.sources.every((s) => s.source !== 'discord' && !s.url.includes('discord.test')));
+  assert.equal(answer.kernel, kernel.holo);
+  assert.doesNotMatch(JSON.stringify(reply!.web), /web:v1|secret detail|built from a LexLean model\?/);
+  // On Discord the same question may cite the Discord message: the surface decides, not the question.
+  const onDiscord = await pipeline.handle(ask(QUESTION, { authorId: 'd1' }));
+  assert.ok(onDiscord!.citations.some((c) => c.source === 'discord'));
+  // The turn's own records are private as on every surface, name the surface, and match the published schema.
+  const turn = (await privateItems(store)).find(({ item }) => item.type === 'context' && (item.request as { surface: string }).surface === 'web')!;
+  assert.deepEqual(conforms(turn.item, await schema('context'), await schema('context')), []);
+  // Neither record's label is in what the website is sent: a label confirms that a known question exists.
+  for (const { label: held, item } of await privateItems(store)) if (item.type === 'context' || item.type === 'answer') assert.ok(!JSON.stringify(reply!.web).includes(held));
+});
+
+test('a question key is the question and the manifest: a repeat is read back by key, with no retrieval, no model and no new record', async () => {
+  const { pipeline, llm, store, embedder } = await world();
+  let embedded = 0;
+  const embed = embedder.embed.bind(embedder);
+  embedder.embed = (texts: string[]) => { embedded++; return embed(texts); };
+  const { label: manifestLabel, manifest } = await pipeline.manifest();
+  assert.equal(manifestLabel, labelOf(manifest));
+  assert.deepEqual(conforms(manifest, await schema('web-manifest'), await schema('web-manifest')), []);
+  const first = (await pipeline.handle(onWeb(QUESTION)))!.web!;
+  // A browser computes the same key from the question as typed and the manifest's label.
+  const key = questionKey('  how are PRISM applications built   from a LexLean model? ', manifestLabel);
+  assert.equal(first.answer.key, key);
+  const before = { calls: llm.calls, embedded, records: (await store.labels('private')).length };
+  assert.deepEqual(await pipeline.lookup(key), first);
+  assert.deepEqual({ calls: llm.calls, embedded, records: (await store.labels('private')).length }, before);
+  assert.equal(pipeline.metrics.get('lookup'), 1);
+  assert.equal(await pipeline.lookup(questionKey('Something nobody asked', manifestLabel)), undefined);
+  assert.equal(await pipeline.lookup('not a label'), undefined);
+  // A refusal is the answer to its key too.
+  const refused = (await pipeline.handle(onWeb('zzzz qqqq xxxx', { authorId: 'web:v2' })))!.web!;
+  assert.deepEqual([refused.answer.outcome, refused.answer.level, refused.answer.sources], ['not grounded', null, []]);
+  assert.deepEqual(await pipeline.lookup(refused.answer.key), refused);
+  // The same question on Discord is no key of the website's: only a turn on the website is remembered by question key.
+  const elsewhere = await world();
+  await elsewhere.pipeline.handle(ask(QUESTION));
+  assert.equal(await elsewhere.pipeline.lookup(questionKey(QUESTION, (await elsewhere.pipeline.manifest()).label)), undefined);
+});
+
+test('a new index is a new manifest, and a new key for every question; a Discord message changes neither', async () => {
+  const { pipeline, store, index, embedder, memory } = await world();
+  const before = await pipeline.manifest();
+  const first = (await pipeline.handle(onWeb(QUESTION)))!.web!;
+  await memory.observe(said('A Discord message about Prism applications'));
+  assert.equal((await pipeline.manifest()).label, before.label);
+  assert.deepEqual(await pipeline.lookup(first.answer.key), first);
+  await ingest(fixture('github', 'some-true', [{ url: 'https://example.test/repo/readme', text: 'A new repository about content addressing.' }]), kernel, store, index, embedder);
+  const after = await pipeline.manifest();
+  assert.notEqual(after.manifest.corpus, before.manifest.corpus);
+  assert.notEqual(after.label, before.label);
+  assert.equal(await pipeline.lookup(first.answer.key), undefined);
+  assert.notEqual(questionKey(QUESTION, after.label), first.answer.key);
+});
+
+test('an answer is known by its key only while every source it cites is still one the kernel cites', async () => {
+  const { pipeline, store } = await world();
+  const first = (await pipeline.handle(onWeb(QUESTION)))!.web!;
+  const cited = first.answer.sources[0].label;
+  assert.equal(labelOf((await pipeline.item(cited))!), cited);
+  // Altered in the store, the item no longer has its label: the kernel drops it, and the answer goes with it.
+  store.items.public.set(cited, store.items.public.get(cited)!.replace('"text":"', '"text":"Altered. '));
+  assert.equal(await pipeline.item(cited), undefined);
+  assert.equal(await pipeline.lookup(first.answer.key), undefined);
+  // So does a revoked one.
+  const other = await world();
+  const second = (await other.pipeline.handle(onWeb(QUESTION)))!.web!;
+  const revoked = second.answer.sources[0].label;
+  await other.store.link('public', { source: revoked, target: revoked, relation: 'revocation' });
+  assert.equal(await other.pipeline.lookup(second.answer.key), undefined);
+});
+
+test('words are shown as they are written, and never a refusal word, a discarded answer, or a text the filter could change', async () => {
+  const watch = () => {
+    const events: Progress[] = [];
+    return { events, progress: (event: Progress) => { events.push(event); }, text: () => events.flatMap((e) => (e.stage === 'text' ? [e.delta] : [])).join('') };
+  };
+  const { pipeline, llm } = await world();
+  const plain = watch();
+  const reply = await pipeline.handle(onWeb(QUESTION, { progress: plain.progress }));
+  assert.equal(plain.events[0].stage, 'sources');
+  assert.ok(plain.events.some((e) => e.stage === 'text'));
+  assert.equal(plain.text(), reply!.web!.answer.text);
+  // A model that finds no answer says one word, which is never shown.
+  llm.answer = 'NO_ANSWER';
+  const none = watch();
+  const declined = await pipeline.handle(onWeb('How are Prism applications verified by the Lean kernel?', { authorId: 'web:v2', progress: none.progress }));
+  assert.equal(declined!.decision, 'declined');
+  assert.equal(none.text(), '');
+  assert.deepEqual([declined!.web!.answer.level, declined!.web!.answer.sources], [null, []]);
+  // The plain answer written while a decision is read is discarded when there is one: only the decided answer is shown.
+  llm.answer = undefined;
+  const decision = watch();
+  const decided = await pipeline.handle(onWeb('Is a lowercase repository name conformant under the repository naming rule?', { authorId: 'web:v3', progress: decision.progress }));
+  assert.match(decision.text(), /^Decided answer/);
+  assert.equal(decision.text(), decided!.web!.answer.text);
+  assert.deepEqual(decided!.web!.answer.decision, { app: 'uor-test-naming', answer: 'conformant', commit: 'a'.repeat(40) });
+  // With a filter term set, a word could be shown before the kernel decided on it: nothing is shown until it has.
+  const filtered = await world({ filter: { scope: 'both', terms: ['forbidden'] } });
+  filtered.llm.answer = 'Prism applications are built from a forbidden LexLean model [1].';
+  const held = watch();
+  const masked = await filtered.pipeline.handle(onWeb(QUESTION, { progress: held.progress }));
+  assert.equal(held.text(), '');
+  assert.match(masked!.web!.answer.text, /from a \*{9} LexLean model/);
+});
+
+test('the labels the website must compute are the ones this host computes: the shared vectors are current', async () => {
+  const vectors = JSON.parse(await readFile(new URL('./fixtures/web-vectors.json', import.meta.url), 'utf8')) as {
+    manifest: { record: never; label: string }; questions: { question: string; normalized: string; key: string }[]; answer: { record: never; label: string };
+  };
+  assert.equal(labelOf(vectors.manifest.record), vectors.manifest.label);
+  assert.equal(labelOf(vectors.answer.record), vectors.answer.label);
+  for (const { question, key } of vectors.questions) assert.equal(questionKey(question, vectors.manifest.label), key);
+  // Case and spacing are one question; so are two spellings of the same accented letter.
+  assert.equal(vectors.questions[0].key, vectors.questions[1].key);
+  assert.equal(vectors.questions[2].key, vectors.questions[3].key);
+  assert.notEqual(vectors.questions[0].key, vectors.questions[2].key);
+  assert.deepEqual(conforms(vectors.answer.record, await schema('web-answer'), await schema('web-answer')), []);
+});
+
+async function onTheWeb(options: Partial<WebOptions> = {}) {
+  const made = await world();
+  const bytes = new Uint8Array(await readFile(HOLO));
+  const server = webServer(made.pipeline, { origins: ['https://site.test'], suggestions: [QUESTION], concurrency: 1, kernel: { label: kernel.holo, bytes }, ...options });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { ...made, server, base: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+}
+/** A response of server-sent events, as its events in order. */
+const sse = async (response: Response) => (await response.text()).split('\n\n').filter(Boolean).map((block) => ({
+  event: /^event: (.*)$/m.exec(block)![1],
+  data: JSON.parse(/^data: (.*)$/m.exec(block)![1]) as Record<string, unknown>,
+}));
+const post = (base: string, question: string, headers: Record<string, string> = {}) => fetch(`${base}/ask`, { method: 'POST', headers: { 'content-type': 'text/plain', ...headers }, body: JSON.stringify({ question }) });
+
+test("the website's adapter answers over HTTP: the manifest, a question as events, the answer again by its key, and a source by its label", async () => {
+  const { server, base, llm, memory, store } = await onTheWeb();
+  try {
+    const origin = { origin: 'https://site.test' };
+    const first = await (await fetch(`${base}/manifest`, { headers: origin })).json() as { label: string; suggestions: unknown; answers: Record<string, Published>; limits: unknown };
+    const key = questionKey(QUESTION, first.label);
+    assert.deepEqual(first.suggestions, [{ question: QUESTION, key }]);
+    assert.deepEqual(first.answers, {});
+    assert.deepEqual(first.limits, { question: QUESTION_LIMIT });
+    // Asked as text/plain: a simple request, so a browser sends no preflight before it.
+    const asked = await post(base, QUESTION, origin);
+    assert.equal(asked.headers.get('access-control-allow-origin'), 'https://site.test');
+    assert.match(asked.headers.get('content-type')!, /^text\/event-stream/);
+    const events = await sse(asked);
+    assert.deepEqual([...new Set(events.map((e) => e.event))], ['queued', 'decided', 'sources', 'text', 'answer']);
+    const sent = events.at(-1)!.data as unknown as Published & { ms: number; timings: Record<string, number> };
+    assert.equal(sent.answer.key, key);
+    assert.equal(sent.label, labelOf(sent.answer));
+    assert.equal(events.flatMap((e) => (e.event === 'text' ? [e.data.delta] : [])).join(''), sent.answer.text);
+    assert.ok(Number.isInteger(sent.ms) && typeof sent.timings.embed === 'number');
+    // The same answer by its key: one GET, no question text, no model.
+    const again = await fetch(`${base}/answer/${key}`, { headers: origin });
+    assert.equal(again.status, 200);
+    assert.deepEqual(await again.json(), { label: sent.label, answer: sent.answer });
+    assert.equal(llm.calls, 1);
+    // A suggested question's answer, once computed, comes with the manifest.
+    const second = await (await fetch(`${base}/manifest`)).json() as typeof first;
+    assert.equal(second.answers[key].label, sent.label);
+    // A source by its label is the item itself, so a visitor can recompute the label.
+    const source = sent.answer.sources[0].label;
+    assert.equal(labelOf(await (await fetch(`${base}/item/${source}`)).json() as never), source);
+    // A Discord item has a label too, and is not served.
+    await memory.observe(said('A private message on Discord about Prism applications'));
+    const [hidden] = (await privateItems(store)).filter(({ item }) => item.type === 'chunk');
+    assert.ok(hidden);
+    assert.equal((await fetch(`${base}/item/${hidden.label}`)).status, 404);
+    assert.equal((await fetch(`${base}/answer/${questionKey('never asked', first.label)}`)).status, 404);
+    // The kernel this host runs, by its label: the same bytes, so a browser can run the same decisions.
+    const served = new Uint8Array(await (await fetch(`${base}/kernel/${kernel.holo}`)).arrayBuffer());
+    assert.deepEqual(served, new Uint8Array(await readFile(HOLO)));
+    assert.equal((await fetch(`${base}/kernel/${labelOf({ type: 'holo', name: 'another' })}`)).status, 404);
+    assert.equal((await fetch(`${base}/nothing`)).status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("the website's adapter refuses another site's page, a question too long, and a visitor past the rate limit", async () => {
+  const { server, base } = await onTheWeb();
+  try {
+    assert.equal((await fetch(`${base}/manifest`, { headers: { origin: 'https://elsewhere.test' } })).status, 403);
+    assert.equal((await post(base, QUESTION, { origin: 'https://elsewhere.test' })).status, 403);
+    assert.equal((await post(base, 'x'.repeat(QUESTION_LIMIT + 1))).status, 400);
+    assert.equal((await fetch(`${base}/ask`, { method: 'POST', body: 'not json' })).status, 400);
+    const preflight = await fetch(`${base}/ask`, { method: 'OPTIONS', headers: { origin: 'https://site.test' } });
+    assert.deepEqual([preflight.status, preflight.headers.get('access-control-allow-origin')], [204, 'https://site.test']);
+    // The kernel's rate limit (decision 5) is the visitor's: three questions a minute here, then a refusal with no answer.
+    for (let asked = 0; asked < 3; asked++) assert.equal((await sse(await post(base, QUESTION))).at(-1)!.event, 'answer');
+    const fourth = await sse(await post(base, QUESTION));
+    assert.deepEqual(fourth.map((e) => e.event), ['queued', 'refused']);
+    assert.equal(fourth[1].data.decision, 'rate limited');
+  } finally {
+    server.close();
+  }
+});
+
+test('a streamed completion gives the answer as it arrives, never the reasoning, and returns the same whole answer', async () => {
+  const pieces = ['<think>', 'weighing the sources', '</think>', '\n\nA holo ', 'is a packaged', ' app [1].'];
+  const provider = createServer((request, response) => {
+    let body = '';
+    request.on('data', (part) => { body += part; });
+    request.on('end', () => {
+      if (!(JSON.parse(body) as { stream?: boolean }).stream) return response.end(JSON.stringify({ choices: [{ message: { content: pieces.join('') } }] }));
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      // Sent in three parts that fall inside lines: a line is whole only at its newline.
+      const lines = `${pieces.map((piece) => `data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`).join('')}: keep-alive\n\ndata: [DONE]\n\n`;
+      const third = Math.floor(lines.length / 3);
+      response.write(lines.slice(0, third));
+      setTimeout(() => { response.write(lines.slice(third, 2 * third)); setTimeout(() => response.end(lines.slice(2 * third)), 5); }, 5);
+    });
+  });
+  await new Promise<void>((resolve) => provider.listen(0, '127.0.0.1', resolve));
+  try {
+    const llm = new OpenAiCompatibleLlm(`http://127.0.0.1:${(provider.address() as AddressInfo).port}/v1`, 'key', 'model', true, 64, 1);
+    const seen: string[] = [];
+    const whole = await llm.complete('system', 'user', (delta) => seen.push(delta));
+    assert.equal(whole, 'A holo is a packaged app [1].');
+    assert.equal(seen.join(''), whole);
+    assert.ok(seen.length > 1);
+    assert.equal(await llm.complete('system', 'user'), whole);
+  } finally {
+    provider.close();
+  }
+  assert.deepEqual(['<thi', '<think>so far', 'Plain words', 'a</think> b'].map(visibleSoFar), ['', '', 'Plain words', 'b']);
 });

@@ -49,6 +49,7 @@ The three honesty levels (R2):
 | `DA-28` | `build` | The daily evaluation runs only while no real question is in progress, and only with test cases to run | `Policy.evalYields`, refuses with `wait` |
 | `DA-29` | `build` | An evolved genome replaces the current one only when, on the same tests, it has fewer wrong outcomes, or as few and a lower latency, with no breach and within the latency bound | `Policy.neverPromoteWorse`, `Policy.promoteNeedsGain`, refuses with `keep` |
 | `DA-30` | `build` | A member's request is filed to the community only with their consent, once, and only when enough members support it | `Policy.fileOnlyConsented`, `Policy.fileOnlyWithSupport`, refuses with `hold` |
+| `DA-31` | `build` | An item in the private namespace is never served on any surface but Discord: the website, like the MCP server, serves only public items | `Policy.privateNeverLeavesDiscord`, refuses with `withhold` |
 
 ## contract
 
