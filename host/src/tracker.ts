@@ -35,11 +35,14 @@ export function candidate(text: string): boolean {
 
 export const TRACK_PROMPT = `You read one message from a community chat and say whether it is something that needs follow-up. Reply with exactly one JSON object and nothing else:
 {"kind":"question"|"promise"|"request"|null,"summary":"<one short line, in third person, without names>","due":"YYYY-MM-DD"|null}
-- question: a real question the writer wants answered (not rhetorical, not a greeting, not a question to the bot Q).
+Track only what a community manager would regret missing. When in doubt, answer null.
+- question: a substantive question the writer needs answered by someone else: about the UOR Foundation, its projects, its tools, how to contribute, or help with a concrete problem. Not rhetorical, not small talk or banter ("how are you?", "isn't it?"), not a question to the bot Q, not a question that is part of a casual exchange between two people.
 - promise: the writer commits to deliver something concrete that others are waiting for (send, share, fix, review, write, publish, deliver), with or without a date. A personal plan nobody is waiting on, a figurative or emotional line, or a vague intention is not a promise.
 - request: the writer asks others to do something specific or for help with something specific.
 - null: anything else, including jokes, thanks, opinions, figurative lines, personal plans, and questions already answered in the same message.
 - due: only when the message names a date or day; resolve it against today's date given below.`;
+
+export const ANSWER_PROMPT = `You read a new chat message and a short list of open questions and requests from the same conversation. Say which items the new message answers or resolves: it gives the answer, the help asked for, or a clear pointer to it. A message that only acknowledges, asks more, or changes the subject resolves nothing. Reply with exactly one JSON object: {"answers":[<item numbers>]}, an empty list when it resolves none.`;
 
 export interface Item { label: string; kind: Kind; url: string; channel: string; author: string; summary: string; due: string | null; at: number; closed: string | null }
 
@@ -75,6 +78,31 @@ export class Tracker {
     return true;
   }
 
+  /** Open items a message may answer: in the same channel or thread, made by someone else in the last twelve hours. */
+  #nearby(message: Observed): Item[] {
+    const place = message.threadId ?? message.channelId;
+    return this.#deps.index.loopAll<Item>('tracked').map((r) => r.value)
+      .filter((i) => !i.closed && i.channel === place && i.author !== message.authorId && i.kind !== 'promise' && message.createdMs - i.at < 12 * 3_600_000 && message.createdMs > i.at)
+      .slice(-5);
+  }
+
+  /**
+   * People answer without using Discord's reply. The model reads the message against the open items near it and says
+   * which, if any, it answers; each is then closed as a reply, as decision 30 allows.
+   */
+  async #answers(message: Observed): Promise<Item[]> {
+    const near = this.#nearby(message);
+    if (!near.length || message.text.trim().length < 15) return [];
+    const list = near.map((i, n) => `${n + 1}. (${i.kind}) ${i.summary}`).join('\n');
+    try {
+      const reply = await this.#deps.llm.complete(ANSWER_PROMPT, `Open items:\n${list}\n\nNew message: ${message.text.slice(0, 1500)}`);
+      const picked = JSON.parse(reply.slice(reply.indexOf('{'), reply.lastIndexOf('}') + 1)) as { answers?: number[] };
+      return (picked.answers ?? []).filter((n) => Number.isInteger(n) && n >= 1 && n <= near.length).map((n) => near[n - 1]);
+    } catch {
+      return [];
+    }
+  }
+
   /** A message Q was offered. A reply may close what it answers; a new question, promise or request is caught. */
   async observed(message: Observed, decision: 'index' | 'skip'): Promise<'closed' | 'tracked' | undefined> {
     const { guilds } = this.#deps;
@@ -83,7 +111,10 @@ export class Tracker {
     if (decision !== 'index') return undefined;
     const answered = this.#open(message.replyTo);
     if (answered && (await this.#close(answered, message.authorId, 'reply', message.origin === 'conversation'))) return 'closed';
-    if (message.origin !== 'conversation' || !candidate(message.text)) return undefined;
+    if (message.origin !== 'conversation') return undefined;
+    let closedAny = false;
+    for (const item of await this.#answers(message)) if (await this.#close(item, message.authorId, 'reply', true)) closedAny = true;
+    if (!candidate(message.text)) return closedAny ? 'closed' : undefined;
     const today = new Date(this.#deps.now()).toISOString().slice(0, 10);
     let read: { kind: Kind | null; summary?: string; due?: string | null };
     try {

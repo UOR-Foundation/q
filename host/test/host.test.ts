@@ -1923,7 +1923,7 @@ async function trackerWorld(guilds: ReadonlySet<string> | null = null) {
     'Is this cool or what?': { kind: null },
   };
   const asked: string[] = [];
-  const llm = { model: 'm', complete: async (_s: string, u: string) => { asked.push(u); const text = u.slice(u.indexOf('Message: ') + 9); return JSON.stringify(reads[text] ?? { kind: null }); } };
+  const llm = { model: 'm', complete: async (_s: string, u: string) => { asked.push(u); if (u.startsWith('Open items:')) return JSON.stringify({ answers: /Filebase/.test(u.slice(u.indexOf('New message: '))) ? [1] : [] }); const text = u.slice(u.indexOf('Message: ') + 9); return JSON.stringify(reads[text] ?? { kind: null }); } };
   const tracker = new Tracker({ kernel, store: w.store, index: w.index, llm, now: () => w.clock.now, guilds });
   return { ...w, tracker, asked };
 }
@@ -1964,6 +1964,17 @@ test('a reply from someone else answers a question; the asker replying does not;
   assert.equal(await w.tracker.observed(msg('Thanks!', { replyTo: p.url, authorId: 'u2', url: 'https://discord.com/channels/x/c1/r3' }), 'index'), undefined);
   assert.equal(await w.tracker.reacted(p.url, '👍', 'u2', true), undefined);
   assert.equal(await w.tracker.reacted(p.url, '✅', 'u2', true), 'closed');
+  assert.deepEqual(await w.tracker.open(), []);
+});
+
+test('an answer given without a Discord reply closes the question near it; small talk and the asker do not', async () => {
+  const w = await trackerWorld();
+  const q = msg('How do I pin a holo to IPFS?');
+  await w.tracker.observed(q, 'index');
+  assert.equal(await w.tracker.observed(msg('Same here, I was wondering too', { authorId: 'u3', url: 'https://discord.com/channels/x/c1/n1', createdMs: q.createdMs + 1 * 60_000 }), 'index'), undefined);
+  assert.equal(await w.tracker.observed(msg('Never mind, Filebase works for me', { authorId: 'u1', url: 'https://discord.com/channels/x/c1/n2', createdMs: q.createdMs + 2 * 60_000 }), 'index'), undefined, 'the asker never answers their own question');
+  assert.equal(await w.tracker.observed(msg('Elsewhere: use the Filebase S3 API', { authorId: 'u2', channelId: 'c9', url: 'https://discord.com/channels/x/c9/n3', createdMs: q.createdMs + 3 * 60_000 }), 'index'), undefined, 'only in the same place');
+  assert.equal(await w.tracker.observed(msg('You can use the Filebase S3 API for that', { authorId: 'u2', url: 'https://discord.com/channels/x/c1/n4', createdMs: q.createdMs + 4 * 60_000 }), 'index'), 'closed');
   assert.deepEqual(await w.tracker.open(), []);
 });
 
