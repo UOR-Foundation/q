@@ -238,12 +238,12 @@ if (mode === 'ingest') {
       observe: async (message) => {
         const decision = await memory.observe(message);
         await loop.observed(message, decision).catch(failed);
-        if (tracker) tracker.observed(message, decision).then((t) => t && log('tracker', { event: t })).catch(failed);
+        if (tracker) tracker.observed(message, decision).then((t) => t && log('tracker', { result: t })).catch(failed);
         return decision;
       },
       delivered: (d) => loop.delivered(d),
       react: async (url, emoji, human, member) => {
-        if (tracker) await tracker.reacted(url, emoji, member, human).then((t) => t && log('tracker', { event: t })).catch(failed);
+        if (tracker) await tracker.reacted(url, emoji, member, human).then((t) => t && log('tracker', { result: t })).catch(failed);
         return loop.reacted(url, emoji, human, member);
       },
       withdraw: async (url, before) => {
