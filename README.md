@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/brand/orb/q-orb-256.png" width="128" height="128" alt="Q"></p>
+
 # uor-discord-agent
 
 Q, the UOR Foundation's AI agent on Discord, as a Prism application: every decision written in LexLean and proved by Lean's kernel, every effect in a host that asks first.
