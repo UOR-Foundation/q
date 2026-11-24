@@ -24,7 +24,7 @@ LangBot decides in code: a stage's `if` is the policy. Q's rule is that a policy
 | Long text (`longtext`) | long text (14) | adapter: one message, split, or a file | DA-18 |
 | Response back (`respback`) | none | adapter | tested |
 | Model providers (`provider/modelmgr`) | none | Anthropic, OpenAI-compatible, Ollama | not run: Anthropic, Ollama |
-| MCP server at `/mcp` (`api/mcp`) | exposure (17) | `mcp-server.ts` on stdio: `ask`, `search`, `status`, `community_apps`, `community_decide`; public items only | DA-22 |
+| MCP server at `/mcp` (`api/mcp`) | exposure (17) | `mcp-server.ts` on stdio, and over HTTP at `/mcp` of the website's adapter: `ask`, `search`, `status`, `community_apps`, `community_decide`; public items only | DA-22 |
 | `ARCHITECTURE.md`, `AGENTS.md`, skills | none | `ARCHITECTURE.md` in LangBot's structure, the template's `AGENTS.md`, the Prism skill | |
 
 What Q adds that LangBot has no stage for: retention and forgetting (9; DA-09), including what is deleted or edited on Discord; the rules reaction role that carl-bot gave as "UOR Bot" (18; DA-23), chaos experiments in production, approved by the community by BLAKE3 label (19, 20; DA-24, DA-25, [chaos.md](chaos.md)), the community root and its drift check (DA-13), community decisions (DA-14), and a record of every turn (DA-15).

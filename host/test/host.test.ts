@@ -20,6 +20,7 @@ import { Aggregator } from '../src/aggregator.ts';
 import { mcpServer } from '../src/mcp-server.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { SearchIndex } from '../src/search.ts';
@@ -1193,10 +1194,11 @@ test('the labels the website must compute are the ones this host computes: the s
   assert.deepEqual(conforms(vectors.answer.record, await schema('web-answer'), await schema('web-answer')), []);
 });
 
-async function onTheWeb(options: Partial<WebOptions> = {}) {
+async function onTheWeb(options: Partial<WebOptions> & { withMcp?: boolean } = {}) {
   const made = await world();
   const bytes = new Uint8Array(await readFile(HOLO));
-  const server = webServer(made.pipeline, { origins: ['https://site.test'], suggestions: [QUESTION], concurrency: 1, kernel: { label: kernel.holo, bytes }, ...options });
+  const mcp: WebOptions['mcp'] = options.withMcp ? (asker, author) => mcpServer(asker, kernel, () => made.decider, author) : undefined;
+  const server = webServer(made.pipeline, { origins: ['https://site.test'], suggestions: [QUESTION], concurrency: 1, kernel: { label: kernel.holo, bytes }, mcp, ...options });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return { ...made, server, base: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
@@ -1269,6 +1271,79 @@ test("the website's adapter refuses another site's page, a question too long, an
     assert.deepEqual(fourth.map((e) => e.event), ['queued', 'refused']);
     assert.equal(fourth[1].data.decision, 'rate limited');
   } finally {
+    server.close();
+  }
+});
+
+test('another agent asks with one request: a page it can read, the record as JSON, and how to ask at the root', async () => {
+  const { server, base, llm } = await onTheWeb();
+  try {
+    // The root says how to ask, at this host's own address. With no MCP server given, it offers none.
+    const root = await fetch(`${base}/`);
+    assert.match(root.headers.get('content-type')!, /^text\/markdown/);
+    const manual = await root.text();
+    assert.ok(manual.includes(`GET ${base}/ask?q=`));
+    assert.ok(manual.includes(`at most ${QUESTION_LIMIT} characters`));
+    assert.doesNotMatch(manual, /\/mcp/);
+    assert.equal(await (await fetch(`${base}/llms.txt`)).text(), manual);
+    assert.equal((await fetch(`${base}/mcp`, { method: 'POST', body: '{}' })).status, 404);
+    // One GET, as any fetch tool sends it: the answer as Markdown, its sources by address, and where to read it again.
+    const asked = `${base}/ask?q=${encodeURIComponent(QUESTION)}`;
+    const page = await fetch(asked);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-type')!, /^text\/markdown/);
+    const text = await page.text();
+    const key = questionKey(QUESTION, (await (await fetch(`${base}/manifest`)).json() as { label: string }).label);
+    assert.match(text, /## Sources\n\n1\. https:\/\/\S+ \(\w+, [\w-]+\) `blake3:[0-9a-f]{64}`\n/);
+    assert.match(text, /\nClaim level: [\w-]+\. Grounding: answer, from the \w+ band and \d+ sources?\.\n/);
+    assert.ok(text.includes(`${base}/answer/${key}`));
+    // The same question as JSON is the record /answer/<key> serves, and the model was called once for all of it.
+    const record = await (await fetch(asked, { headers: { accept: 'application/json' } })).json() as Published;
+    assert.equal(record.label, labelOf(record.answer));
+    assert.ok(text.startsWith(record.answer.text));
+    assert.deepEqual(record, await (await fetch(`${base}/answer/${key}`)).json());
+    // A POST that accepts JSON is answered whole instead of as events, so the question stays out of the URL.
+    const posted = await post(base, QUESTION, { accept: 'application/json' });
+    assert.match(posted.headers.get('content-type')!, /^application\/json/);
+    assert.deepEqual(await posted.json(), record);
+    assert.equal(llm.calls, 1);
+    // No question is told how to ask; the fourth question in a minute is told to wait; a wrong path is told where the manual is.
+    const bare = await fetch(`${base}/ask`);
+    assert.equal(bare.status, 400);
+    assert.ok((await bare.text()).includes(`${base}/ask?q=`));
+    const limited = await fetch(asked, { headers: { accept: 'application/json' } });
+    assert.equal(limited.status, 429);
+    assert.equal((await limited.json() as { refused: string }).refused, 'rate limited');
+    assert.deepEqual(await (await fetch(`${base}/nothing`)).json(), { error: 'not found', manual: `${base}/` });
+  } finally {
+    server.close();
+  }
+});
+
+test("Q's MCP server answers at /mcp of the website's adapter: a client connects with no session, and nothing from Discord is served", async () => {
+  const { server, base, memory } = await onTheWeb({ withMcp: true });
+  await memory.observe(said('Prism applications are discussed here on Discord with a secret detail'));
+  const client = new Client({ name: 'another-agent', version: '1.0.0' });
+  try {
+    assert.ok((await (await fetch(`${base}/`)).text()).includes(`"url": "${base}/mcp"`));
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    assert.deepEqual((await client.listTools()).tools.map((t) => t.name).sort(), ['ask', 'community_apps', 'community_decide', 'search', 'status']);
+    const answered = (await client.callTool({ name: 'ask', arguments: { question: QUESTION } })).content as { text: string }[];
+    assert.match(answered[0].text, /Claim level: /);
+    const found = (await client.callTool({ name: 'search', arguments: { query: 'Prism applications self-verifying archives built from a LexLean model secret detail' } })).content as { text: string }[];
+    assert.match(found[0].text, /example\.test\/site\/prism/);
+    assert.doesNotMatch(found[0].text, /discord\.test|secret detail/);
+    const status = JSON.parse(((await client.callTool({ name: 'status', arguments: {} })).content as { text: string }[])[0].text) as { kernel: { holo: string } };
+    assert.equal(status.kernel.holo, kernel.holo);
+    // No session and no stream: a GET is told so, and a body that is not JSON is a JSON-RPC parse error.
+    const opened = await fetch(`${base}/mcp`);
+    assert.deepEqual([opened.status, opened.headers.get('allow')], [405, 'POST']);
+    const broken = await fetch(`${base}/mcp`, { method: 'POST', body: 'not json' });
+    assert.deepEqual([broken.status, (await broken.json() as { error: { code: number } }).error.code], [400, -32700]);
+    // A page on another site may not use it either.
+    assert.equal((await fetch(`${base}/mcp`, { method: 'POST', headers: { origin: 'https://elsewhere.test' }, body: '{}' })).status, 403);
+  } finally {
+    await client.close();
     server.close();
   }
 });

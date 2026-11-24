@@ -1,8 +1,9 @@
 // Q's own MCP server, as LangBot mounts one at /mcp: a curated, agent-facing subset of the same service
 // layer, so other agents can ask Q, search its knowledge and ask the community's decisions. It speaks
-// stdio (`node src/main.ts mcp`), so it opens no port. Every question goes through the same pipeline on
-// the `mcp` surface, where the kernel withholds every private item (decision 17): nothing from Discord
-// is ever served here.
+// stdio (`node src/main.ts mcp`), which opens no port, and Streamable HTTP at /mcp of the website's
+// adapter (adapter/web.ts), where each caller is its own author for the rate limit. Every question goes
+// through the same pipeline on the `mcp` surface, where the kernel withholds every private item
+// (decision 17): nothing from Discord is ever served here.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { describe, type Decider } from './community.ts';
@@ -19,10 +20,10 @@ const TOOLS = [
   { name: 'community_decide', description: "Ask one UOR community decision app, by name, with its inputs in order. The answer comes from the community's signed holo.", inputSchema: { type: 'object', properties: { app: { type: 'string' }, inputs: { type: 'array', items: { type: 'string' } } }, required: ['app', 'inputs'] }, annotations: { readOnlyHint: true } },
 ];
 
-export function mcpServer(pipeline: Pipeline, kernel: Kernel, community: () => Decider): Server {
+export function mcpServer(pipeline: Pick<Pipeline, 'handle'>, kernel: Kernel, community: () => Decider, author = 'mcp-client'): Server {
   const server = new Server({ name: 'uor-q', version: '0.1.0' }, { capabilities: { tools: {} } });
   const question = (command: 'ask' | 'search', value: string): Incoming => ({
-    surface: 'mcp', channelId: 'mcp', authorId: 'mcp-client', role: 'member', trigger: 'slash', command, text: value,
+    surface: 'mcp', channelId: 'mcp', authorId: author, role: 'member', trigger: 'slash', command, text: value,
   });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -31,8 +32,12 @@ export function mcpServer(pipeline: Pipeline, kernel: Kernel, community: () => D
       case 'ask':
       case 'search': {
         const value = String(args.question ?? args.query ?? '');
-        const reply = await pipeline.handle(question(request.params.name, value));
-        return text(reply?.text ?? 'No answer.');
+        try {
+          const reply = await pipeline.handle(question(request.params.name, value));
+          return text(reply?.text ?? 'No answer.');
+        } catch (error) {
+          return { ...text(String(error instanceof Error ? error.message : error)), isError: true };
+        }
       }
       case 'status': {
         const pin = community().pin;
