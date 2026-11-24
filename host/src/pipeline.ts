@@ -386,7 +386,15 @@ export class Pipeline {
     const [vector] = await this.embedder.embed([query], 'query');
     clock.lap('embed');
     // Retrieval looks only where the kernel serves on this surface: an item it would withhold takes no place among the hits.
-    const hits = this.index.search(query, vector, this.settings.retrieve, await this.#served(surface));
+    // The documentation and the conversation are searched apart, then joined: tens of thousands of Discord messages
+    // would otherwise take every place, and an answer about UOR would be written from chat with no documentation in
+    // view. Two thirds of the places go to the documentation when it has that many hits; the rest to the conversation.
+    const served = await this.#served(surface);
+    const retrieve = this.settings.retrieve;
+    const documented = served.includes('public') ? this.index.search(query, vector, retrieve, ['public']) : [];
+    const conversed = served.includes('private') ? this.index.search(query, vector, retrieve, ['private']) : [];
+    const fromDocs = documented.slice(0, Math.max(retrieve - conversed.length, Math.ceil((retrieve * 2) / 3)));
+    const hits = [...fromDocs, ...conversed.slice(0, retrieve - fromDocs.length)];
     clock.lap('search');
 
     // Read each hit back from the store and recompute its label; the kernel decides whether it may be cited.
