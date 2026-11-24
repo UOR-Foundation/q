@@ -74,6 +74,7 @@ export function discord(config: Config, label: Labeler): Adapter {
       // A message to the agent is a question, not knowledge: indexed, a repeated question would ground its own answer.
       origin: message.author.bot ? 'bot' : inRequest || addressed(message) ? 'request' : 'conversation',
       replyTo: message.reference?.messageId ? `https://discord.com/channels/${message.guildId}/${message.channelId}/${message.reference.messageId}` : undefined,
+      role: role(message.member),
       url: message.url,
       createdMs: message.createdTimestamp,
       text: message.content,
@@ -215,12 +216,13 @@ export function discord(config: Config, label: Labeler): Adapter {
     // The adapter reports the facts; the kernel decides (18); the adapter obeys.
     const rules = config.membership;
     const react = async (reaction: MessageReaction | PartialMessageReaction, user: User | PartialUser, added: boolean) => {
-      // A reaction on an answer Q sent: an approval may make it a regression test (decision 22).
+      // A reaction on an answer Q sent, or on a member's reply to one: a signal for the improvement loop (decision 26).
       const on = reaction.message.partial ? await reaction.message.fetch() : reaction.message;
-      if (added && on.author?.id === client.user!.id) {
-        const human = !(user.partial ? await user.fetch() : user).bot;
-        log('approval', { decision: await handlers.approve?.(on.url, reaction.emoji.name, human) });
-        return;
+      const onAgent = on.author?.id === client.user!.id;
+      if (added && handlers.react && reaction.message.id !== rules?.message) {
+        const reactor = user.partial ? await user.fetch() : user;
+        log('signal', { decision: await handlers.react(on.url, reaction.emoji.name, !reactor.bot, reactor.id) });
+        if (onAgent) return;
       }
       if (!rules) return;
       const onRules = reaction.message.id === rules.message && reaction.emoji.name === rules.emoji;

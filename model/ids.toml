@@ -274,3 +274,39 @@ statement = "An item in the private namespace is never served on any surface but
 theorems = ["Policy.privateNeverLeavesDiscord"]
 failure = "withhold"
 negative = "DA-31"
+
+[[id]]
+id = "DA-32"
+level = "build"
+suite = "agent"
+statement = "A signal on an answer is recorded only from a human who has not opted out, about an answer that still exists, and keeps a member's words only for a reply in a channel Q may read"
+theorems = ["Policy.signalOnlyFromConsentingHumans", "Policy.wordsOnlyFromReadableReplies"]
+failure = "drop"
+negative = "DA-32"
+
+[[id]]
+id = "DA-33"
+level = "build"
+suite = "agent"
+statement = "A member's correction is used only when its words were kept and its author disapproved the answer, and only once an admin wrote it or another human confirmed it; a correction of a more trusted source is a dispute for people to settle, never learned over it"
+theorems = ["Policy.correctionNeedsSecondHuman", "Policy.correctionNeedsKeptWords", "Policy.trustedSourceOnlyDisputed"]
+failure = "hold"
+negative = "DA-33"
+
+[[id]]
+id = "DA-34"
+level = "build"
+suite = "agent"
+statement = "An evolved genome replaces the current one only when it is promoted by decision 24 and answers none of the questions Q must refuse"
+theorems = ["Policy.neverLeakRefusal", "Policy.safeNeverWorse"]
+failure = "keep"
+negative = "DA-34"
+
+[[id]]
+id = "DA-35"
+level = "build"
+suite = "agent"
+statement = "A class of questions is judged weak or sound only on at least the minimum sample, and sound only within both the refusal and the wrong-answer bounds"
+theorems = ["Policy.routeNeedsSample", "Policy.soundWithinBounds"]
+failure = "too few"
+negative = "DA-35"

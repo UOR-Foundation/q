@@ -4,6 +4,7 @@
 //   node src/main.ts mcp        serve Q's own MCP server on stdio
 //   node src/main.ts ingest     fill the knowledge base from the sources, then exit
 //   node src/main.ts backfill   index the history of the public channels, then exit
+//   node src/main.ts verify     recompute every review in the self-model's chain from its records, then exit
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { discord } from './adapter/discord.ts';
@@ -18,6 +19,7 @@ import { Pipeline } from './pipeline.ts';
 import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm, type Transport } from './providers.ts';
 import { loadExperiments, runExperiment, ShadowStore, shadowIndex, type Verdict } from './chaos.ts';
 import { Loop } from './improve.ts';
+import { verifyReview } from './self.ts';
 import { communityFiler } from './community-issues.ts';
 import { SearchIndex } from './search.ts';
 import { Tools } from './tools.ts';
@@ -50,6 +52,20 @@ const index = new SearchIndex(c.indexFile);
 const embedder = new OpenAiCompatibleEmbedder(c.embeddingsUrl, c.embeddingsKey, c.embeddingsModel, c.embeddingsPrefix);
 const memory = new Memory(kernel, store, index, embedder, c.retentionDays);
 log('kernel', { holo: kernel.holo, model: kernel.model, store: c.registryUrl ? 'kappa-registry' : 'folder' });
+
+// For a reviewer with the store: recompute every review in the chain from the records it names, newest first.
+if (mode === 'verify') {
+  let label = index.loopGet<{ label: string }>('review', 'latest')?.label ?? null;
+  let failures = 0;
+  while (label) {
+    const result = await verifyReview(store, label);
+    if (!result.ok) failures++;
+    console.log(JSON.stringify(result));
+    const review = await store.get('private', label);
+    label = typeof review?.previous === 'string' ? review.previous : null;
+  }
+  process.exit(failures ? 1 : 0);
+}
 
 // The community root: the newest signed community holo, and the one commit it pins.
 // Q's read policy is imported from it, so Q refuses to run where the two answer differently.
@@ -152,11 +168,15 @@ if (mode === 'ingest') {
     const loop = new Loop({
       kernel, store, index, embedder, community: () => community, shadow: (settings) => shadow(fetch, fetch, 1, settings), load: () => pipeline.load,
       settings: () => pipeline.settings, adopt: (genes) => { pipeline.settings = { ...pipeline.settings, ...genes }; log('genome', { adopted: genes }); },
+      optedOut: (member) => memory.optedOut(member), unlearn: (label) => memory.unlearn(label),
       experiments: () => [...verdicts.values()], probes, emit, now: Date.now,
-      evaluation: { size: c.loop.evaluationSize, maxErrorPct: c.loop.maxErrorPct, maxP95Seconds: c.loop.maxP95Seconds },
+      evaluation: { size: c.loop.evaluationSize, maxErrorPct: c.loop.maxErrorPct, maxP95Seconds: c.loop.maxP95Seconds, minClass: c.loop.minClass, maxRefusedPct: c.loop.maxRefusedPct, maxWrongPct: c.loop.maxWrongPct },
       requests: { threshold: c.requests.threshold, file: c.requests.token ? (r) => communityFiler({ repository: community.repository, token: c.requests.token })(r) : undefined },
     });
+    // Forgetting a member, withdrawing a message, or retention removing a record undoes what Q learned from it.
+    memory.removed = (label, item) => loop.unlearned(label, item);
     actions.improve = () => loop.summary();
+    actions.self = () => loop.introduction();
     actions.feedback = (f) => loop.feedback(f);
     log('requests', { threshold: c.requests.threshold, filing: c.requests.token ? community.repository : 'off: no COMMUNITY_ISSUES_TOKEN' });
     log('genome', { label: await loop.restore(), genes: { mediumSimilarity: pipeline.settings.mediumSimilarity, highSimilarity: pipeline.settings.highSimilarity, retrieve: pipeline.settings.retrieve } });
@@ -178,7 +198,7 @@ if (mode === 'ingest') {
         return decision;
       },
       delivered: (d) => loop.delivered(d),
-      approve: (url, emoji, human) => (emoji === '👎' ? loop.disapproved(url, human).then(() => 'skip' as const) : loop.approved(url, emoji, human)),
+      react: (url, emoji, human, member) => loop.reacted(url, emoji, human, member),
       withdraw: (url, before) => memory.withdraw(url, before),
       forgetChannel: (id) => memory.forget({ channel: id }),
       membership: (onRules, human, added) => kernel.membership(onRules, human, added),

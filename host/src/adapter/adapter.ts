@@ -16,8 +16,11 @@ export interface Handlers {
   membership(onRules: boolean, human: boolean, added: boolean): Promise<'grant' | 'revoke' | 'none'>;
   /** Q delivered a reply: the improvement loop keeps it, and a refusal becomes a gap (improve.ts). */
   delivered?(d: { questionUrl?: string; sentUrl: string; question: string; channelId: string; authorId: string; reply: Outgoing }): Promise<void>;
-  /** A reaction on a message Q sent: an approval may make it a regression test. */
-  approve?(sentUrl: string, emoji: string | null, human: boolean): Promise<'admit' | 'skip'>;
+  /**
+   * A reaction added by a member, on a message Q sent or on any other: the improvement loop decides whether it is a
+   * signal (decision 26), an approval that makes a test, a disapproval, or a confirmation of a correction.
+   */
+  react?(url: string, emoji: string | null, human: boolean, member: string): Promise<string>;
 }
 
 export interface Adapter {

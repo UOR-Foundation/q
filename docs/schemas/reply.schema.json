@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/reply.schema.json",
+  "title": "uor-q/reply/1",
+  "description": "A member's reply to Q, kept with its words only when decision 26 answers keep. Never searched: it becomes a chunk only when decision 27 learns or disputes it. Withdrawn with the message, forgotten with its author.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "source",
+    "level",
+    "url",
+    "channel",
+    "thread",
+    "author",
+    "replyTo",
+    "created",
+    "text"
+  ],
+  "properties": {
+    "type": {
+      "const": "reply"
+    },
+    "source": {
+      "const": "discord"
+    },
+    "level": {
+      "const": "open"
+    },
+    "url": {
+      "type": "string"
+    },
+    "channel": {
+      "type": "string"
+    },
+    "thread": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "author": {
+      "type": "string",
+      "description": "A Discord user id."
+    },
+    "replyTo": {
+      "type": "string",
+      "description": "Q's message it replies to."
+    },
+    "created": {
+      "type": "integer",
+      "description": "Milliseconds since the epoch. Retention removes the record 180 days after it."
+    },
+    "text": {
+      "type": "string"
+    }
+  }
+}

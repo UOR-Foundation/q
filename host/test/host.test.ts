@@ -25,6 +25,9 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { SearchIndex } from '../src/search.ts';
 import { faulty, loadExperiments, runExperiment, ShadowStore, shadowIndex, strikes, type Experiment, type ExperimentEvent } from '../src/chaos.ts';
 import { GENE_BOUNDS, Loop, mutate, type Genes } from '../src/improve.ts';
+import { verifyReview } from '../src/self.ts';
+import { promptOf, STYLES, systemFor } from '../src/pipeline.ts';
+import { areaOf } from '../src/titles.ts';
 import { titleOf } from '../src/titles.ts';
 import type { Outgoing } from '../src/pipeline.ts';
 import { FileStore, isRevoked, MemoryStore } from '../src/store.ts';
@@ -109,7 +112,7 @@ const website = fixture('website', 'some-true', [
 
 const open: ChannelFacts = { kind: 'text', visibility: 'everyone', label: 'unlabeled', install: 'admin', intent: 'granted' };
 const settings: Settings = {
-  userLimit: 3, channelLimit: 20, windowMs: 60_000, mediumSimilarity: 0.35, highSimilarity: 0.5, retrieve: 4,
+  userLimit: 3, channelLimit: 20, windowMs: 60_000, mediumSimilarity: 0.35, highSimilarity: 0.5, retrieve: 4, style: 0,
   access: { mode: 'blacklist', list: new Set() }, filter: { scope: 'both', terms: [] }, longText: 'split', concurrency: 4, historyMinutes: 30,
 };
 const labeled: ChannelFacts = { ...open, label: 'public' };
@@ -924,10 +927,12 @@ async function loopWorld(filed: { label: string; supporters: number }[] = []) {
     },
     settings: () => live.settings, adopt: (g: Genes) => { live.settings = { ...live.settings, ...g }; },
     load: () => 0, experiments: () => [], probes: [{ text: 'zzzz qqqq xxxx', expect: 'refused' }],
+    optedOut: (member: string) => w.memory.optedOut(member), unlearn: (label: string) => w.memory.unlearn(label),
     emit: (e: object) => events.push(e), now: () => clock.now,
-    evaluation: { size: 12, maxErrorPct: 10, maxP95Seconds: 60 },
+    evaluation: { size: 12, maxErrorPct: 10, maxP95Seconds: 60, minClass: 2, maxRefusedPct: 50, maxWrongPct: 20 },
     requests: { threshold: 2, file: async (r) => { filed.push(r); return `https://github.test/community/issues/${filed.length}`; } },
   });
+  w.memory.removed = (label, item) => loop.unlearned(label, item);
   return { ...w, loop, events, clock, live, filed };
 }
 const cites = [{ label: 'blake3:' + '2'.repeat(64), url: 'u', source: 'website' as const, level: 'some-true' as const, text: 't' }];
@@ -957,15 +962,54 @@ test('a member approval makes a grounded answer a test, once; a refusal, a bot o
   const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
   await w.loop.delivered({ sentUrl: 'https://discord.test/a2', question: 'How are Prism applications built from a LexLean model?', channelId: 'c1', authorId: 'u2', reply: { text: 'a', decision: 'answer', citations: cites, delivery: 'send', answer: answerLabel } });
   await w.loop.delivered({ sentUrl: 'https://discord.test/a3', question: 'Unanswerable?', channelId: 'c1', authorId: 'u3', reply: { text: 'no', decision: 'not grounded', citations: [], delivery: 'send', answer: answerLabel } });
-  assert.equal(await w.loop.approved('https://discord.test/a2', '😂', true), 'skip');
-  assert.equal(await w.loop.approved('https://discord.test/a2', '👍', false), 'skip');
-  assert.equal(await w.loop.approved('https://discord.test/a3', '👍', true), 'skip');
-  assert.equal(await w.loop.approved('https://discord.test/a2', '👍', true), 'admit');
-  assert.equal(await w.loop.approved('https://discord.test/a2', '✅', true), 'admit');
-  const tests = (await Promise.all((await w.store.labels('private')).map((l) => w.store.get('private', l)))).filter((i) => i?.type === 'test-case');
+  assert.equal(await w.loop.reacted('https://discord.test/a2', '😂', true, 'm1'), 'skip');
+  assert.equal(await w.loop.reacted('https://discord.test/a2', '👍', false, 'bot'), 'drop');
+  assert.equal(await w.loop.reacted('https://discord.test/a3', '👍', true, 'm1'), 'skip');
+  assert.equal(await w.loop.reacted('https://discord.test/a2', '👍', true, 'm1'), 'admit');
+  assert.equal(await w.loop.reacted('https://discord.test/a2', '✅', true, 'm2'), 'admit');
+  const items = async () => (await Promise.all((await w.store.labels('private')).map((l) => w.store.get('private', l)))).filter(Boolean);
+  const tests = (await items()).filter((i) => i!.type === 'test-case');
   assert.equal(tests.length, 1);
-  assert.equal(await w.loop.disapproved('https://discord.test/a2', true), 'recorded');
-  assert.equal(await w.loop.disapproved('https://discord.test/a2', false), 'skip');
+  // The test names everyone it was made from, so forgetting any of them forgets it.
+  assert.deepEqual(tests[0]!.subjects, ['m1', 'u2']);
+  assert.equal(await w.loop.reacted('https://discord.test/a2', '👎', true, 'm3'), 'count');
+  const signals = (await items()).filter((i) => i!.type === 'signal');
+  assert.deepEqual(signals.map((s) => s!.kind).sort(), ['approve', 'approve', 'approve', 'disapprove']);
+  assert.ok(signals.every((s) => !('text' in s!)), 'a signal holds no words');
+  // A member who asked to be forgotten is never recorded again.
+  await w.memory.forget({ author: 'm3' });
+  assert.equal(await w.loop.reacted('https://discord.test/a2', '👍', true, 'm3'), 'drop');
+});
+
+test('forgetting the member who approved an answer, or who asked it, forgets the test made from it', async () => {
+  for (const who of ['asker', 'approver']) {
+    const w = await loopWorld();
+    const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
+    await w.loop.delivered({ sentUrl: 'https://discord.test/a9', question: 'How are Prism applications built from a LexLean model?', channelId: 'c1', authorId: 'asker', reply: { text: 'a', decision: 'answer', citations: cites, delivery: 'send', answer: answerLabel } });
+    assert.equal(await w.loop.reacted('https://discord.test/a9', '👍', true, 'approver'), 'admit');
+    await w.memory.forget({ author: who });
+    const left = (await Promise.all((await w.store.labels('private')).map((l) => w.store.get('private', l)))).filter(Boolean);
+    assert.ok(!left.some((i) => i!.type === 'test-case' || i!.type === 'signal'), `forgetting the ${who} leaves no test and no signal`);
+    // The asker's own delivery stays when only the approver is forgotten; forgetting the asker leaves no trace.
+    if (who === 'asker') assert.ok(!JSON.stringify(left).includes('LexLean model?'), 'forgetting the asker leaves no record of the question');
+  }
+});
+
+test('retention removes what the loop made from members after the limit, and keeps Q\'s own records', async () => {
+  const w = await loopWorld();
+  await w.loop.restore();
+  const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
+  w.clock.now = w.memory.now();
+  await w.loop.delivered({ questionUrl: 'https://discord.test/q5', sentUrl: 'https://discord.test/r5', question: 'Where is the ledger?', channelId: 'c1', authorId: 'asker', reply: { text: 'no', decision: 'not grounded', citations: [], delivery: 'send', answer: answerLabel } });
+  await w.loop.feedback({ kind: 'idea', text: 'Summarise the governance channel', authorId: 'a', channelId: 'c1' });
+  const types = async () => (await Promise.all((await w.store.labels('private')).map((l) => w.store.get('private', l)))).filter(Boolean).map((i) => i!.type);
+  assert.ok((await types()).includes('gap'));
+  // The world's memory keeps 30 days: on day 31 every record made from a member is gone.
+  w.memory.now = () => w.clock.now + 31 * 86_400_000;
+  await w.memory.sweep();
+  const left = await types();
+  for (const type of ['gap', 'delivery', 'feedback', 'request']) assert.ok(!left.includes(type), `${type} is past retention`);
+  assert.ok(left.includes('genome'), "Q's own lineage is kept");
 });
 
 test('a request is filed to the community once enough members ask for it, once, and never without consent', async () => {
@@ -994,8 +1038,177 @@ test('a request is filed to the community once enough members ask for it, once, 
   assert.equal(await kernel.fileRequest(true, 1, 2, false), 'hold');
 });
 
+/** A member's reply to Q's message, in a labelled public channel unless said otherwise. */
+const replying = (to: string, text: string, more: Partial<Observed> = {}) => said(text, { replyTo: to, origin: 'request', url: `https://discord.test/c1/reply-${text.length}-${more.authorId ?? 'u1'}`, ...more });
+const all = async (store: MemoryStore) => (await Promise.all((await store.labels('private')).map(async (l) => ({ label: l, item: await store.get('private', l) })))).filter((x) => x.item);
+
+test('a reply that corrects Q is learned only with its author\'s 👎 and a second member, then found by the question and tested', async () => {
+  const w = await loopWorld();
+  const question = 'Which file registers the claim IDs?';
+  // Q answered from a Discord message, the least trusted source: a confirmed correction is learned over it.
+  const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
+  await w.loop.delivered({ questionUrl: 'https://discord.test/c1/q7', sentUrl: 'https://discord.test/c1/r7', question, channelId: 'c1', authorId: 'asker',
+    reply: { text: 'a', decision: 'answer', citations: [{ ...cites[0], source: 'discord', level: 'open' }], delivery: 'send', answer: answerLabel, area: 'q › model' } });
+  const correction = replying('https://discord.test/c1/r7', 'Wrong file: claim IDs are registered in model/ids.toml, one row each.', { authorId: 'fixer' });
+  assert.equal(await w.memory.observe(correction), 'skip', 'a reply to Q is a request, never indexed by decision 2');
+  assert.equal(await w.loop.observed(correction, 'skip'), 'keep');
+  // Not yet a correction: no disapproval, and nobody confirmed it.
+  assert.ok(!(await all(w.store)).some((x) => x.item!.type === 'correction'));
+  assert.equal(await w.loop.reacted('https://discord.test/c1/r7', '👎', true, 'fixer'), 'count');
+  assert.ok(!(await all(w.store)).some((x) => x.item!.type === 'correction'), 'its author alone cannot make it a correction');
+  // The author's own 👍 on their reply does not count as a second member.
+  assert.equal(await w.loop.reacted(correction.url, '👍', true, 'fixer'), 'hold');
+  assert.equal(await w.loop.reacted(correction.url, '👍', true, 'second'), 'learn');
+  const records = await all(w.store);
+  const learned = records.find((x) => x.item!.type === 'correction')!.item!;
+  assert.equal(learned.outcome, 'learn');
+  assert.deepEqual(learned.subjects, ['asker', 'fixer', 'second']);
+  const test = records.find((x) => x.item!.type === 'test-case')!.item!;
+  assert.equal(test.cites, learned.chunk);
+  // The next person who asks gets the member's answer, cited, at the open level.
+  const answered = await w.pipeline.handle(ask(question, { authorId: 'next' }));
+  assert.ok(answered!.citations.some((c) => c.label === learned.chunk), 'the correction is cited for the question');
+  assert.match(answered!.text, /Claim level: open/);
+  // Forgetting the member who confirmed it undoes the learning: the correction, its test and its chunk go.
+  await w.memory.forget({ author: 'second' });
+  const after = await all(w.store);
+  assert.ok(!after.some((x) => x.item!.type === 'correction' || x.item!.type === 'test-case'));
+  assert.ok(!(await w.store.has('private', String(learned.chunk))) && !w.index.has(String(learned.chunk)), 'the learned words are no longer searched');
+  const why = after.filter((x) => x.item!.type === 'revocation').map((x) => x.item!.reason);
+  assert.ok(why.includes('forget-me') && why.includes('unlearned'));
+});
+
+test('a confirmed correction of a more trusted source is a dispute for people, and an admin needs no second member', async () => {
+  const w = await loopWorld();
+  const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
+  await w.loop.delivered({ sentUrl: 'https://discord.test/c1/r8', question: 'How are Prism apps built?', channelId: 'c1', authorId: 'asker',
+    reply: { text: 'a', decision: 'answer', citations: [{ ...cites[0], source: 'community', url: 'https://github.com/UOR-Foundation/community/blob/aaaa/docs/build.md' }], delivery: 'send', answer: answerLabel } });
+  const reply = replying('https://discord.test/c1/r8', 'That page is out of date: prism-code build is the command now.', { authorId: 'admin1', role: 'admin' });
+  assert.equal(await w.loop.observed(reply, 'skip'), 'keep');
+  assert.equal(await w.loop.reacted('https://discord.test/c1/r8', '❌', true, 'admin1'), 'count');
+  const disputed = (await all(w.store)).find((x) => x.item!.type === 'correction')!;
+  assert.equal(disputed.item!.outcome, 'dispute', "never learned over the community's own source");
+  const { review } = await w.loop.review(null);
+  assert.ok(review.proposals.some((p) => p.kind === 'dispute' && p.subject === disputed.label && p.why.includes('docs/build.md')));
+  // A reply in a channel Q may not read keeps no words, and so can never become a correction.
+  await w.loop.delivered({ sentUrl: 'https://discord.test/c1/r9', question: 'q', channelId: 'c1', authorId: 'asker', reply: { text: 'a', decision: 'answer', citations: cites, delivery: 'send', answer: answerLabel } });
+  const hidden = replying('https://discord.test/c1/r9', 'A correction in an unlabelled channel', { authorId: 'admin1', role: 'admin', channel: open });
+  assert.equal(await w.loop.observed(hidden, 'skip'), 'count');
+  assert.ok(!(await all(w.store)).some((x) => x.item!.type === 'reply' && x.item!.url === hidden.url));
+  // A reply its author deletes is withdrawn with everything kept of it.
+  const gone = replying('https://discord.test/c1/r9', 'I take this back', { authorId: 'u5' });
+  await w.loop.observed(gone, 'skip');
+  assert.equal(await w.memory.withdraw(gone.url, gone), 1);
+  assert.ok(!(await all(w.store)).some((x) => x.item!.type === 'reply' && x.item!.url === gone.url));
+});
+
+test('an evolved genome that answers a question Q must refuse is never promoted, however much it gains', async () => {
+  assert.equal(await kernel.promote(0, 50, 5, 10, 60, 0, 0), 'promote');
+  assert.equal(await kernel.promote(0, 50, 5, 10, 60, 0, 1), 'keep');
+  assert.equal(await kernel.promote(50, 0, 5, 10, 60, 0, 0), 'keep');
+});
+
+test('the original answer shape keeps the original prompt label, so no stored answer key changes', async () => {
+  const original = await readFile(new URL('./fixtures/prompt-before-styles.txt', import.meta.url), 'utf8');
+  const router = /const ROUTER = `([\s\S]*?)`;/.exec(await readFile(new URL('../src/pipeline.ts', import.meta.url), 'utf8'))![1];
+  assert.equal(promptOf(0), labelOf({ type: 'prompt', system: original, router }));
+  assert.notEqual(promptOf(1), promptOf(0));
+  // Every shape keeps the grounding rules word for word: no gene can loosen them.
+  const grounding = original.slice(0, original.indexOf('Shape every answer'));
+  for (let style = 0; style < STYLES.length; style++) assert.ok(systemFor(style).startsWith(grounding) && systemFor(style).endsWith(original.slice(original.indexOf('Write for a reader'))));
+});
+
+test('a question is classed by the public area of its nearest public item', () => {
+  assert.equal(areaOf('https://github.com/UOR-Foundation/community/blob/aaaa/apps/uor-test-naming.prompt.json'), 'community › apps');
+  assert.equal(areaOf('https://github.com/UOR-Foundation/q/blob/main/README.md'), 'q');
+  assert.equal(areaOf('https://raw.githubusercontent.com/UOR-Foundation/prism/main/docs/start.md'), 'prism › docs');
+  assert.equal(areaOf('https://www.uor.foundation/prism/start'), 'uor.foundation › prism');
+  assert.equal(areaOf('https://example.test/'), 'example.test');
+});
+
+test('the self-model is recomputed from the records it names; a forgotten record shows as forgotten, a changed one as tampered', async () => {
+  const w = await loopWorld();
+  await w.loop.restore();
+  const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
+  const ask3 = ['How are Prism applications built?', 'What is a holo?', 'Who maintains the community repository?'];
+  for (const [i, q] of ask3.entries()) {
+    await w.loop.delivered({ sentUrl: `https://discord.test/s/${i}`, question: q, channelId: 'c1', authorId: `asker${i}`, reply: { text: 'a', decision: i === 2 ? 'not grounded' : 'answer', citations: i === 2 ? [] : cites, delivery: 'send', answer: answerLabel, area: 'community › docs' } });
+  }
+  await w.loop.reacted('https://discord.test/s/0', '👍', true, 'fan');
+  await w.loop.reacted('https://discord.test/s/1', '👎', true, 'critic');
+  const { label, review } = await w.loop.review(null);
+  const docs = review.competence.find((c) => c.area === 'community › docs')!;
+  assert.deepEqual([docs.asked, docs.answered, docs.refused, docs.approved, docs.disapproved], [3, 2, 1, 1, 1]);
+  assert.equal(docs.wrongPct, 50);
+  assert.equal(review.classes.find((c) => c.area === 'community › docs')!.route, 'needs correction');
+  assert.ok(review.proposals.some((p) => p.kind === 'class' && p.subject === 'community › docs'));
+  assert.equal((await verifyReview(w.store, label)).ok, true);
+  // A member forgotten since: their records are counted as forgotten, and the counts may only have fallen.
+  await w.memory.forget({ author: 'asker1' });
+  const after = await verifyReview(w.store, label);
+  assert.ok(after.ok && after.forgotten > 0, JSON.stringify(after));
+  // A record whose bytes change is caught by its label.
+  const fan = (await all(w.store)).find((x) => x.item!.type === 'signal' && x.item!.author === 'fan')!;
+  w.store.items.private.set(fan.label, JSON.stringify({ ...fan.item, kind: 'disapprove' }));
+  const tampered = await verifyReview(w.store, label);
+  assert.ok(!tampered.ok && tampered.tampered.includes(fan.label));
+  // Anyone can ask who Q is, and the answer holds no member's words.
+  const intro = await w.loop.introduction();
+  assert.match(intro, /What I am[\s\S]*What I know[\s\S]*How I answer[\s\S]*What I cannot do[\s\S]*How I changed/);
+  for (const q of ask3) assert.ok(!intro.includes(q));
+  const event = w.events.at(-1) as { data: { competence: { area: string; route: string }[] } };
+  assert.equal(event.data.competence[0].route, 'needs correction');
+});
+
+test('every record and event of the self-improvement loop matches its published schema exactly', async () => {
+  const w = await loopWorld();
+  await w.loop.restore();
+  const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
+  for (const [i, q] of ['How are Prism applications built from a LexLean model?', 'What does a Prism application build from its LexLean model?', 'How is a LexLean model built into a Prism application?'].entries()) {
+    await w.loop.delivered({ sentUrl: `https://discord.test/c1/k${i}`, question: q, channelId: 'c1', authorId: `a${i}`, reply: { text: 'a', decision: 'answer', citations: [{ ...cites[0], source: 'discord', level: 'open' }], delivery: 'send', answer: answerLabel, area: 'community › docs', timings: { embed: 3, answer: 40 } } });
+    await w.loop.reacted(`https://discord.test/c1/k${i}`, '👍', true, 'fan');
+  }
+  const reply = replying('https://discord.test/c1/k0', 'Prism apps are built with prism-code build from the model.', { authorId: 'fixer' });
+  await w.loop.observed(reply, 'skip');
+  await w.loop.reacted('https://discord.test/c1/k0', '👎', true, 'fixer');
+  await w.loop.reacted(reply.url, '✅', true, 'second');
+  await w.loop.daily();
+  const types: Record<string, string> = { delivery: 'delivery', signal: 'signal', reply: 'reply', correction: 'correction', 'test-case': 'test-case', genome: 'genome', review: 'review' };
+  const seen = new Set<string>();
+  for (const { item } of await all(w.store)) {
+    const name = types[item!.type];
+    if (!name) continue;
+    seen.add(name);
+    const s = await schema(name);
+    assert.deepEqual(conforms(item, s, s), [], `${item!.type} conforms`);
+  }
+  assert.deepEqual([...seen].sort(), Object.values(types).sort());
+  const eventSchema = await schema('review-event');
+  const event = w.events.find((e) => (e as { type: string }).type === 'org.uorfoundation.q.review');
+  assert.deepEqual(conforms(event, eventSchema, eventSchema), []);
+  // The validator can fail: a signal that carries words is refused.
+  const signalSchema = await schema('signal');
+  const signal = (await all(w.store)).find((x) => x.item!.type === 'signal')!.item;
+  assert.ok(conforms({ ...signal, text: 'words' }, signalSchema, signalSchema).length > 0);
+});
+
+test('a promoted genome is undone by adopting its parent, recorded as a new genome naming why', async () => {
+  const w = await loopWorld();
+  const root = await w.loop.restore();
+  const child = { ...w.live.settings, style: 1 };
+  const promoted = await w.store.put('private', { type: 'genome', spec: 'uor-q/genome/1', parent: root, genes: { mediumSimilarity: child.mediumSimilarity, highSimilarity: child.highSimilarity, retrieve: child.retrieve, style: 1 }, evolution: null, at: w.clock.now + 1 });
+  w.index.loopSet('genome', 'latest', { label: promoted, at: w.clock.now + 1 });
+  w.live.settings = child;
+  w.clock.now += 2;
+  const reverted = await w.loop.revert();
+  const genome = (await w.store.get('private', reverted!))!;
+  assert.equal(genome.parent, promoted);
+  assert.equal(genome.revertedTo, root);
+  assert.equal(w.live.settings.style, 0);
+});
+
 test('a mutation is drawn from BLAKE3, stays within bounds, and keeps the high band above the medium band', () => {
-  const genes = { mediumSimilarity: settings.mediumSimilarity, highSimilarity: settings.highSimilarity, retrieve: settings.retrieve };
+  const genes = { mediumSimilarity: settings.mediumSimilarity, highSimilarity: settings.highSimilarity, retrieve: settings.retrieve, style: 0 };
   assert.deepEqual(mutate(genes, 'seed'), mutate(genes, 'seed'));
   const seen = new Set<string>();
   let g: Genes = genes;
@@ -1005,8 +1218,12 @@ test('a mutation is drawn from BLAKE3, stays within bounds, and keeps the high b
     assert.ok(g.mediumSimilarity >= GENE_BOUNDS.mediumSimilarity[0] && g.mediumSimilarity <= GENE_BOUNDS.mediumSimilarity[1]);
     assert.ok(g.highSimilarity <= GENE_BOUNDS.highSimilarity[1] && g.highSimilarity >= g.mediumSimilarity + 0.049);
     assert.ok(g.retrieve >= GENE_BOUNDS.retrieve[0] && g.retrieve <= GENE_BOUNDS.retrieve[1]);
+    assert.ok(Number.isInteger(g.style) && g.style >= 0 && g.style < STYLES.length);
   }
   assert.ok(seen.size > 20);
+  // Every reviewed answer shape is reached, and a mutation always changes the genome.
+  assert.equal(new Set([...seen].map((x) => JSON.parse(x).style)).size, STYLES.length);
+  for (let i = 0; i < 50; i++) assert.notDeepEqual(mutate(genes, `m-${i}`), genes);
 });
 
 test('a day of the loop measures, tries one mutation the kernel judges, and writes a review chained to the last', async () => {
@@ -1016,20 +1233,20 @@ test('a day of the loop measures, tries one mutation the kernel judges, and writ
   const answerLabel = await w.store.put('private', { type: 'answer', text: 'x' });
   for (const [i, q] of ['How are Prism applications built from a LexLean model?', 'What does a Prism application build from its LexLean model?', 'How is a LexLean model built into a Prism application?'].entries()) {
     await w.loop.delivered({ sentUrl: `https://discord.test/a/${i}`, question: q, channelId: 'c1', authorId: 'u', reply: { text: 'a', decision: 'answer', citations: cites, delivery: 'send', answer: answerLabel } });
-    assert.equal(await w.loop.approved(`https://discord.test/a/${i}`, '👍', true), 'admit');
+    assert.equal(await w.loop.reacted(`https://discord.test/a/${i}`, '👍', true, 'approver'), 'admit');
   }
   const first = await w.loop.daily();
   assert.ok(first.evolution, 'a mutation was tried');
   assert.ok(['promote', 'keep'].includes(first.evolution!.decision));
   assert.equal(first.review.previous, null);
-  assert.equal(first.review.tests, 3);
-  assert.equal(first.review.self.holo, kernel.holo);
-  assert.equal(first.review.self.vectors, kernel.vectors);
+  assert.equal(first.review.learning.tests, 3);
+  assert.equal(first.review.identity.kernel.holo, kernel.holo);
+  assert.equal(first.review.identity.kernel.vectors, kernel.vectors);
   const evaluation = (await w.store.get('private', first.review.evaluation!))!;
   assert.equal((evaluation.arm as { questions: number }).questions, 4);
   // The live settings always agree with the genome the lineage ends in.
-  const genome = (await w.store.get('private', first.review.self.genome!))!;
-  assert.deepEqual(genome.genes, { mediumSimilarity: w.live.settings.mediumSimilarity, highSimilarity: w.live.settings.highSimilarity, retrieve: w.live.settings.retrieve });
+  const genome = (await w.store.get('private', first.review.identity.genome!))!;
+  assert.deepEqual(genome.genes, { mediumSimilarity: w.live.settings.mediumSimilarity, highSimilarity: w.live.settings.highSimilarity, retrieve: w.live.settings.retrieve, style: w.live.settings.style });
   w.clock.now += 86_400_000;
   const second = await w.loop.daily();
   assert.equal(second.review.previous, first.label);

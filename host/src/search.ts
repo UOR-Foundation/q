@@ -164,25 +164,29 @@ export class SearchIndex {
     this.#vectors.clear();
     this.#seen = 0;
     this.#revision++;
-    const fills: { gap: string; chunk: string }[] = [];
+    // A member's answer Q learned, a filled gap's or a correction's, is searched by the question it answers.
+    const learned: { question: string; chunk: string }[] = [];
     for (const namespace of ['public', 'private'] as const) {
       for (const label of await store.labels(namespace)) {
         const item = await store.get(namespace, label);
         // Only an answer computed for its key is the key's answer; one that reused it points back to it.
         if (item?.type === 'answer' && typeof item.memo === 'string' && item.reused === null && typeof item.context === 'string') this.memoSet(item.memo, label, item.context);
         if (item) loopRecord(this, label, item);
-        if (item?.type === 'gap-fill') fills.push({ gap: String(item.gap), chunk: String(item.chunk) });
+        if ((item?.type === 'gap-fill' || item?.type === 'correction') && typeof item.question === 'string') learned.push({ question: item.question, chunk: String(item.chunk) });
+        else if (item?.type === 'gap-fill') {
+          // A fill from before the fill named its question: read it from the gap.
+          const gap = await store.get('private', String(item.gap));
+          if (gap) learned.push({ question: String(gap.question), chunk: String(item.chunk) });
+        }
         if (item?.type !== 'chunk' || typeof item.text !== 'string' || (await isRevoked(store, namespace, label))) continue;
         const [vector] = await embedder.embed([item.text]);
         this.add(label, namespace, item.text, vector);
       }
     }
-    // A filled gap's answer is searched by the question it answers.
-    for (const { gap, chunk } of fills) {
-      const [question, answer] = [await store.get('private', gap), await store.get('private', chunk)];
-      if (!question || !answer || !this.has(chunk)) continue;
-      const [vector] = await embedder.embed([`${question.question}
-${answer.text}`]);
+    for (const { question, chunk } of learned) {
+      const answer = await store.get('private', chunk);
+      if (!answer || !this.has(chunk)) continue;
+      const [vector] = await embedder.embed([`${question}\n${answer.text}`]);
       this.revector(chunk, vector);
     }
   }
@@ -198,8 +202,13 @@ export function loopRecord(index: SearchIndex, label: string, item: { type: stri
     const gap = index.loopGet<Record<string, unknown>>('gap', item.url);
     index.loopSet('gap', item.url, { ...(gap ?? {}), filled: label });
   }
-  if (item.type === 'delivery' && typeof item.url === 'string') index.loopSet('delivery', item.url, { answer: item.answer, question: item.question, grounded: item.grounded });
-  if (item.type === 'test-case') index.loopSet('test', label, { question: item.question, source: item.source, added: item.added });
+  if (item.type === 'delivery' && typeof item.url === 'string') {
+    index.loopSet('delivery', item.url, { label, answer: item.answer, question: item.question, author: item.author, decision: item.decision ?? null, grounded: item.grounded, cited: item.cited ?? null, citedUrl: item.citedUrl ?? null, area: item.area ?? null });
+  }
+  if (item.type === 'test-case') index.loopSet('test', label, { question: item.question, source: item.source, cites: item.cites ?? null, created: item.created ?? item.added });
+  if (item.type === 'signal') index.loopSet('signal', label, { kind: item.kind, about: item.about, author: item.author, words: item.words, role: item.role, on: item.on });
+  if (item.type === 'reply' && typeof item.url === 'string') index.loopSet('reply', item.url, { label, on: item.replyTo, author: item.author });
+  if (item.type === 'correction' && typeof item.reply === 'string') index.loopSet('correction', item.reply, { label, outcome: item.outcome, chunk: item.chunk });
   if (item.type === 'genome') {
     const latest = index.loopGet<{ at: number }>('genome', 'latest');
     if (!latest || Number(item.at) >= latest.at) index.loopSet('genome', 'latest', { label, at: item.at });

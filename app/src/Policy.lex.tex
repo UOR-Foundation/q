@@ -802,5 +802,164 @@ theorem{
   proof: linear_arithmetic{definitions: [breaksFileOnlyWithSupport, fileRequest]},
   axioms: [Quot.sound, propext]
 }
+definition{
+  name: signalUse,
+  parameters: [kind : Nat, human : Nat, optedOut : Nat, gone : Nat, readable : Nat],
+  result: Nat,
+  body: (if (not ((human =? 0) && ((optedOut =? 0) && (gone =? 0)))) then 0 else (if ((kind =? 2) && (readable =? 0)) then 2 else 1))
+}
+
+definition{
+  name: breaksSignalOnlyFromConsentingHumans,
+  parameters: [kind : Nat, human : Nat, optedOut : Nat, gone : Nat, readable : Nat],
+  result: Bool,
+  body: ((not ((signalUse kind human optedOut gone readable) =? 0)) && ((not (human =? 0)) || ((not (optedOut =? 0)) || (not (gone =? 0)))))
+}
+
+theorem{
+  name: signalOnlyFromConsentingHumans,
+  parameters: [kind : Nat, human : Nat, optedOut : Nat, gone : Nat, readable : Nat],
+  statement: ((breaksSignalOnlyFromConsentingHumans kind human optedOut gone readable) = false),
+  proof: linear_arithmetic{definitions: [breaksSignalOnlyFromConsentingHumans, signalUse]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksWordsOnlyFromReadableReplies,
+  parameters: [kind : Nat, human : Nat, optedOut : Nat, gone : Nat, readable : Nat],
+  result: Bool,
+  body: (((signalUse kind human optedOut gone readable) =? 2) && ((not (kind =? 2)) || (not (readable =? 0))))
+}
+
+theorem{
+  name: wordsOnlyFromReadableReplies,
+  parameters: [kind : Nat, human : Nat, optedOut : Nat, gone : Nat, readable : Nat],
+  statement: ((breaksWordsOnlyFromReadableReplies kind human optedOut gone readable) = false),
+  proof: linear_arithmetic{definitions: [breaksWordsOnlyFromReadableReplies, signalUse]},
+  axioms: [Quot.sound, propext]
+}
+definition{
+  name: correctionUse,
+  parameters: [kept : Nat, disapproved : Nat, role : Nat, confirmers : Nat, cited : Nat],
+  result: Nat,
+  body: (if (not ((kept =? 0) && (disapproved =? 0))) then 0 else (if (not ((role =? 1) || (1 <=? confirmers))) then 0 else (if (cited <=? 2) then 2 else 1)))
+}
+
+definition{
+  name: breaksCorrectionNeedsSecondHuman,
+  parameters: [kept : Nat, disapproved : Nat, role : Nat, confirmers : Nat, cited : Nat],
+  result: Bool,
+  body: ((not ((correctionUse kept disapproved role confirmers cited) =? 0)) && ((not (role =? 1)) && (confirmers =? 0)))
+}
+
+theorem{
+  name: correctionNeedsSecondHuman,
+  parameters: [kept : Nat, disapproved : Nat, role : Nat, confirmers : Nat, cited : Nat],
+  statement: ((breaksCorrectionNeedsSecondHuman kept disapproved role confirmers cited) = false),
+  proof: linear_arithmetic{definitions: [breaksCorrectionNeedsSecondHuman, correctionUse]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksCorrectionNeedsKeptWords,
+  parameters: [kept : Nat, disapproved : Nat, role : Nat, confirmers : Nat, cited : Nat],
+  result: Bool,
+  body: ((not ((correctionUse kept disapproved role confirmers cited) =? 0)) && ((not (kept =? 0)) || (not (disapproved =? 0))))
+}
+
+theorem{
+  name: correctionNeedsKeptWords,
+  parameters: [kept : Nat, disapproved : Nat, role : Nat, confirmers : Nat, cited : Nat],
+  statement: ((breaksCorrectionNeedsKeptWords kept disapproved role confirmers cited) = false),
+  proof: linear_arithmetic{definitions: [breaksCorrectionNeedsKeptWords, correctionUse]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksTrustedSourceOnlyDisputed,
+  parameters: [kept : Nat, disapproved : Nat, role : Nat, confirmers : Nat, cited : Nat],
+  result: Bool,
+  body: ((cited <=? 2) && ((correctionUse kept disapproved role confirmers cited) =? 1))
+}
+
+theorem{
+  name: trustedSourceOnlyDisputed,
+  parameters: [kept : Nat, disapproved : Nat, role : Nat, confirmers : Nat, cited : Nat],
+  statement: ((breaksTrustedSourceOnlyDisputed kept disapproved role confirmers cited) = false),
+  proof: linear_arithmetic{definitions: [breaksTrustedSourceOnlyDisputed, correctionUse]},
+  axioms: [Quot.sound, propext]
+}
+definition{
+  name: promoteSafe,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat, leaked : Nat],
+  result: Bool,
+  body: ((promote candidateErr currentErr candidateP95 currentP95 maxP95 breaches) && (leaked =? 0))
+}
+
+definition{
+  name: breaksNeverLeakRefusal,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat, leaked : Nat],
+  result: Bool,
+  body: ((promoteSafe candidateErr currentErr candidateP95 currentP95 maxP95 breaches leaked) && (not (leaked =? 0)))
+}
+
+theorem{
+  name: neverLeakRefusal,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat, leaked : Nat],
+  statement: ((breaksNeverLeakRefusal candidateErr currentErr candidateP95 currentP95 maxP95 breaches leaked) = false),
+  proof: linear_arithmetic{definitions: [breaksNeverLeakRefusal, promote, promoteSafe]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksSafeNeverWorse,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat, leaked : Nat],
+  result: Bool,
+  body: ((promoteSafe candidateErr currentErr candidateP95 currentP95 maxP95 breaches leaked) && ((not (candidateErr <=? currentErr)) || (not (breaches =? 0))))
+}
+
+theorem{
+  name: safeNeverWorse,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat, leaked : Nat],
+  statement: ((breaksSafeNeverWorse candidateErr currentErr candidateP95 currentP95 maxP95 breaches leaked) = false),
+  proof: linear_arithmetic{definitions: [breaksSafeNeverWorse, promote, promoteSafe]},
+  axioms: [Quot.sound, propext]
+}
+definition{
+  name: classRoute,
+  parameters: [asked : Nat, refusedPct : Nat, wrongPct : Nat, minAsked : Nat, maxRefusedPct : Nat, maxWrongPct : Nat],
+  result: Nat,
+  body: (if ((minAsked =? 0) || (asked <? minAsked)) then 0 else (if (maxRefusedPct <? refusedPct) then 1 else (if (maxWrongPct <? wrongPct) then 2 else 3)))
+}
+
+definition{
+  name: breaksRouteNeedsSample,
+  parameters: [asked : Nat, refusedPct : Nat, wrongPct : Nat, minAsked : Nat, maxRefusedPct : Nat, maxWrongPct : Nat],
+  result: Bool,
+  body: ((not ((classRoute asked refusedPct wrongPct minAsked maxRefusedPct maxWrongPct) =? 0)) && ((minAsked =? 0) || (asked <? minAsked)))
+}
+
+theorem{
+  name: routeNeedsSample,
+  parameters: [asked : Nat, refusedPct : Nat, wrongPct : Nat, minAsked : Nat, maxRefusedPct : Nat, maxWrongPct : Nat],
+  statement: ((breaksRouteNeedsSample asked refusedPct wrongPct minAsked maxRefusedPct maxWrongPct) = false),
+  proof: linear_arithmetic{definitions: [breaksRouteNeedsSample, classRoute]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksSoundWithinBounds,
+  parameters: [asked : Nat, refusedPct : Nat, wrongPct : Nat, minAsked : Nat, maxRefusedPct : Nat, maxWrongPct : Nat],
+  result: Bool,
+  body: (((classRoute asked refusedPct wrongPct minAsked maxRefusedPct maxWrongPct) =? 3) && ((maxRefusedPct <? refusedPct) || (maxWrongPct <? wrongPct)))
+}
+
+theorem{
+  name: soundWithinBounds,
+  parameters: [asked : Nat, refusedPct : Nat, wrongPct : Nat, minAsked : Nat, maxRefusedPct : Nat, maxWrongPct : Nat],
+  statement: ((breaksSoundWithinBounds asked refusedPct wrongPct minAsked maxRefusedPct maxWrongPct) = false),
+  proof: linear_arithmetic{definitions: [breaksSoundWithinBounds, classRoute]},
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}

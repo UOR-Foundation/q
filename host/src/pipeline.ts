@@ -1,7 +1,7 @@
 // One message in, at most one reply out. Each stage asks the kernel and obeys:
 // a branch here follows an answer the kernel gave, and decides nothing of its own.
 import { isLabel, labelOf, matches, type Item } from './address.ts';
-import { titleOf } from './titles.ts';
+import { areaOf, titleOf } from './titles.ts';
 import { accepts, describe, type Decider } from './community.ts';
 import type { ChannelFacts, CommandName, Kernel, Level, SourceName, Surface } from './kernel.ts';
 import type { Memory } from './memory.ts';
@@ -49,6 +49,8 @@ export interface Settings {
   mediumSimilarity: number;
   highSimilarity: number;
   retrieve: number;
+  /** Which reviewed answer shape the prompt uses (STYLES): a gene the loop may evolve. Grounding never changes. */
+  style: number;
   /** LangBot's access control: the mode, and the session list (channel ids, user ids, or * for every one). */
   access: { mode: 'blacklist' | 'whitelist'; list: ReadonlySet<string> };
   /** LangBot's content filter: where it applies, and the terms it looks for. */
@@ -70,6 +72,8 @@ interface Draft {
   timings?: Record<string, number>;
   /** The label of the answer record this turn left, when it left one. */
   answer?: string;
+  /** The public area of knowledge nearest the question (titles.ts areaOf): its class for Q's competence. */
+  area?: string;
   /** On the website: the public record of this answer, named by its question key. */
   web?: Published;
 }
@@ -154,6 +158,8 @@ export interface Actions {
   tools?(): Tools | undefined;
   /** What Q is learning and what it proposes: the latest review of the improvement loop (improve.ts). */
   improve?(): Promise<string>;
+  /** Who Q is, from its latest self-model, for anyone who asks with /status (improve.ts introduction). */
+  self?(): Promise<string>;
   /** A Discord channel's or thread's name, for a cited message's title. */
   channelName?(id: string): string | undefined;
   /** A member's feedback or request (improve.ts): recorded, merged with others like it, filed to the community. */
@@ -180,7 +186,7 @@ function decisionBrief(decision: DecisionAsked | null, community: Decider): stri
     'Answer what the sources allow, then ask the reader for exactly these, in one short list.';
 }
 
-const SYSTEM = `You are Q, the UOR Foundation's assistant on its Discord server. You answer the community's questions.
+const GROUNDING = `You are Q, the UOR Foundation's assistant on its Discord server. You answer the community's questions.
 
 Grounding:
 - Use only the numbered sources. Cite each claim right after it, as [1] or [1][2].
@@ -188,10 +194,28 @@ Grounding:
 - A source marked "open" is conversation, not established fact. Say so when you rely on one.
 - Never invent or change a command, flag, number or link. Copy links exactly as the sources give them.
 
-Shape every answer like this, without naming the parts:
+`;
+
+/**
+ * The answer shapes the loop may choose between: the prompt's one evolvable part, written and reviewed by people.
+ * Q never writes a shape; it measures these on its tests and probes and keeps one only when decision 28 promotes it.
+ * The first is the original shape, so its prompt label, and every answer key made with it, is unchanged.
+ */
+export const STYLES = [
+  `Shape every answer like this, without naming the parts:
 1. Open with the direct answer in one or two sentences, including why it matters.
 2. Then explain how it works, in a few short steps.
-3. End with something concrete the reader can use: an example, a command or a link.
+3. End with something concrete the reader can use: an example, a command or a link.`,
+  `Shape every answer like this, without naming the parts:
+1. Give the direct answer in at most three sentences.
+2. End with one concrete thing the reader can use: a command, an example or a link.`,
+  `Shape every answer like this, without naming the parts:
+1. Open with the direct answer in one sentence.
+2. If the question asks how to do something, give the steps as a short list; otherwise explain how it works in a few sentences.
+3. End with something concrete the reader can use: an example, a command or a link.`,
+] as const;
+
+const READER = `
 
 Write for a reader who knows nothing about UOR or Prism:
 - Define every technical term in a few words the first time it appears, such as "a holo (a packaged app that checks itself)". Leave out a term you cannot define briefly.
@@ -205,8 +229,11 @@ Format for Discord:
 - Put commands, file names and code in \`backticks\`, and multi-line commands in a code block.
 - Leave a blank line between paragraphs and before a list.`;
 
+const styleOf = (style: number) => STYLES[Math.min(STYLES.length - 1, Math.max(0, Math.trunc(style || 0)))];
+export const systemFor = (style: number) => `${GROUNDING}${styleOf(style)}${READER}`;
+
 /** The prompts, by their BLAKE3 label: part of every answer key, so changing a prompt computes answers anew. */
-const PROMPT = labelOf({ type: 'prompt', system: SYSTEM, router: ROUTER });
+export const promptOf = (style: number) => labelOf({ type: 'prompt', system: systemFor(style), router: ROUTER });
 
 const QUERY_LIMIT = 1000;
 const PROMPT_QUESTION_LIMIT = 4000;
@@ -311,7 +338,8 @@ export class Pipeline {
     switch (command) {
       case 'status': {
         const counts = [...this.metrics.entries()].map(([name, count]) => `${name} ${count}`).join(', ') || 'none yet';
-        return done(`Kernel model ${this.kernel.model}.\n${this.index.count()} chunks indexed.\nDecisions since start: ${counts}.`);
+        const self = this.actions.self ? `\n\n${await this.actions.self()}` : '';
+        return done(`Kernel model ${this.kernel.model}.\n${this.index.count()} chunks indexed.\nDecisions since start: ${counts}.${self}`);
       }
       case 'reindex':
         return done(await this.actions.reindex());
@@ -342,12 +370,15 @@ export class Pipeline {
     // Read each hit back from the store and recompute its label; the kernel decides whether it may be cited.
     const citations: Citation[] = [];
     let best = 0;
+    // The question's class: the public area of the nearest public item, whether or not it grounds an answer.
+    let area: string | undefined;
     for (const hit of hits) {
       const item = await this.store.get(hit.namespace, hit.label);
       const verified = item !== undefined && matches(item, hit.label);
       const revoked = await isRevoked(this.store, hit.namespace, hit.label);
       if ((await this.kernel.cite(isLabel(hit.label), verified, revoked)) === 'drop') continue;
       if ((await this.kernel.expose(hit.namespace, surface)) === 'withhold') continue;
+      if (!area && hit.namespace === 'public') area = areaOf(String(item!.url));
       citations.push({ label: hit.label, url: String(item!.url), source: item!.source as SourceName, level: item!.level as Level, text: String(item!.text) });
       best = Math.max(best, hit.similarity);
     }
@@ -366,7 +397,7 @@ export class Pipeline {
     // A reply to Q continues the conversation: the earlier turns the kernel admits are context, and part of the key.
     const history = grounded !== 'not grounded' && command === 'ask' && message.trigger === 'replyToAgent' ? await this.#history(message, namespace) : [];
     const key = grounded !== 'not grounded' && command === 'ask'
-      ? labelOf({ type: 'answer-key', question: normalize(message.text), kernel: this.kernel.holo, community: community.pin.holo, evidence: ordered.map((c) => c.label), history: history.map((h) => h.answer), prompt: PROMPT, model: this.llm.model })
+      ? labelOf({ type: 'answer-key', question: normalize(message.text), kernel: this.kernel.holo, community: community.pin.holo, evidence: ordered.map((c) => c.label), history: history.map((h) => h.answer), prompt: promptOf(this.settings.style), model: this.llm.model })
       : null;
     const earlier = key ? await this.#recall(key, namespace) : undefined;
     clock.lap('memo');
@@ -384,8 +415,8 @@ export class Pipeline {
         : '';
       const prompt = `${earlierTurns}Sources:\n\n${sources}${decisionBrief(decided, community)}\n\nQuestion: ${message.text.slice(0, PROMPT_QUESTION_LIMIT)}`;
       return withTools
-        ? this.llm.completeWithTools!(SYSTEM, prompt, tools!.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools!, call, message, namespace, used))
-        : this.llm.complete(SYSTEM, prompt, onText);
+        ? this.llm.completeWithTools!(systemFor(this.settings.style), prompt, tools!.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools!, call, message, namespace, used))
+        : this.llm.complete(systemFor(this.settings.style), prompt, onText);
     };
 
     // Most questions that retrieve a decision app are not decisions. So the plain answer is written while
@@ -422,7 +453,7 @@ export class Pipeline {
       const saidLabel = await this.#said(namespace, turn, turnLabel, said, []);
       const web = await this.#publish(message, turn, turnLabel, said, saidLabel, []);
       clock.lap('record');
-      return { text, decision: grounded, citations: [], timings: clock.laps, answer: saidLabel, web };
+      return { text, decision: grounded, citations: [], timings: clock.laps, answer: saidLabel, web, area };
     }
 
     let level: Level = ordered[0].level;
@@ -455,7 +486,7 @@ export class Pipeline {
       const saidLabel = await this.#said(namespace, turn, turnLabel, said, []);
       const web = await this.#publish(message, turn, turnLabel, said, saidLabel, []);
       clock.lap('record');
-      return { text, decision: 'declined', citations: [], timings: clock.laps, answer: saidLabel, web };
+      return { text, decision: 'declined', citations: [], timings: clock.laps, answer: saidLabel, web, area };
     }
     // A tool's result is measured, not established: an answer that used one is open at most.
     if (used.some((u) => u.result)) level = await this.kernel.level(level, 'open');
@@ -484,7 +515,7 @@ export class Pipeline {
     const saidLabel = await this.#said(namespace, turn, turnLabel, said, [...ordered.map((c) => c.label), ...used.flatMap((u) => (u.result ? [u.result] : []))]);
     const web = await this.#publish(message, turn, turnLabel, said, saidLabel, ordered);
     clock.lap('record');
-    return { text, decision: grounded, citations: ordered, timings: clock.laps, answer: saidLabel, web };
+    return { text, decision: grounded, citations: ordered, timings: clock.laps, answer: saidLabel, web, area };
   }
 
   /** The namespaces the kernel serves on a surface (decision 17). */
@@ -518,7 +549,7 @@ export class Pipeline {
         kernel: { holo: this.kernel.holo, commit: this.kernel.commit },
         community: pinOf(community.pin),
         corpus: labelOf({ type: 'corpus', items }),
-        prompt: PROMPT,
+        prompt: promptOf(this.settings.style),
         model: this.llm.model,
         retrieval: { embedder: this.embedder.model, retrieve: this.settings.retrieve, medium: String(this.settings.mediumSimilarity), high: String(this.settings.highSimilarity) },
       });

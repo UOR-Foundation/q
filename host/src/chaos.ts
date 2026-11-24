@@ -57,6 +57,8 @@ export interface Arm {
   breaches: number;
   outcomes: Record<string, number>;
   steady: 'steady' | 'disturbed';
+  /** Questions that had to be refused and were not: refusal probes this arm leaked. */
+  leaked?: number;
 }
 
 export type Verdict = 'confirmed' | 'disproved' | 'held' | 'aborted';
@@ -171,8 +173,10 @@ export interface ChaosDeps {
 const ANSWERED = new Set(['answer', 'answer with notice']);
 const REFUSED = new Set(['not grounded', 'declined']);
 const outcomeOf = (reply: Outgoing | undefined) => (!reply ? 'silent' : reply.decision);
-const meets = (expect: Expect, reply: Outgoing | undefined) =>
-  expect === 'answered' ? Boolean(reply && ANSWERED.has(reply.decision) && reply.citations.length > 0)
+/** A question to measure. `cites`: the label of an item a right answer must cite, such as a member's answer Q learned. */
+export interface Measurable { text: string; expect: Expect; cites?: string | null }
+const meets = (expect: Expect, reply: Outgoing | undefined, cites?: string | null) =>
+  expect === 'answered' ? Boolean(reply && ANSWERED.has(reply.decision) && reply.citations.length > 0 && (!cites || reply.citations.some((c) => c.label === cites)))
   : expect === 'refused' ? Boolean(reply && REFUSED.has(reply.decision))
   : reply?.decision === 'empty';
 
@@ -185,9 +189,9 @@ const measure = (deps: ChaosDeps, experiment: Experiment, pipeline: Pipeline, ap
  * and measure the output: the share of wrong outcomes, the 95th percentile latency, the broken invariants. The kernel
  * judges the steady state against the bounds (decision 20). The chaos experiments and the daily evaluation both use it.
  */
-export async function measureQuestions(kernel: Kernel, questions: { text: string; expect: Expect }[], bounds: { maxErrorPct: number; maxP95Seconds: number }, pipeline: Pipeline, may: () => Promise<boolean>, copies = 1): Promise<Arm | 'aborted'> {
-  const runs: { ms: number; outcome: string; right: boolean; breach: boolean }[] = [];
-  const ask = async (text: string, expect: Expect, i: number) => {
+export async function measureQuestions(kernel: Kernel, questions: Measurable[], bounds: { maxErrorPct: number; maxP95Seconds: number }, pipeline: Pipeline, may: () => Promise<boolean>, copies = 1): Promise<Arm | 'aborted'> {
+  const runs: { ms: number; outcome: string; right: boolean; breach: boolean; expect: Expect }[] = [];
+  const ask = async ({ text, expect, cites }: Measurable, i: number) => {
     if (!(await may())) return false;
     const message: Incoming = {
       channel: { kind: 'text', visibility: 'everyone', label: 'public', install: 'admin', intent: 'granted' },
@@ -203,14 +207,14 @@ export async function measureQuestions(kernel: Kernel, questions: { text: string
       outcome = 'error';
     }
     runs.push({
-      ms: performance.now() - started, outcome, right: outcome !== 'error' && meets(expect, reply),
+      ms: performance.now() - started, outcome, right: outcome !== 'error' && meets(expect, reply, cites), expect,
       breach: Boolean(reply && ANSWERED.has(reply.decision) && reply.citations.length === 0),
     });
     return true;
   };
   const asked = copies > 1
-    ? await Promise.all(questions.flatMap((q, i) => Array.from({ length: copies }, (_, c) => ask(q.text, q.expect, i * copies + c))))
-    : await (async () => { const done: boolean[] = []; for (const [i, q] of questions.entries()) { const ok = await ask(q.text, q.expect, i); done.push(ok); if (!ok) break; } return done; })();
+    ? await Promise.all(questions.flatMap((q, i) => Array.from({ length: copies }, (_, c) => ask(q, i * copies + c))))
+    : await (async () => { const done: boolean[] = []; for (const [i, q] of questions.entries()) { const ok = await ask(q, i); done.push(ok); if (!ok) break; } return done; })();
   if (asked.some((ok) => !ok)) return 'aborted';
   const wrong = runs.filter((r) => !r.right).length;
   const errorPct = (100 * wrong) / runs.length;
@@ -220,7 +224,8 @@ export async function measureQuestions(kernel: Kernel, questions: { text: string
   const outcomes: Record<string, number> = {};
   for (const r of runs) outcomes[r.outcome] = (outcomes[r.outcome] ?? 0) + 1;
   const steady = await kernel.steady(errorPct, bounds.maxErrorPct, p95Seconds, bounds.maxP95Seconds, breaches);
-  return { questions: runs.length, wrong, errorPct: Math.round(errorPct), p95Seconds: Math.round(p95Seconds * 10) / 10, breaches, outcomes, steady };
+  const leaked = runs.filter((r) => r.expect === 'refused' && !r.right).length;
+  return { questions: runs.length, wrong, errorPct: Math.round(errorPct), p95Seconds: Math.round(p95Seconds * 10) / 10, breaches, outcomes, steady, leaked };
 }
 
 /**

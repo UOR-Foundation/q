@@ -17,8 +17,23 @@ This project follows Semantic Versioning and Conventional Commits.
 
 - Renamed to Q: the repository is UOR-Foundation/q, the app and its holo are `q` (`q.holo`), and the kernel's signer is `UOR-Foundation/q`'s `holo.yml` on `main`. The client is regenerated as `Q`.
 
+### Fixed
+
+- `/forget-me` now removes everything made from a member, including a test made from an approval of their question and the signals on their answers.
+- Retention now removes the improvement loop's member records after 180 days. Before, they had no date and were kept.
+
 ### Added
 
+- Q gets better with every interaction, verifiably ([docs/self-improvement.md](docs/self-improvement.md)).
+  - Every approval, disapproval, reply and confirmation on what Q said is a typed signal record, admitted only from a consenting human (decision 26, DA-32).
+  - A member's correction, a reply plus 👎 confirmed by a second member or written by an admin, is learned and found by the question it answers. Where Q cited a more trusted source it becomes a dispute for people (decision 27, DA-33).
+  - Tests made from a member's answer pass only when Q cites it.
+  - The prompt's answer shape is a gene, chosen from three reviewed shapes, with grounding fixed.
+  - A genome is promoted only if it leaks no refusal (decision 28, DA-34).
+  - Questions are classed by public area, and weak classes become proposals (decision 29, DA-35).
+  - The daily review is Q's self-model (`uor-q/review/2`): identity, knowledge, competence, limits and change, recomputed by `node src/main.ts verify`.
+  - `/status` introduces Q from it.
+  - Schemas for every new record in `docs/schemas`.
 - The improvement loop ([docs/improve.md](docs/improve.md)).
   - A refused question is a gap, and a member's reply to it fills the gap (decision 21).
   - Approved answers and filled gaps become regression tests (22).

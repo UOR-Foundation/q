@@ -1,0 +1,614 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/review.schema.json",
+  "title": "uor-q/review/2",
+  "description": "Q's self-model on one day: identity, knowledge, competence by class, limits, learning and change, every count computed by host/src/self.ts from the records evidence names, and chained to the review before it. Private: it names private records. node src/main.ts verify recomputes it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "spec",
+    "previous",
+    "at",
+    "identity",
+    "knowledge",
+    "competence",
+    "classes",
+    "limits",
+    "learning",
+    "changes",
+    "requests",
+    "evaluation",
+    "evolution",
+    "experiments",
+    "proposals",
+    "evidence"
+  ],
+  "properties": {
+    "type": {
+      "const": "review"
+    },
+    "spec": {
+      "const": "uor-q/review/2"
+    },
+    "previous": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "at": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kernel",
+        "community",
+        "genome",
+        "genes",
+        "prompt"
+      ],
+      "properties": {
+        "kernel": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "holo",
+            "model",
+            "commit",
+            "vectors"
+          ],
+          "properties": {
+            "holo": {
+              "type": "string",
+              "pattern": "^blake3:[0-9a-f]{64}$"
+            },
+            "model": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "The BLAKE3 hash of the kernel model, as the context record names it."
+            },
+            "commit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "vectors": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "community": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "holo",
+            "commit"
+          ],
+          "properties": {
+            "holo": {
+              "type": "string",
+              "pattern": "^blake3:[0-9a-f]{64}$"
+            },
+            "commit": {
+              "type": "string"
+            }
+          }
+        },
+        "genome": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^blake3:[0-9a-f]{64}$"
+        },
+        "genes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mediumSimilarity",
+            "highSimilarity",
+            "retrieve",
+            "style"
+          ],
+          "properties": {
+            "mediumSimilarity": {
+              "type": "number"
+            },
+            "highSimilarity": {
+              "type": "number"
+            },
+            "retrieve": {
+              "type": "integer"
+            },
+            "style": {
+              "type": "integer",
+              "description": "Index of a reviewed answer shape (host/src/pipeline.ts STYLES)."
+            }
+          }
+        },
+        "prompt": {
+          "type": "string",
+          "pattern": "^blake3:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chunks",
+        "channels",
+        "ageDays",
+        "forgotten"
+      ],
+      "properties": {
+        "chunks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "community",
+            "website",
+            "github",
+            "discord"
+          ],
+          "properties": {
+            "community": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "website": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "github": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "discord": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "channels": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ageDays": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "upTo30",
+            "upTo90",
+            "upTo180",
+            "older"
+          ],
+          "properties": {
+            "upTo30": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "upTo90": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "upTo180": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "older": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "forgotten": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Revocations by reason: forget-me, forget-channel, withdrawn, retention, unlearned."
+        }
+      }
+    },
+    "competence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "area",
+          "asked",
+          "answered",
+          "refused",
+          "approved",
+          "disapproved",
+          "corrected",
+          "silent",
+          "refusedPct",
+          "wrongPct",
+          "p50Ms",
+          "p95Ms"
+        ],
+        "properties": {
+          "asked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "answered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "refused": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "approved": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "disapproved": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "corrected": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "silent": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "refusedPct": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "wrongPct": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "p50Ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "p95Ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "area": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "classes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "area",
+          "route"
+        ],
+        "properties": {
+          "area": {
+            "type": "string"
+          },
+          "route": {
+            "enum": [
+              "too few",
+              "needs knowledge",
+              "needs correction",
+              "sound"
+            ]
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gaps",
+        "disproved",
+        "regression",
+        "leaked",
+        "probes",
+        "rules"
+      ],
+      "properties": {
+        "gaps": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "open",
+            "filled"
+          ],
+          "properties": {
+            "open": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "filled": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "disproved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "regression": {
+          "type": "boolean"
+        },
+        "leaked": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "probes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rules": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The kernel model; its theorems are CONFORMANCE.md at the signed commit."
+        }
+      }
+    },
+    "learning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signals",
+        "corrections",
+        "tests"
+      ],
+      "properties": {
+        "signals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "approve",
+            "disapprove",
+            "reply",
+            "confirm"
+          ],
+          "properties": {
+            "approve": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "disapprove": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reply": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "confirm": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "corrections": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "learned",
+            "disputed"
+          ],
+          "properties": {
+            "learned": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "disputed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "tests": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "changes": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kernel",
+            "community",
+            "genome",
+            "tests",
+            "chunks"
+          ],
+          "properties": {
+            "kernel": {
+              "type": "boolean"
+            },
+            "community": {
+              "type": "boolean"
+            },
+            "genome": {
+              "type": "boolean"
+            },
+            "tests": {
+              "type": "integer"
+            },
+            "chunks": {
+              "type": "integer"
+            }
+          }
+        }
+      ]
+    },
+    "requests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "open",
+        "filed"
+      ],
+      "properties": {
+        "open": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "filed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "evaluation": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "evolution": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "experiments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "result",
+          "verdict"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "pattern": "^blake3:[0-9a-f]{64}$"
+          },
+          "verdict": {
+            "enum": [
+              "confirmed",
+              "disproved",
+              "held",
+              "aborted"
+            ]
+          }
+        }
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "subject",
+          "why"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "knowledge",
+              "fix",
+              "regression",
+              "request",
+              "class",
+              "dispute"
+            ]
+          },
+          "subject": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deliveries",
+        "signals",
+        "corrections",
+        "tests",
+        "gaps",
+        "chunks"
+      ],
+      "properties": {
+        "deliveries": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^blake3:[0-9a-f]{64}$"
+          }
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^blake3:[0-9a-f]{64}$"
+          }
+        },
+        "corrections": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^blake3:[0-9a-f]{64}$"
+          }
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^blake3:[0-9a-f]{64}$"
+          }
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^blake3:[0-9a-f]{64}$"
+          }
+        },
+        "chunks": {
+          "type": "string",
+          "pattern": "^blake3:[0-9a-f]{64}$",
+          "description": "A commitment to the chunks counted: the label of their sorted labels."
+        }
+      }
+    }
+  }
+}

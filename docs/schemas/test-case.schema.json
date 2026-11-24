@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/test-case.schema.json",
+  "title": "uor-q/test-case/2",
+  "description": "A regression test made from a member's interaction: an approved grounded answer (decision 22), a filled gap (21) or a learned correction (27).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "spec",
+    "question",
+    "expect",
+    "cites",
+    "source",
+    "from",
+    "subjects",
+    "created"
+  ],
+  "properties": {
+    "type": {
+      "const": "test-case"
+    },
+    "spec": {
+      "const": "uor-q/test-case/2"
+    },
+    "question": {
+      "type": "string"
+    },
+    "expect": {
+      "const": "answered"
+    },
+    "cites": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^blake3:[0-9a-f]{64}$",
+      "description": "A member's answer a right answer must cite."
+    },
+    "source": {
+      "enum": [
+        "approval",
+        "gap-fill",
+        "correction"
+      ]
+    },
+    "from": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$",
+      "description": "The signal, gap fill or correction the test was made from."
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Every member this record was made from. /forget-me for any of them removes it."
+    },
+    "created": {
+      "type": "integer",
+      "description": "Milliseconds since the epoch. Retention removes the record 180 days after it."
+    }
+  }
+}

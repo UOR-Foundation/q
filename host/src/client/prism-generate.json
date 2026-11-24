@@ -1,7 +1,7 @@
 {
   "files": {
-    "q.d.ts": "166a97df23daab41395721be2d33c014f81d4ef734ce14e9819438c768fe8b18",
-    "q.js": "27f43526c6e6980966aee20019063897c82b663e5347a82ba912f44bc15ed8af",
+    "q.d.ts": "b97ba45d3116e857af5e26470a37b699873bfc568fec1a41e0b1b0496e9aa455",
+    "q.js": "310fdee32bc6d181634b1d51d5050360891ac3406db5370af7698933888608a5",
     "world.d.ts": "e4555dab8820c573f34bb41b336231dad5523d35bbcaeecbb73e8b04ce8de58b",
     "world.js": "4217413d7b62ef8c98d7cd3787bff7a9db7e86966bde58e66445110f392b14ce"
   },
@@ -12,8 +12,8 @@
   },
   "language": "js",
   "model": {
-    "blake3": "2216e5cafcdd386399863e7841c2ce995094f234122014f3f2f5c1f831638184",
-    "sha256": "5136afd5457c534d1da3ddd25dd48d3c847ce72638c14dd594f7072d95a6a7d9"
+    "blake3": "3f1a333504cd3b7a8ca009f73aa47d60f440cf31deb236b7931deadc0ca0d5ee",
+    "sha256": "e41fc27035c838158d61d77faa0a104ba611f4e17c7d10f0d34251afec7fc7eb"
   },
   "schema": "prismpm/generate-record/1",
   "world": {

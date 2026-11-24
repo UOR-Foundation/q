@@ -6,9 +6,9 @@ Project-owned evidence for the gates in `VERIFICATION.md`. Run with prism-code 0
 
 | Command | Result |
 | --- | --- |
-| `npx prism-code@0.11.2 check --json` | exit 0; 42 of 42 theorems proved; 31 IDs, 31 scenarios, 1 authority, 1 claim; no contract violation |
-| `npx prism-code@0.11.2 build --json` | exit 0; 190 of 190 acceptance vectors replayed |
-| `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 190 of 190 vectors on fresh instances |
+| `npx prism-code@0.11.2 check --json` | exit 0; 51 of 51 theorems proved; 35 IDs, 35 scenarios, 1 authority, 1 claim; no contract violation |
+| `npx prism-code@0.11.2 build --json` | exit 0; 221 of 221 acceptance vectors replayed; holo `blake3:c0f949629393e4a616b26fd5a7120a934db79c081fb546601535f021166387bf` |
+| `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 221 of 221 vectors on fresh instances |
 | `npx prism-code@0.11.2 manifest --json` | no finding; no capability granted |
 
 ## Planted defects
@@ -25,6 +25,16 @@ Each defect was planted in the model, the gate was run, and the model was restor
 | `exposeServe` serves a private item on the website (`|| (surface =? 2)` added) | `check` | `contract.theorem-unproved`: DA-31, `Policy.privateNeverLeavesDiscord` not proved (41 of 42); exit 1. `Policy.privateStaysOnDiscord` still holds, which is why DA-31 needs its own theorem |
 | The dispatcher refuses surface 2 (`(field value 2) <=? 1`) while the vectors ask for it | `build` | `build.vectors`: 2 of 190 vectors are not what the model answers; no holo written |
 | The dispatcher answers `denied` where the register says `not authorized` | `build` | `build.vectors`: 2 of 80 vectors are not what the model answers; no holo written |
+| `signalUse` records a bot's signal (`human <=? 1` for `human =? 0`) | `check` | `contract.theorem-unproved`: DA-32, `Policy.signalOnlyFromConsentingHumans` not proved; 50 of 51; exit 1 |
+| `signalUse` keeps a reply's words in a channel Q may not read (`readable <=? 1`) | `check` | DA-32, `Policy.wordsOnlyFromReadableReplies` not proved; 50 of 51; exit 1 |
+| `correctionUse` accepts a correction nobody confirmed (`0 <=? confirmers`) | `check` | DA-33, `Policy.correctionNeedsSecondHuman` not proved; 50 of 51; exit 1 |
+| `correctionUse` ignores whether the words were kept (`kept <=? 1`) | `check` | DA-33, `Policy.correctionNeedsKeptWords` not proved; 50 of 51; exit 1 |
+| `correctionUse` learns over the website and GitHub (`cited <=? 0` for `cited <=? 2`) | `check` | DA-33, `Policy.trustedSourceOnlyDisputed` not proved; 50 of 51; exit 1 |
+| `promoteSafe` allows one leaked refusal (`leaked <=? 1`) | `check` | DA-34, `Policy.neverLeakRefusal` not proved; 50 of 51; exit 1 |
+| `promoteSafe` skips decision 24 (`true` for `promote ...`) | `check` | DA-34, `Policy.safeNeverWorse` not proved; 50 of 51; exit 1 |
+| `classRoute` judges a class on any sample (`asked <? 0`) | `check` | DA-35, `Policy.routeNeedsSample` not proved; 50 of 51; exit 1 |
+| `classRoute` never looks at wrong answers (`maxWrongPct <? 0`) | `check` | DA-35, `Policy.soundWithinBounds` not proved; 50 of 51; exit 1 |
+| The dispatcher answers `learn` where decision 27 says `dispute` | `build` | `build.vectors`: 2 of 221 vectors are not what the model answers; no holo written |
 
 After restoring, `build` and `verify` passed again with the figures above.
 
@@ -33,7 +43,22 @@ After restoring, `build` and `verify` passed again with the figures above.
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` in `host/` | exit 0 |
-| `npm test` in `host/` | 74 of 74 tests pass, against the real holo with an in-process store, embedder, language model and community |
+| `npm test` in `host/` | 84 of 84 tests pass, against the real holo with an in-process store, embedder, language model and community |
+
+## Host planted defects
+
+Each was planted in the host, `npm test` was run, and the file was restored.
+
+| Defect | Tests that failed |
+| --- | --- |
+| Forgetting matches only a record's author, not the members it was made from (`subjects`) | the gap test, the forget-the-approver-or-asker test, the correction test |
+| A correction's author counts as their own second member | the correction test |
+| Removing a correction leaves its learned words searchable | the correction test |
+| Competence counts any signal as an approval | the self-model test |
+| The verifier skips the label check of the records a review names | the self-model test |
+| A delivery is kept without its retention date | the retention test, the schema test |
+
+Before this change, an approval's test held the asker's question with `author: null`, so `/forget-me` left it, and loop records had no `created`, so retention never removed them. The first and last defects above put those two gaps back, and the tests catch both.
 
 ## Not covered
 
@@ -41,3 +66,4 @@ After restoring, `build` and `verify` passed again with the figures above.
 - The host has run live on 2026-11-24 against Discord, an OpenAI-compatible language model and llama.cpp embeddings, from its Docker image (see `host/README.md`). It has not run against a Kappa Registry, and that run is observation, not a test.
 - `qortara` is not installed on this machine, so its repository checks were not run.
 - The website's adapter is tested over HTTP in process, with the test model. It has run on one machine against the production language model (`docs/web.md`, Measured); it has not run behind a reverse proxy.
+- Decisions 26 to 29 and the self-model have not run live: the kernel above is not signed until it is merged to `main` and built by `holo.yml`.

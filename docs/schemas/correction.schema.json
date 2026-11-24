@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/correction.schema.json",
+  "title": "uor-q/correction/1",
+  "description": "A member's correction of an answer, used as decision 27 decided: learned, or taken to people as a dispute. Linked refers-to the answer and derived-from the learned chunk.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "spec",
+    "outcome",
+    "delivery",
+    "answer",
+    "question",
+    "reply",
+    "chunk",
+    "cited",
+    "confirmers",
+    "signals",
+    "author",
+    "subjects",
+    "created"
+  ],
+  "properties": {
+    "type": {
+      "const": "correction"
+    },
+    "spec": {
+      "const": "uor-q/correction/1"
+    },
+    "outcome": {
+      "enum": [
+        "learn",
+        "dispute"
+      ]
+    },
+    "delivery": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "answer": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "question": {
+      "type": "string"
+    },
+    "reply": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "chunk": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$",
+      "description": "The member's words as an open Discord chunk, searched by the question they answer."
+    },
+    "cited": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "url"
+      ],
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "enum": [
+                "community",
+                "website",
+                "github",
+                "discord"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "confirmers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "A Discord user id."
+      }
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^blake3:[0-9a-f]{64}$"
+      },
+      "description": "The disapproval, the reply and the confirmations that decided it."
+    },
+    "author": {
+      "type": "string",
+      "description": "A Discord user id."
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Every member this record was made from. /forget-me for any of them removes it."
+    },
+    "created": {
+      "type": "integer",
+      "description": "Milliseconds since the epoch. Retention removes the record 180 days after it."
+    }
+  }
+}

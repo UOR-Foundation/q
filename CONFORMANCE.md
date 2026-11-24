@@ -50,6 +50,10 @@ The three honesty levels (R2):
 | `DA-29` | `build` | An evolved genome replaces the current one only when, on the same tests, it has fewer wrong outcomes, or as few and a lower latency, with no breach and within the latency bound | `Policy.neverPromoteWorse`, `Policy.promoteNeedsGain`, refuses with `keep` |
 | `DA-30` | `build` | A member's request is filed to the community only with their consent, once, and only when enough members support it | `Policy.fileOnlyConsented`, `Policy.fileOnlyWithSupport`, refuses with `hold` |
 | `DA-31` | `build` | An item in the private namespace is never served on any surface but Discord: the website, like the MCP server, serves only public items | `Policy.privateNeverLeavesDiscord`, refuses with `withhold` |
+| `DA-32` | `build` | A signal on an answer is recorded only from a human who has not opted out, about an answer that still exists, and keeps a member's words only for a reply in a channel Q may read | `Policy.signalOnlyFromConsentingHumans`, `Policy.wordsOnlyFromReadableReplies`, refuses with `drop` |
+| `DA-33` | `build` | A member's correction is used only when its words were kept and its author disapproved the answer, and only once an admin wrote it or another human confirmed it; a correction of a more trusted source is a dispute for people to settle, never learned over it | `Policy.correctionNeedsSecondHuman`, `Policy.correctionNeedsKeptWords`, `Policy.trustedSourceOnlyDisputed`, refuses with `hold` |
+| `DA-34` | `build` | An evolved genome replaces the current one only when it is promoted by decision 24 and answers none of the questions Q must refuse | `Policy.neverLeakRefusal`, `Policy.safeNeverWorse`, refuses with `keep` |
+| `DA-35` | `build` | A class of questions is judged weak or sound only on at least the minimum sample, and sound only within both the refusal and the wrong-answer bounds | `Policy.routeNeedsSample`, `Policy.soundWithinBounds`, refuses with `too few` |
 
 ## contract
 
