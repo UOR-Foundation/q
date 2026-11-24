@@ -134,7 +134,8 @@ export function discord(config: Config, label: Labeler): Adapter {
           const triggerOf = (m: Message) => (m.mentions.users.has(me) ? (m.reference && m.mentions.repliedUser?.id === me ? 'replyToAgent' : 'mention') : 'none');
           const triggers = batch.map(triggerOf);
           const trigger = triggers.includes('replyToAgent') ? 'replyToAgent' : triggers.includes('mention') ? 'mention' : 'none';
-          const text = batch.map((m) => m.content.replaceAll(`<@${me}>`, '').trim()).filter(Boolean).join('\n');
+          // One sentence typed in pieces reads as one sentence: joined with spaces, not line breaks.
+          const text = batch.map((m) => m.content.replaceAll(`<@${me}>`, '').trim()).filter(Boolean).join(' ');
           // "Q is typing" from the moment the kernel decides to answer until the reply is sent; Discord
           // shows it for ten seconds, so it is renewed.
           let working = false;

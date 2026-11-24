@@ -7,11 +7,15 @@ import { isRevoked, type Namespace, type Store } from './store.ts';
 
 export interface Hit { label: string; namespace: Namespace; similarity: number }
 
-const cosine = (a: Float32Array, b: Float32Array) => {
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-  return na === 0 || nb === 0 ? 0 : dot / Math.sqrt(na * nb);
+/** A vector scaled to unit length, so cosine similarity is a dot product. */
+const unit = (v: Float32Array) => {
+  let n = 0;
+  for (let i = 0; i < v.length; i++) n += v[i] * v[i];
+  const scale = n > 0 ? 1 / Math.sqrt(n) : 0;
+  for (let i = 0; i < v.length; i++) v[i] *= scale;
+  return v;
 };
+
 
 // FTS5 reads punctuation as syntax; a query is its words, any of them.
 const words = (text: string) => (text.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? []).map((w) => `"${w}"`).join(' OR ');
@@ -64,6 +68,8 @@ export class SearchIndex {
   /** Search a chunk by another vector: a member's answer is found by the question it answers. */
   revector(label: string, vector: number[]) {
     this.#db.prepare('update chunk set vector = ? where label = ?').run(new Uint8Array(new Float32Array(vector).buffer), label);
+    const known = this.#vectors.get(label);
+    if (known) known.unit = unit(new Float32Array(vector));
   }
 
   has(label: string): boolean {
@@ -75,6 +81,7 @@ export class SearchIndex {
     this.#db.prepare('insert into words values (?, ?)').run(label, text);
   }
   remove(label: string) {
+    this.#vectors.delete(label);
     this.#db.prepare('delete from chunk where label = ?').run(label);
     this.#db.prepare('delete from words where label = ?').run(label);
   }
@@ -86,15 +93,31 @@ export class SearchIndex {
   }
 
   /** Keyword and vector ranks fused by reciprocal rank; each hit carries its cosine similarity, a measurement. */
+  /**
+   * The vectors, unit length, in memory: a search is one dot product per chunk instead of reading every vector from
+   * disk. New rows are read by rowid at each search, so chunks another process adds (a backfill) are found too.
+   */
+  #vectors = new Map<string, { namespace: Namespace; unit: Float32Array }>();
+  #seen = 0;
+  #catchUp() {
+    const rows = this.#db.prepare('select rowid, label, namespace, vector from chunk where rowid > ? order by rowid').all(this.#seen) as { rowid: number; label: string; namespace: Namespace; vector: Uint8Array }[];
+    for (const row of rows) {
+      this.#vectors.set(row.label, { namespace: row.namespace, unit: unit(new Float32Array(row.vector.buffer.slice(row.vector.byteOffset, row.vector.byteOffset + row.vector.byteLength))) });
+      this.#seen = row.rowid;
+    }
+  }
+
   search(text: string, vector: number[], limit: number): Hit[] {
-    const query = new Float32Array(vector);
-    const rows = this.#db.prepare('select label, namespace, vector from chunk').all() as { label: string; namespace: Namespace; vector: Uint8Array }[];
-    const scored = rows.map((row) => ({
-      label: row.label,
-      namespace: row.namespace,
-      similarity: cosine(query, new Float32Array(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength / 4)),
-    }));
-    const byVector = [...scored].sort((a, b) => b.similarity - a.similarity).map((hit) => hit.label);
+    this.#catchUp();
+    const query = unit(new Float32Array(vector));
+    const scored: Hit[] = [];
+    for (const [label, { namespace, unit: v }] of this.#vectors) {
+      let dot = 0;
+      for (let i = 0; i < v.length; i++) dot += query[i] * v[i];
+      scored.push({ label, namespace, similarity: dot });
+    }
+    // Past the first few hundred, a rank adds nothing to the fused score that could change the top results.
+    const byVector = scored.sort((a, b) => b.similarity - a.similarity).slice(0, 500).map((hit) => hit.label);
     const match = words(text);
     const byWords = match
       ? (this.#db.prepare('select label from words where words match ? order by bm25(words) limit 50').all(match) as { label: string }[]).map((r) => r.label)
@@ -108,6 +131,8 @@ export class SearchIndex {
   /** Fill the index from the store: every chunk the store holds and has not revoked, and nothing else. */
   async rebuild(store: Store, embedder: Embedder) {
     this.#db.exec('delete from chunk; delete from words; delete from memo; delete from loop;');
+    this.#vectors.clear();
+    this.#seen = 0;
     const fills: { gap: string; chunk: string }[] = [];
     for (const namespace of ['public', 'private'] as const) {
       for (const label of await store.labels(namespace)) {
