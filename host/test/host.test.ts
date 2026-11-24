@@ -1511,13 +1511,15 @@ test('another agent asks with one request: a page it can read, the record as JSO
     assert.match(page.headers.get('content-type')!, /^text\/markdown/);
     const text = await page.text();
     const key = questionKey(QUESTION, (await (await fetch(`${base}/manifest`)).json() as { label: string }).label);
-    assert.match(text, /## Sources\n\n1\. https:\/\/\S+ \(\w+, [\w-]+\) `blake3:[0-9a-f]{64}`\n/);
+    assert.match(text, /## Sources\n\n1\. https:\/\/\S+ \(\w+, [\w-]+(, cited)?\) `blake3:[0-9a-f]{64}`\n/);
     assert.match(text, /\nClaim level: [\w-]+\. Grounding: answer, from the \w+ band and \d+ sources?\.\n/);
     assert.ok(text.includes(`${base}/answer/${key}`));
     // The same question as JSON is the record /answer/<key> serves, and the model was called once for all of it.
     const record = await (await fetch(asked, { headers: { accept: 'application/json' } })).json() as Published;
     assert.equal(record.label, labelOf(record.answer));
-    assert.ok(text.startsWith(record.answer.text));
+    // Headed, so a reader that skims cannot take the answer for a preamble.
+    assert.ok(text.startsWith(`# Q's answer\n\n${record.answer.text}\n`));
+    assert.match(text, /\n## How far it is established\n/);
     assert.deepEqual(record, await (await fetch(`${base}/answer/${key}`)).json());
     // A POST that accepts JSON is answered whole instead of as events, so the question stays out of the URL.
     const posted = await post(base, QUESTION, { accept: 'application/json' });

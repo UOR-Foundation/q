@@ -107,7 +107,8 @@ export function discord(config: Config, label: Labeler): Adapter {
     };
     client.once(Events.ClientReady, async (ready) => {
       await ready.application.commands.set(
-        COMMANDS.map(([name, description, question]) => {
+        // /build is offered only where a builder is configured; elsewhere members never see it.
+        COMMANDS.filter(([name]) => name !== 'build' || Boolean(config.builderUrl)).map(([name, description, question]) => {
           const command = new SlashCommandBuilder().setName(name).setDescription(description);
           if (question) command.addStringOption((option) => option.setName('question').setDescription('What to ask').setRequired(true));
           if (name === 'build') command.addStringOption((option) => option.setName('prompt').setDescription('What the app should decide, in your words').setRequired(true).setMaxLength(1500));

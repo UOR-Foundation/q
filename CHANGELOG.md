@@ -29,6 +29,10 @@ This project follows Semantic Versioning and Conventional Commits.
 - `/forget-me` now removes everything made from a member, including a test made from an approval of their question and the signals on their answers.
 - Retention now removes the improvement loop's member records after 180 days. Before, they had no date and were kept.
 
+### Changed
+
+- `/build` is offered only where a builder service is configured (`BUILDER_URL`). Production runs without one for now: apps will be proved, built and run on the member's own machine with `npx prism-code@latest`, not on the VPS.
+
 ### Added
 
 - Q gets better with every interaction, verifiably ([docs/self-improvement.md](docs/self-improvement.md)).
