@@ -9,8 +9,11 @@ export type RunTool = (call: ToolCall) => Promise<string>;
 export interface Llm {
   /** The model, by the name its provider gives it: part of every answer key. */
   readonly model: string;
-  /** With `onText`, the answer's words are also given as they are written; the whole answer is still returned. */
-  complete(system: string, user: string, onText?: (delta: string) => void): Promise<string>;
+  /**
+   * With `onText`, the answer's words are also given as they are written; the whole answer is still returned.
+   * With `signal`, the call is given up when it aborts: nobody is waiting for the answer any more.
+   */
+  complete(system: string, user: string, onText?: (delta: string) => void, signal?: AbortSignal): Promise<string>;
   /** The same, with tools the model may ask for; each call goes through `run`. At most `rounds` rounds of calls. */
   completeWithTools?(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds?: number): Promise<string>;
 }
@@ -41,10 +44,13 @@ export class AnthropicLlm implements Llm {
     this.maxTokens = maxTokens;
     this.#gate = new Gate(concurrency);
   }
-  async complete(system: string, user: string, onText?: (delta: string) => void) {
+  async complete(system: string, user: string, onText?: (delta: string) => void, signal?: AbortSignal) {
     const request = { model: this.model, max_tokens: this.maxTokens, system, messages: [{ role: 'user' as const, content: user }] };
     // The gate is held until the last word: a stream still being written is a call in flight.
-    const message = await this.#gate.run(() => (onText ? this.#client.messages.stream(request).on('text', onText).finalMessage() : this.#client.messages.create(request)));
+    const message = await this.#gate.run(() => {
+      signal?.throwIfAborted();
+      return onText ? this.#client.messages.stream(request, { signal }).on('text', onText).finalMessage() : this.#client.messages.create(request, { signal });
+    });
     return message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('');
   }
   async completeWithTools(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds = 3) {
@@ -161,14 +167,19 @@ export class OpenAiCompatibleLlm implements Llm {
     this.#transport = transport;
   }
   /** One chat completion, inside the gate until its answer is read, retried when the provider is busy. */
-  #post<T>(body: Record<string, unknown>, read: (response: Response) => Promise<T>): Promise<T> {
-    return this.#gate.run(async () => read(await retrying(() => this.#transport(`${this.#baseUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` },
-      body: JSON.stringify(body),
-    }))));
+  #post<T>(body: Record<string, unknown>, read: (response: Response) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    // An aborted call gives its turn back: before it starts, between retries, and while its answer is still being read.
+    return this.#gate.run(async () => read(await retrying(() => {
+      signal?.throwIfAborted();
+      return this.#transport(`${this.#baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` },
+        body: JSON.stringify(body),
+        signal,
+      });
+    })));
   }
-  async complete(system: string, user: string, onText?: (delta: string) => void) {
+  async complete(system: string, user: string, onText?: (delta: string) => void, signal?: AbortSignal) {
     const body = {
       model: this.model,
       max_tokens: this.maxTokens,
@@ -180,7 +191,7 @@ export class OpenAiCompatibleLlm implements Llm {
       return this.#post(body, async (response) => {
         const { choices } = (await response.json()) as { choices: { message: { content: string } }[] };
         return withoutReasoning(choices[0]?.message.content ?? '');
-      });
+      }, signal);
     }
     return this.#post({ ...body, stream: true }, async (response) => {
       let full = '';
@@ -192,7 +203,7 @@ export class OpenAiCompatibleLlm implements Llm {
         shown = Math.max(shown, visible.length);
       }
       return withoutReasoning(full);
-    });
+    }, signal);
   }
   async completeWithTools(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds = 3) {
     type Call = { id: string; type: 'function'; function: { name: string; arguments: string } };

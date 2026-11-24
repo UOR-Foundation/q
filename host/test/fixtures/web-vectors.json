@@ -84,5 +84,64 @@
       "community": "blake3:86bc686f26aace361032e86df9e48446a20058499cd6ee0016ae890f8f6c6e6b"
     },
     "label": "blake3:01f8d148f28b8fb7dd471573721f39da70b9a6d8522eeb8b2eda440c6ad61554"
+  },
+  "thread": [
+    {
+      "question": "And how do I build one?",
+      "after": [
+        "blake3:8c382f98bfa38ca8d25141ba064cc65a7dceecf897bec3e3cf1dc01bafcd3a3d"
+      ],
+      "key": "blake3:1fdf0e610bc942fe05d224219fea136b1fa9ac5fd4101c40930108390abe9e4f"
+    },
+    {
+      "question": "  and HOW do I build one? ",
+      "after": [
+        "blake3:8c382f98bfa38ca8d25141ba064cc65a7dceecf897bec3e3cf1dc01bafcd3a3d"
+      ],
+      "key": "blake3:1fdf0e610bc942fe05d224219fea136b1fa9ac5fd4101c40930108390abe9e4f"
+    },
+    {
+      "question": "Who proves it?",
+      "after": [
+        "blake3:8c382f98bfa38ca8d25141ba064cc65a7dceecf897bec3e3cf1dc01bafcd3a3d",
+        "blake3:1fdf0e610bc942fe05d224219fea136b1fa9ac5fd4101c40930108390abe9e4f"
+      ],
+      "key": "blake3:a4616347e3606870e33711d549bfbec8897625e964ce76d845fcd0a8dccddc4d"
+    },
+    {
+      "question": "And how do I build one?",
+      "after": [],
+      "key": "blake3:1daefd348b89659b86c3c5c8c67af19350253bda06e5e685517338f668afdd6f"
+    }
+  ],
+  "followUp": {
+    "record": {
+      "type": "web-answer",
+      "schema": "uor-agent/web-answer/1",
+      "key": "blake3:1fdf0e610bc942fe05d224219fea136b1fa9ac5fd4101c40930108390abe9e4f",
+      "manifest": "blake3:42d9fb867d442cfb495ed5f58df7141ef7bf13d9fafabca335be93003cd40903",
+      "outcome": "answer",
+      "band": "medium",
+      "level": "some-true",
+      "text": "You write a LexLean model and run the build [1].",
+      "decision": null,
+      "sources": [
+        {
+          "n": 1,
+          "label": "blake3:eee14ea109290956376391d8e5c95e34cd6d7d43dbbdcaf992d556cbac07f898",
+          "url": "https://uor.foundation/docs/holo.md",
+          "source": "website",
+          "level": "some-true",
+          "cited": true
+        }
+      ],
+      "tools": 0,
+      "kernel": "blake3:36b339f26c8b361999fbb5030199ebc4f08d4e92110b92a941e14f2ccf8e5425",
+      "community": "blake3:86bc686f26aace361032e86df9e48446a20058499cd6ee0016ae890f8f6c6e6b",
+      "after": [
+        "blake3:8c382f98bfa38ca8d25141ba064cc65a7dceecf897bec3e3cf1dc01bafcd3a3d"
+      ]
+    },
+    "label": "blake3:1b93811b68db5f08907bcd5b1c51fd36db10d4f1ea5efd20384b2b4cc50f9379"
   }
 }

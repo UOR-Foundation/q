@@ -247,3 +247,10 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.closeOnlyByHumans, Policy.promiseNeedsConfirmation and Policy.ownReplyNeverAnswers
     Then close is answered for someone else's reply to a question or request, and for the right confirmation
     And prism-code build replays a bot's reply, an asker's own reply and a reply to a promise, each answered open
+
+  @DA-37 @build @rejects
+  Scenario: On the website an earlier answer is context for a question only when the host still reads it back by its key and it is among the newest three
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.threadOnlyKnown
+    Then use is answered only for an answer the host reads back by its key, among the newest three
+    And prism-code build replays an answer no longer known, one older than the newest three and one that is both, each answered skip

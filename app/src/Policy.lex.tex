@@ -506,6 +506,28 @@ theorem{
 }
 
 definition{
+  name: threadUse,
+  parameters: [known : Nat, place : Nat],
+  result: Bool,
+  body: ((known =? 0) && (place =? 0))
+}
+
+definition{
+  name: breaksThreadOnlyKnown,
+  parameters: [known : Nat, place : Nat],
+  result: Bool,
+  body: ((threadUse known place) && ((not (known =? 0)) || (not (place =? 0))))
+}
+
+theorem{
+  name: threadOnlyKnown,
+  parameters: [known : Nat, place : Nat],
+  statement: ((breaksThreadOnlyKnown known place) = false),
+  proof: linear_arithmetic{definitions: [breaksThreadOnlyKnown, threadUse]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
   name: exposeServe,
   parameters: [space : Nat, surface : Nat],
   result: Bool,
