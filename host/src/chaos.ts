@@ -176,11 +176,19 @@ const meets = (expect: Expect, reply: Outgoing | undefined) =>
   : expect === 'refused' ? Boolean(reply && REFUSED.has(reply.decision))
   : reply?.decision === 'empty';
 
-/** Ask every question once (a burst: `copies` of each, all at once), checking before each that the kernel lets it go on. */
-async function measure(deps: ChaosDeps, experiment: Experiment, pipeline: Pipeline, approved: boolean, copies: number): Promise<Arm | 'aborted'> {
+/** An experiment's arm: its questions under its hypothesis, each asked only while the kernel lets the experiment go on. */
+const measure = (deps: ChaosDeps, experiment: Experiment, pipeline: Pipeline, approved: boolean, copies: number) =>
+  measureQuestions(deps.kernel, experiment.questions, experiment.hypothesis, pipeline, async () => (await deps.kernel.experiment(approved, 'shadow', deps.load() > 0)) === 'run', copies);
+
+/**
+ * Ask every question once (a burst: `copies` of each, all at once), checking before each that `may` still allows it,
+ * and measure the output: the share of wrong outcomes, the 95th percentile latency, the broken invariants. The kernel
+ * judges the steady state against the bounds (decision 20). The chaos experiments and the daily evaluation both use it.
+ */
+export async function measureQuestions(kernel: Kernel, questions: { text: string; expect: Expect }[], bounds: { maxErrorPct: number; maxP95Seconds: number }, pipeline: Pipeline, may: () => Promise<boolean>, copies = 1): Promise<Arm | 'aborted'> {
   const runs: { ms: number; outcome: string; right: boolean; breach: boolean }[] = [];
   const ask = async (text: string, expect: Expect, i: number) => {
-    if ((await deps.kernel.experiment(approved, 'shadow', deps.load() > 0)) !== 'run') return false;
+    if (!(await may())) return false;
     const message: Incoming = {
       channel: { kind: 'text', visibility: 'everyone', label: 'public', install: 'admin', intent: 'granted' },
       channelId: 'chaos', authorId: `chaos-${i}`, role: 'member', trigger: 'mention', text,
@@ -201,8 +209,8 @@ async function measure(deps: ChaosDeps, experiment: Experiment, pipeline: Pipeli
     return true;
   };
   const asked = copies > 1
-    ? await Promise.all(experiment.questions.flatMap((q, i) => Array.from({ length: copies }, (_, c) => ask(q.text, q.expect, i * copies + c))))
-    : await (async () => { const done: boolean[] = []; for (const [i, q] of experiment.questions.entries()) { const ok = await ask(q.text, q.expect, i); done.push(ok); if (!ok) break; } return done; })();
+    ? await Promise.all(questions.flatMap((q, i) => Array.from({ length: copies }, (_, c) => ask(q.text, q.expect, i * copies + c))))
+    : await (async () => { const done: boolean[] = []; for (const [i, q] of questions.entries()) { const ok = await ask(q.text, q.expect, i); done.push(ok); if (!ok) break; } return done; })();
   if (asked.some((ok) => !ok)) return 'aborted';
   const wrong = runs.filter((r) => !r.right).length;
   const errorPct = (100 * wrong) / runs.length;
@@ -211,7 +219,7 @@ async function measure(deps: ChaosDeps, experiment: Experiment, pipeline: Pipeli
   const breaches = runs.filter((r) => r.breach).length;
   const outcomes: Record<string, number> = {};
   for (const r of runs) outcomes[r.outcome] = (outcomes[r.outcome] ?? 0) + 1;
-  const steady = await deps.kernel.steady(errorPct, experiment.hypothesis.maxErrorPct, p95Seconds, experiment.hypothesis.maxP95Seconds, breaches);
+  const steady = await kernel.steady(errorPct, bounds.maxErrorPct, p95Seconds, bounds.maxP95Seconds, breaches);
   return { questions: runs.length, wrong, errorPct: Math.round(errorPct), p95Seconds: Math.round(p95Seconds * 10) / 10, breaches, outcomes, steady };
 }
 

@@ -171,3 +171,30 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.breachNeverSteady and Policy.steadyWithinBounds
     Then steady is answered only within both bounds and with no breach
     And prism-code build replays an error rate, a latency and a breach past their bounds, each answered disturbed
+
+  @DA-26 @build @rejects
+  Scenario: A gap Q could not answer is filled only by an indexed message a human sent in reply to the question
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.fillOnlyIndexedHuman
+    Then fill is answered only for an indexed human reply to the refused question
+    And prism-code build replays a bot's reply, an unindexed reply and an unrelated message, each answered skip
+
+  @DA-27 @build
+  Scenario: An answer becomes a regression test only when a human approves it and it was grounded with citations
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.admitOnlyGrounded
+    Then admit is answered only for a human's approval of a grounded answer
+
+  @DA-28 @build @rejects
+  Scenario: The daily evaluation runs only while no real question is in progress, and only with test cases to run
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.evalYields
+    Then run is answered only when Q is idle and has test cases
+    And prism-code build replays a busy Q and an empty test set, each answered wait
+
+  @DA-29 @build @rejects
+  Scenario: An evolved genome replaces the current one only when it measurably beats it on the same tests
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.neverPromoteWorse and Policy.promoteNeedsGain
+    Then promote is answered only for fewer wrong outcomes, or as few and faster, with no breach and within bound
+    And prism-code build replays more errors, a tie, a breach and a latency over bound, each answered keep

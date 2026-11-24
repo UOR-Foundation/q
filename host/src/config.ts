@@ -55,6 +55,8 @@ export function config() {
     aggregateMs: number('AGGREGATE_MS', 1500),
     // Chaos experiments (chaos.ts): where they are, and how often each approved one is tried. 0 hours: never.
     chaos: { dir: process.env.CHAOS_DIR ?? '../experiments', everyHours: number('CHAOS_EVERY_HOURS', 24), firstMinutes: number('CHAOS_FIRST_MINUTES', 10) },
+    // The improvement loop (improve.ts): how often it measures and reviews, how many tests a day, and the bounds.
+    loop: { everyHours: number('LOOP_EVERY_HOURS', 24), firstMinutes: number('LOOP_FIRST_MINUTES', 20), evaluationSize: number('LOOP_EVALUATION_SIZE', 12), maxErrorPct: number('LOOP_MAX_ERROR_PCT', 10), maxP95Seconds: number('LOOP_MAX_P95_SECONDS', 60) },
     embeddingsUrl: need('EMBEDDINGS_URL'),
     embeddingsKey: process.env.EMBEDDINGS_API_KEY ?? '',
     embeddingsModel: need('EMBEDDINGS_MODEL'),

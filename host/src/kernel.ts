@@ -13,7 +13,7 @@ export const INTENT = { granted: 0, missing: 1 } as const;
 export const TRIGGER = { none: 0, mention: 1, replyToAgent: 2, slash: 3 } as const;
 // Who a message is from and to: a person talking in the channel, a bot, or a person asking the agent.
 export const ORIGIN = { conversation: 0, bot: 1, request: 2 } as const;
-export const COMMAND = { ask: 0, search: 1, status: 2, reindex: 3, 'forget-channel': 4, 'forget-me': 5 } as const;
+export const COMMAND = { ask: 0, search: 1, status: 2, reindex: 3, 'forget-channel': 4, 'forget-me': 5, improve: 6 } as const;
 export const ROLE = { member: 0, admin: 1 } as const;
 export const BAND = { low: 0, medium: 1, high: 2 } as const;
 export const LEVEL = { build: 0, 'some-true': 1, open: 2 } as const;
@@ -53,11 +53,14 @@ export class Kernel {
   readonly holo: string;
   /** The commit whose signed build is this holo, once its provenance is verified; null when the check is off. */
   commit: string | null = null;
+  /** How many of its own acceptance vectors replayed when it opened: all of them, or it would not have opened. */
+  readonly vectors: number;
   #client: Q;
 
-  private constructor(client: Q, holo: string) {
+  private constructor(client: Q, holo: string, vectors: number) {
     this.#client = client;
     this.holo = holo;
+    this.vectors = vectors;
   }
 
   /** Open the holo. `load` verifies its digests; a holo whose own acceptance vectors do not all replay is refused. */
@@ -69,7 +72,7 @@ export class Kernel {
     if (result.passed !== result.total || result.total === 0) {
       throw new Error(`kernel refused: ${result.passed} of ${result.total} acceptance vectors replayed`);
     }
-    return new Kernel(new Q((request) => app.dispatch(request)), kappa(bytes));
+    return new Kernel(new Q((request) => app.dispatch(request)), kappa(bytes), result.passed);
   }
 
   async #ask<T extends string>(decision: number, ...facts: number[]): Promise<T> {
@@ -154,5 +157,22 @@ export class Kernel {
   steady(errorPct: number, maxErrorPct: number, p95Seconds: number, maxP95Seconds: number, breaches: number) {
     const pct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
     return this.#ask<'steady' | 'disturbed'>(20, pct(errorPct), pct(maxErrorPct), byte(Math.ceil(p95Seconds)), byte(maxP95Seconds), byte(breaches));
+  }
+  /** Does a message fill a question Q could not answer? Only an indexed human reply to that question does. */
+  gapFill(indexed: boolean, human: boolean, repliesToGap: boolean) {
+    return this.#ask<'fill' | 'skip'>(21, flag(!indexed), flag(!human), flag(!repliesToGap));
+  }
+  /** Does an approval make an answer a regression test? Only a human's, and only of a grounded answer. */
+  testAdmit(approval: boolean, human: boolean, grounded: boolean) {
+    return this.#ask<'admit' | 'skip'>(22, flag(!approval), flag(!human), flag(!grounded));
+  }
+  /** May the daily evaluation run now? Only while no real question is in progress, and with tests to run. */
+  evalRun(busy: boolean, hasCases: boolean) {
+    return this.#ask<'run' | 'wait'>(23, flag(busy), flag(!hasCases));
+  }
+  /** Does an evolved genome replace the current one? Only when it measurably beats it on the same tests. */
+  promote(candidateErrPct: number, currentErrPct: number, candidateP95Seconds: number, currentP95Seconds: number, maxP95Seconds: number, breaches: number) {
+    const pct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
+    return this.#ask<'promote' | 'keep'>(24, pct(candidateErrPct), pct(currentErrPct), byte(Math.ceil(candidateP95Seconds)), byte(Math.ceil(currentP95Seconds)), byte(maxP95Seconds), byte(breaches));
   }
 }

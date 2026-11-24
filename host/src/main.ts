@@ -13,7 +13,8 @@ import { CommunitySource, GitHubSource, WebsiteSource, ingest } from './knowledg
 import { Memory } from './memory.ts';
 import { Pipeline } from './pipeline.ts';
 import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm, type Transport } from './providers.ts';
-import { loadExperiments, runExperiment, ShadowStore, shadowIndex } from './chaos.ts';
+import { loadExperiments, runExperiment, ShadowStore, shadowIndex, type Verdict } from './chaos.ts';
+import { Loop } from './improve.ts';
 import { SearchIndex } from './search.ts';
 import { Tools } from './tools.ts';
 import { mcpServer } from './mcp-server.ts';
@@ -92,7 +93,8 @@ if (mode === 'ingest') {
   // MCP servers: every tool offered to the language model, every call decided by the kernel.
   const { tools, failed } = await Tools.connect(c.mcpServers);
   log('tools', { servers: c.mcpServers.map((s) => ({ name: s.name, allow: s.allow === true })), tools: tools.list().length, failed });
-  const pipeline = new Pipeline(kernel, store, index, embedder, llm, c.settings, { memory, reindex, community: () => community, emit, tools: () => tools });
+  const actions: ConstructorParameters<typeof Pipeline>[6] = { memory, reindex, community: () => community, emit, tools: () => tools };
+  const pipeline = new Pipeline(kernel, store, index, embedder, llm, c.settings, actions);
   if (mode === 'mcp') {
     // Q's own MCP server on stdio: a client launches this process and talks to it; no port is opened.
     await mcpServer(pipeline, kernel, () => community).connect(new StdioServerTransport());
@@ -102,26 +104,46 @@ if (mode === 'ingest') {
     // model, embedder, index, community and kernel, whose writes stay in memory and whose answers go nowhere.
     const experiments = await loadExperiments(c.chaos.dir);
     log('chaos', { experiments: experiments.map((e) => ({ name: e.experiment.name, label: e.label, approved: community.experiments.has(e.label) })), everyHours: c.chaos.everyHours });
-    if (c.chaos.everyHours > 0 && experiments.length && c.llm.provider === 'openai-compatible') {
-      const { url, key, model, thinking } = c.llm;
-      const shadow = (llmTransport: Transport, embedderTransport: Transport, concurrency: number) => {
-        const shadowStore = new ShadowStore(store);
-        const quietIndex = shadowIndex(index);
-        const shadowEmbedder = new OpenAiCompatibleEmbedder(c.embeddingsUrl, c.embeddingsKey, c.embeddingsModel, c.embeddingsPrefix, embedderTransport);
-        const shadowLlm = new OpenAiCompatibleLlm(url, key, model, thinking, 1024, concurrency, llmTransport);
-        const shadowMemory = new Memory(kernel, shadowStore, quietIndex, shadowEmbedder, c.retentionDays);
-        return new Pipeline(kernel, shadowStore, quietIndex, shadowEmbedder, shadowLlm, { ...c.settings, userLimit: 255, channelLimit: 255, concurrency },
-          { memory: shadowMemory, reindex: async () => 'not in an experiment', community: () => community, emit: () => {} });
-      };
-      const deps = { kernel, community: () => community, shadow, load: () => pipeline.load, store, emit: (e: object) => out(JSON.stringify(e)), now: Date.now };
+    const failed = (error: unknown) => console.error(JSON.stringify({ event: 'error', message: String(error) }));
+    const verdicts = new Map<string, { name: string; result: string; verdict: Verdict }>();
+    const shadowing = c.llm.provider === 'openai-compatible';
+    const { url, key, model, thinking } = c.llm as { url: string; key: string; model: string; thinking: boolean };
+    const shadow = (llmTransport: Transport = fetch, embedderTransport: Transport = fetch, concurrency = 1, settings = pipeline.settings) => {
+      const shadowStore = new ShadowStore(store);
+      const quietIndex = shadowIndex(index);
+      const shadowEmbedder = new OpenAiCompatibleEmbedder(c.embeddingsUrl, c.embeddingsKey, c.embeddingsModel, c.embeddingsPrefix, embedderTransport);
+      const shadowLlm = new OpenAiCompatibleLlm(url, key, model, thinking, 1024, concurrency, llmTransport);
+      const shadowMemory = new Memory(kernel, shadowStore, quietIndex, shadowEmbedder, c.retentionDays);
+      return new Pipeline(kernel, shadowStore, quietIndex, shadowEmbedder, shadowLlm, { ...settings, userLimit: 255, channelLimit: 255, concurrency },
+        { memory: shadowMemory, reindex: async () => 'not in a shadow', community: () => community, emit: () => {} });
+    };
+    if (c.chaos.everyHours > 0 && experiments.length && shadowing) {
+      const deps = { kernel, community: () => community, shadow: (l: Transport, e: Transport, n: number) => shadow(l, e, n), load: () => pipeline.load, store, emit: (e: object) => out(JSON.stringify(e)), now: Date.now };
       const tryAll = async () => {
         for (const { experiment } of experiments) {
           const { label, result } = await runExperiment(deps, experiment);
+          verdicts.set(result.name, { name: result.name, result: label, verdict: result.verdict });
           log('experiment', { name: result.name, result: label, verdict: result.verdict, reason: result.reason, control: result.control, experimental: result.experimental });
         }
       };
-      const tick = () => tryAll().catch((error) => console.error(JSON.stringify({ event: 'error', message: String(error) })));
+      const tick = () => tryAll().catch(failed);
       setTimeout(() => { tick(); setInterval(tick, c.chaos.everyHours * 3_600_000).unref(); }, c.chaos.firstMinutes * 60_000).unref();
+    }
+
+    // The improvement loop (improve.ts): gaps, tests, a daily evaluation, and a review chained to the one before.
+    // Questions Q must keep refusing: no evolution may buy answers by loosening grounding.
+    const probes = [...new Map(experiments.flatMap((e) => e.experiment.questions).filter((q) => q.expect === 'refused').map((q) => [q.text, q])).values()];
+    const loop = new Loop({
+      kernel, store, index, embedder, community: () => community, shadow: (settings) => shadow(fetch, fetch, 1, settings), load: () => pipeline.load,
+      settings: () => pipeline.settings, adopt: (genes) => { pipeline.settings = { ...pipeline.settings, ...genes }; log('genome', { adopted: genes }); },
+      experiments: () => [...verdicts.values()], probes, emit, now: Date.now,
+      evaluation: { size: c.loop.evaluationSize, maxErrorPct: c.loop.maxErrorPct, maxP95Seconds: c.loop.maxP95Seconds },
+    });
+    actions.improve = () => loop.summary();
+    log('genome', { label: await loop.restore(), genes: { mediumSimilarity: pipeline.settings.mediumSimilarity, highSimilarity: pipeline.settings.highSimilarity, retrieve: pipeline.settings.retrieve } });
+    if (c.loop.everyHours > 0 && shadowing) {
+      const turn = () => loop.daily().then(({ label, review, evolution }) => log('review', { label, self: review.self, gaps: review.gaps, tests: review.tests, evolution: evolution?.decision ?? 'not tried', proposals: review.proposals.length })).catch(failed);
+      setTimeout(() => { turn(); setInterval(turn, c.loop.everyHours * 3_600_000).unref(); }, c.loop.firstMinutes * 60_000).unref();
     }
 
     const sweep = async () => log('retention', { removed: await memory.sweep() });
@@ -129,7 +151,13 @@ if (mode === 'ingest') {
     setInterval(sweep, 86_400_000).unref();
     await discord(c, (ids) => community.label(ids)).start({
       handle: (message) => pipeline.handle(message),
-      observe: (message) => memory.observe(message),
+      observe: async (message) => {
+        const decision = await memory.observe(message);
+        await loop.observed(message, decision).catch(failed);
+        return decision;
+      },
+      delivered: (d) => loop.delivered(d),
+      approve: (url, emoji, human) => loop.approved(url, emoji, human),
       withdraw: (url, before) => memory.withdraw(url, before),
       forgetChannel: (id) => memory.forget({ channel: id }),
       membership: (onRules, human, added) => kernel.membership(onRules, human, added),

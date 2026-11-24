@@ -44,6 +44,10 @@ The three honesty levels (R2):
 | `DA-23` | `build` | The member role changes only when a human reacts with the confirmation emoji on the rules message: confirming grants it, withdrawing the reaction revokes it, and a confirmation never revokes | `Policy.roleOnlyFromRules`, `Policy.confirmNeverRevokes`, refuses with `none` |
 | `DA-24` | `build` | A chaos experiment runs only when the community approved its exact BLAKE3 label, never on live traffic, and an abort signal always stops it | `Policy.runOnlyApproved`, `Policy.neverOnLiveTraffic`, `Policy.abortWins`, refuses with `hold` |
 | `DA-25` | `build` | Steady state holds only with no invariant breach and the error rate and the 95th percentile latency within the hypothesis's bounds | `Policy.breachNeverSteady`, `Policy.steadyWithinBounds`, refuses with `disturbed` |
+| `DA-26` | `build` | A gap Q could not answer is filled only by an indexed message a human sent in reply to the question | `Policy.fillOnlyIndexedHuman`, refuses with `skip` |
+| `DA-27` | `build` | An answer becomes a regression test only when a human approves it and it was grounded with citations | `Policy.admitOnlyGrounded` |
+| `DA-28` | `build` | The daily evaluation runs only while no real question is in progress, and only with test cases to run | `Policy.evalYields`, refuses with `wait` |
+| `DA-29` | `build` | An evolved genome replaces the current one only when, on the same tests, it has fewer wrong outcomes, or as few and a lower latency, with no breach and within the latency bound | `Policy.neverPromoteWorse`, `Policy.promoteNeedsGain`, refuses with `keep` |
 
 ## contract
 

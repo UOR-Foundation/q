@@ -222,3 +222,37 @@ statement = "Steady state holds only with no invariant breach and the error rate
 theorems = ["Policy.breachNeverSteady", "Policy.steadyWithinBounds"]
 failure = "disturbed"
 negative = "DA-25"
+
+[[id]]
+id = "DA-26"
+level = "build"
+suite = "agent"
+statement = "A gap Q could not answer is filled only by an indexed message a human sent in reply to the question"
+theorems = ["Policy.fillOnlyIndexedHuman"]
+failure = "skip"
+negative = "DA-26"
+
+[[id]]
+id = "DA-27"
+level = "build"
+suite = "agent"
+statement = "An answer becomes a regression test only when a human approves it and it was grounded with citations"
+theorems = ["Policy.admitOnlyGrounded"]
+
+[[id]]
+id = "DA-28"
+level = "build"
+suite = "agent"
+statement = "The daily evaluation runs only while no real question is in progress, and only with test cases to run"
+theorems = ["Policy.evalYields"]
+failure = "wait"
+negative = "DA-28"
+
+[[id]]
+id = "DA-29"
+level = "build"
+suite = "agent"
+statement = "An evolved genome replaces the current one only when, on the same tests, it has fewer wrong outcomes, or as few and a lower latency, with no breach and within the latency bound"
+theorems = ["Policy.neverPromoteWorse", "Policy.promoteNeedsGain"]
+failure = "keep"
+negative = "DA-29"

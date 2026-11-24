@@ -55,6 +55,8 @@ interface Draft {
   citations: Citation[];
   /** Milliseconds per stage of an answered or refused question. Durations only: no content. */
   timings?: Record<string, number>;
+  /** The label of the answer record this turn left, when it left one. */
+  answer?: string;
 }
 
 /** Laps of one question through the pipeline, for the log. */
@@ -103,6 +105,8 @@ export interface Actions {
   emit(event: CloudEvent): void;
   /** The MCP tools offered to the language model, if any server is configured. */
   tools?(): Tools | undefined;
+  /** What Q is learning and what it proposes: the latest review of the improvement loop (improve.ts). */
+  improve?(): Promise<string>;
 }
 
 const ROUTER = `You read a question for the inputs of one UOR Foundation community decision.
@@ -261,6 +265,8 @@ export class Pipeline {
         return done(`Forgot ${await this.actions.memory.forget({ channel: message.channelId })} items from this channel.`);
       case 'forget-me':
         return done(`Forgot ${await this.actions.memory.forget({ author: message.authorId })} items from you. Your messages will not be indexed from now on.`);
+      case 'improve':
+        return done(this.actions.improve ? await this.actions.improve() : 'The improvement loop is not running here.');
     }
 
     if (!message.text.trim()) {
@@ -348,9 +354,9 @@ export class Pipeline {
 
     if (grounded === 'not grounded') {
       const text = "I don't know: nothing I have indexed answers that well enough to cite.";
-      await this.#said(namespace, turn, turnLabel, answer({ context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: [], memo: null, reused: null, author: message.authorId, channel: message.channelId, created: this.now() }), []);
+      const said = await this.#said(namespace, turn, turnLabel, answer({ context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: [], memo: null, reused: null, author: message.authorId, channel: message.channelId, created: this.now() }), []);
       clock.lap('record');
-      return { text, decision: grounded, citations: [], timings: clock.laps };
+      return { text, decision: grounded, citations: [], timings: clock.laps, answer: said };
     }
 
     let level: Level = ordered[0].level;
@@ -369,13 +375,13 @@ export class Pipeline {
     // like evidence for a claim that was not made.
     if (/^\s*NO_ANSWER\b/.test(body)) {
       const text = "I don't know: the sources I found do not answer that.";
-      await this.#said(namespace, turn, turnLabel, answer({
+      const said = await this.#said(namespace, turn, turnLabel, answer({
         context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: used,
         memo: key && used.length === 0 ? key : null, reused: earlier?.answer ?? null,
         author: message.authorId, channel: message.channelId, created: this.now(),
       }), []);
       clock.lap('record');
-      return { text, decision: 'declined', citations: [], timings: clock.laps };
+      return { text, decision: 'declined', citations: [], timings: clock.laps, answer: said };
     }
     // A tool's result is measured, not established: an answer that used one is open at most.
     if (used.some((u) => u.result)) level = await this.kernel.level(level, 'open');
@@ -393,14 +399,14 @@ export class Pipeline {
     const reusedLine = earlier ? `\n-# Answered once before for this exact question and evidence · ${earlier.answer.slice(0, 15)}` : '';
     const text = `${body}${notice}\n\n-# Claim level: ${level}${decided}${toolLines}${reusedLine}\n${sources}`;
 
-    await this.#said(namespace, turn, turnLabel, answer({
+    const said = await this.#said(namespace, turn, turnLabel, answer({
       context: turnLabel, outcome: grounded, level, text: body, citations: ordered.map((c) => c.label), tools: used,
       // An answer that called a tool is never reused: a tool's result can change between calls.
       memo: key && used.length === 0 ? key : null, reused: earlier?.answer ?? null,
       author: message.authorId, channel: message.channelId, created: this.now(),
     }), [...ordered.map((c) => c.label), ...used.flatMap((u) => (u.result ? [u.result] : []))]);
     clock.lap('record');
-    return { text, decision: grounded, citations: ordered, timings: clock.laps };
+    return { text, decision: grounded, citations: ordered, timings: clock.laps, answer: said };
   }
 
   /**

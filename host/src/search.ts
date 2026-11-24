@@ -24,6 +24,7 @@ export class SearchIndex {
       create table if not exists chunk (label text primary key, namespace text not null, vector blob not null);
       create virtual table if not exists words using fts5(label unindexed, body);
       create table if not exists memo (key text primary key, answer text not null, context text not null);
+      create table if not exists loop (kind text not null, key text not null, value text not null, primary key (kind, key));
     `);
   }
 
@@ -39,6 +40,28 @@ export class SearchIndex {
   }
   memoDelete(key: string) {
     this.#db.prepare('delete from memo where key = ?').run(key);
+  }
+
+  /**
+   * The improvement loop's lookups (improve.ts): its gaps by the question's link, its deliveries by the reply's
+   * link, its tests, its latest review. Derived from the store's records, like the memo.
+   */
+  loopGet<T>(kind: string, key: string): T | undefined {
+    const row = this.#db.prepare('select value from loop where kind = ? and key = ?').get(kind, key) as { value: string } | undefined;
+    return row ? (JSON.parse(row.value) as T) : undefined;
+  }
+  loopSet(kind: string, key: string, value: unknown) {
+    this.#db.prepare('insert or replace into loop values (?, ?, ?)').run(kind, key, JSON.stringify(value));
+  }
+  loopAll<T>(kind: string): { key: string; value: T }[] {
+    return (this.#db.prepare('select key, value from loop where kind = ? order by key').all(kind) as { key: string; value: string }[]).map((r) => ({ key: r.key, value: JSON.parse(r.value) as T }));
+  }
+  loopDelete(kind: string, key: string) {
+    this.#db.prepare('delete from loop where kind = ? and key = ?').run(kind, key);
+  }
+  /** Search a chunk by another vector: a member's answer is found by the question it answers. */
+  revector(label: string, vector: number[]) {
+    this.#db.prepare('update chunk set vector = ? where label = ?').run(new Uint8Array(new Float32Array(vector).buffer), label);
   }
 
   has(label: string): boolean {
@@ -82,16 +105,45 @@ export class SearchIndex {
 
   /** Fill the index from the store: every chunk the store holds and has not revoked, and nothing else. */
   async rebuild(store: Store, embedder: Embedder) {
-    this.#db.exec('delete from chunk; delete from words; delete from memo;');
+    this.#db.exec('delete from chunk; delete from words; delete from memo; delete from loop;');
+    const fills: { gap: string; chunk: string }[] = [];
     for (const namespace of ['public', 'private'] as const) {
       for (const label of await store.labels(namespace)) {
         const item = await store.get(namespace, label);
         // Only an answer computed for its key is the key's answer; one that reused it points back to it.
         if (item?.type === 'answer' && typeof item.memo === 'string' && item.reused === null && typeof item.context === 'string') this.memoSet(item.memo, label, item.context);
+        if (item) loopRecord(this, label, item);
+        if (item?.type === 'gap-fill') fills.push({ gap: String(item.gap), chunk: String(item.chunk) });
         if (item?.type !== 'chunk' || typeof item.text !== 'string' || (await isRevoked(store, namespace, label))) continue;
         const [vector] = await embedder.embed([item.text]);
         this.add(label, namespace, item.text, vector);
       }
     }
+    // A filled gap's answer is searched by the question it answers.
+    for (const { gap, chunk } of fills) {
+      const [question, answer] = [await store.get('private', gap), await store.get('private', chunk)];
+      if (!question || !answer || !this.has(chunk)) continue;
+      const [vector] = await embedder.embed([`${question.question}
+${answer.text}`]);
+      this.revector(chunk, vector);
+    }
+  }
+}
+
+/** Index one record of the improvement loop under the key its lookup uses. */
+export function loopRecord(index: SearchIndex, label: string, item: { type: string; [member: string]: unknown }) {
+  if (item.type === 'gap' && typeof item.url === 'string') {
+    const was = index.loopGet<{ filled: string | null }>('gap', item.url);
+    index.loopSet('gap', item.url, { label, question: item.question, channel: item.channel, asked: item.asked, author: item.author, filled: was?.filled ?? null });
+  }
+  if (item.type === 'gap-fill' && typeof item.url === 'string') {
+    const gap = index.loopGet<Record<string, unknown>>('gap', item.url);
+    index.loopSet('gap', item.url, { ...(gap ?? {}), filled: label });
+  }
+  if (item.type === 'delivery' && typeof item.url === 'string') index.loopSet('delivery', item.url, { answer: item.answer, question: item.question, grounded: item.grounded });
+  if (item.type === 'test-case') index.loopSet('test', label, { question: item.question, source: item.source, added: item.added });
+  if (item.type === 'review') {
+    const latest = index.loopGet<{ at: number }>('review', 'latest');
+    if (!latest || Number(item.at) > latest.at) index.loopSet('review', 'latest', { label, at: item.at });
   }
 }

@@ -24,7 +24,7 @@ export interface Observed {
 const DAY = 86_400_000;
 
 /** The item a message becomes, built from the message alone, so its label can be recomputed from the message. */
-const chunkOf = (message: Observed, text: string) => ({
+export const chunkOf = (message: Observed, text: string) => ({
   type: 'chunk', source: 'discord', level: 'open', url: message.url, channel: message.channelId,
   thread: message.threadId ?? null, author: message.authorId, replyTo: message.replyTo ?? null, created: message.createdMs, text,
 });

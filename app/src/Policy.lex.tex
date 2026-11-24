@@ -109,14 +109,14 @@ definition{
   name: commandAllowed,
   parameters: [command : Nat, role : Nat],
   result: Bool,
-  body: ((command <=? 2) || ((command =? 5) || (((command =? 3) || (command =? 4)) && (role =? 1))))
+  body: ((command <=? 2) || ((command =? 5) || (((command =? 3) || ((command =? 4) || (command =? 6))) && (role =? 1))))
 }
 
 definition{
   name: breaksAdminNeedsRole,
   parameters: [command : Nat, role : Nat],
   result: Bool,
-  body: ((commandAllowed command role) && (((command =? 3) || (command =? 4)) && (not (role =? 1))))
+  body: ((commandAllowed command role) && (((command =? 3) || ((command =? 4) || (command =? 6))) && (not (role =? 1))))
 }
 
 theorem{
@@ -648,6 +648,107 @@ theorem{
   parameters: [errorPct : Nat, maxErrorPct : Nat, p95 : Nat, maxP95 : Nat, breaches : Nat],
   statement: ((breaksSteadyWithinBounds errorPct maxErrorPct p95 maxP95 breaches) = false),
   proof: linear_arithmetic{definitions: [breaksSteadyWithinBounds, steadyState]},
+  axioms: [Quot.sound, propext]
+}
+definition{
+  name: gapFill,
+  parameters: [indexed : Nat, human : Nat, reply : Nat],
+  result: Bool,
+  body: ((indexed =? 0) && ((human =? 0) && (reply =? 0)))
+}
+
+definition{
+  name: breaksFillOnlyIndexedHuman,
+  parameters: [indexed : Nat, human : Nat, reply : Nat],
+  result: Bool,
+  body: ((gapFill indexed human reply) && (not ((indexed =? 0) && ((human =? 0) && (reply =? 0)))))
+}
+
+theorem{
+  name: fillOnlyIndexedHuman,
+  parameters: [indexed : Nat, human : Nat, reply : Nat],
+  statement: ((breaksFillOnlyIndexedHuman indexed human reply) = false),
+  proof: linear_arithmetic{definitions: [breaksFillOnlyIndexedHuman, gapFill]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: testAdmit,
+  parameters: [approval : Nat, human : Nat, grounded : Nat],
+  result: Bool,
+  body: ((approval =? 0) && ((human =? 0) && (grounded =? 0)))
+}
+
+definition{
+  name: breaksAdmitOnlyGrounded,
+  parameters: [approval : Nat, human : Nat, grounded : Nat],
+  result: Bool,
+  body: ((testAdmit approval human grounded) && ((not (grounded =? 0)) || (not (human =? 0))))
+}
+
+theorem{
+  name: admitOnlyGrounded,
+  parameters: [approval : Nat, human : Nat, grounded : Nat],
+  statement: ((breaksAdmitOnlyGrounded approval human grounded) = false),
+  proof: linear_arithmetic{definitions: [breaksAdmitOnlyGrounded, testAdmit]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: evalRun,
+  parameters: [busy : Nat, cases : Nat],
+  result: Bool,
+  body: ((busy =? 0) && (cases =? 0))
+}
+
+definition{
+  name: breaksEvalYields,
+  parameters: [busy : Nat, cases : Nat],
+  result: Bool,
+  body: ((evalRun busy cases) && (not (busy =? 0)))
+}
+
+theorem{
+  name: evalYields,
+  parameters: [busy : Nat, cases : Nat],
+  statement: ((breaksEvalYields busy cases) = false),
+  proof: linear_arithmetic{definitions: [breaksEvalYields, evalRun]},
+  axioms: [Quot.sound, propext]
+}
+definition{
+  name: promote,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat],
+  result: Bool,
+  body: ((breaches =? 0) && ((candidateP95 <=? maxP95) && ((not (currentErr <=? candidateErr)) || ((candidateErr =? currentErr) && (not (currentP95 <=? candidateP95))))))
+}
+
+definition{
+  name: breaksNeverPromoteWorse,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat],
+  result: Bool,
+  body: ((promote candidateErr currentErr candidateP95 currentP95 maxP95 breaches) && (not (candidateErr <=? currentErr)))
+}
+
+theorem{
+  name: neverPromoteWorse,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat],
+  statement: ((breaksNeverPromoteWorse candidateErr currentErr candidateP95 currentP95 maxP95 breaches) = false),
+  proof: linear_arithmetic{definitions: [breaksNeverPromoteWorse, promote]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksPromoteNeedsGain,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat],
+  result: Bool,
+  body: ((promote candidateErr currentErr candidateP95 currentP95 maxP95 breaches) && (((candidateErr =? currentErr) && (currentP95 <=? candidateP95)) || ((not (breaches =? 0)) || (not (candidateP95 <=? maxP95)))))
+}
+
+theorem{
+  name: promoteNeedsGain,
+  parameters: [candidateErr : Nat, currentErr : Nat, candidateP95 : Nat, currentP95 : Nat, maxP95 : Nat, breaches : Nat],
+  statement: ((breaksPromoteNeedsGain candidateErr currentErr candidateP95 currentP95 maxP95 breaches) = false),
+  proof: linear_arithmetic{definitions: [breaksPromoteNeedsGain, promote]},
   axioms: [Quot.sound, propext]
 }
 \end{semanticmodule}

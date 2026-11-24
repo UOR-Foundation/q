@@ -16,6 +16,7 @@ const COMMANDS: [CommandName, string, boolean][] = [
   ['reindex', 'Re-index the knowledge sources (admin)', false],
   ['forget-channel', 'Forget everything indexed from this channel (admin)', false],
   ['forget-me', 'Forget everything indexed from you, and stop indexing you', false],
+  ['improve', 'What Q is learning, and what it proposes to change (admin)', false],
 ];
 
 // Discord refuses a message over 2000 characters.
@@ -147,7 +148,10 @@ export function discord(config: Config, label: Labeler): Adapter {
             });
             clearInterval(typing);
             if (reply) {
-              for (const payload of payloads(reply, LIMIT)) await message.reply(send(payload));
+              let first: Message | undefined;
+              for (const payload of payloads(reply, LIMIT)) first ??= await message.reply(send(payload));
+              // The improvement loop: a refusal becomes a gap; every delivery is kept for an approval to find.
+              if (first) handlers.delivered?.({ questionUrl: message.url, sentUrl: first.url, question: text, channelId: message.channelId, authorId: message.author.id, reply }).catch(failed);
               log('reply', { decision: reply.decision, citations: reply.citations.length, delivery: reply.delivery, ms: reply.timings });
             }
           } catch (error) {
@@ -204,6 +208,13 @@ export function discord(config: Config, label: Labeler): Adapter {
     // The adapter reports the facts; the kernel decides (18); the adapter obeys.
     const rules = config.membership;
     const react = async (reaction: MessageReaction | PartialMessageReaction, user: User | PartialUser, added: boolean) => {
+      // A reaction on an answer Q sent: an approval may make it a regression test (decision 22).
+      const on = reaction.message.partial ? await reaction.message.fetch() : reaction.message;
+      if (added && on.author?.id === client.user!.id) {
+        const human = !(user.partial ? await user.fetch() : user).bot;
+        log('approval', { decision: await handlers.approve?.(on.url, reaction.emoji.name, human) });
+        return;
+      }
       if (!rules) return;
       const onRules = reaction.message.id === rules.message && reaction.emoji.name === rules.emoji;
       const human = !(user.partial ? await user.fetch() : user).bot;
@@ -220,7 +231,9 @@ export function discord(config: Config, label: Labeler): Adapter {
     client.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isChatInputCommand()) return;
       // Forgetting is between the author and the agent; everything else is answered in the open.
-      await interaction.deferReply({ ephemeral: interaction.commandName === 'forget-me' });
+      // Forgetting is between the author and the agent, and /improve can quote members' questions to an admin:
+      // both are answered to the one who asked only. Everything else is answered in the open.
+      await interaction.deferReply({ ephemeral: interaction.commandName === 'forget-me' || interaction.commandName === 'improve' });
       try {
         const reply = await handlers.handle({
           channel: facts(interaction.channel as Message['channel'] | null),
@@ -232,7 +245,8 @@ export function discord(config: Config, label: Labeler): Adapter {
           text: interaction.options.getString('question') ?? '',
         });
         const [first, ...rest] = reply ? payloads(reply, LIMIT) : [{ content: 'No reply in this channel.' }];
-        await interaction.editReply(send(first));
+        const sent = await interaction.editReply(send(first));
+        if (reply && interaction.commandName === 'ask') handlers.delivered?.({ sentUrl: sent.url, question: interaction.options.getString('question') ?? '', channelId: interaction.channelId, authorId: interaction.user.id, reply }).catch(() => {});
         for (const payload of rest) await interaction.followUp(send(payload));
         log('reply', { decision: reply?.decision ?? 'silent', command: interaction.commandName, delivery: reply?.delivery ?? 'send', ms: reply?.timings });
       } catch (error) {
