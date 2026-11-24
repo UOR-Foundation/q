@@ -112,6 +112,12 @@ export async function retrying(request: () => Promise<Response>, waits = [1000, 
   }
 }
 
+/**
+ * How a provider reaches the network: fetch, unless a chaos experiment puts a faulty network in its place
+ * (chaos.ts), so a fault takes the path a real one would, through the gate and the retries.
+ */
+export type Transport = typeof fetch;
+
 /** Any server with the OpenAI chat completions route: OpenAI, xAI, or Ollama for a local model. */
 export class OpenAiCompatibleLlm implements Llm {
   #baseUrl: string;
@@ -120,17 +126,19 @@ export class OpenAiCompatibleLlm implements Llm {
   thinking: boolean;
   maxTokens: number;
   #gate: Gate;
-  constructor(baseUrl: string, apiKey: string, model: string, thinking = true, maxTokens = 1024, concurrency = 2) {
+  #transport: Transport;
+  constructor(baseUrl: string, apiKey: string, model: string, thinking = true, maxTokens = 1024, concurrency = 2, transport: Transport = fetch) {
     this.#baseUrl = baseUrl;
     this.#apiKey = apiKey;
     this.model = model;
     this.thinking = thinking;
     this.maxTokens = maxTokens;
     this.#gate = new Gate(concurrency);
+    this.#transport = transport;
   }
   /** One chat completion, inside the gate, retried when the provider is busy. */
   #post(body: Record<string, unknown>) {
-    return this.#gate.run(() => retrying(() => fetch(`${this.#baseUrl.replace(/\/$/, '')}/chat/completions`, {
+    return this.#gate.run(() => retrying(() => this.#transport(`${this.#baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` },
       body: JSON.stringify(body),
@@ -175,14 +183,16 @@ export class OpenAiCompatibleEmbedder implements Embedder {
   #apiKey: string;
   readonly model: string;
   #prefix: { query: string; document: string };
-  constructor(baseUrl: string, apiKey: string, model: string, prefix = { query: '', document: '' }) {
+  #transport: Transport;
+  constructor(baseUrl: string, apiKey: string, model: string, prefix = { query: '', document: '' }, transport: Transport = fetch) {
     this.#baseUrl = baseUrl;
     this.#apiKey = apiKey;
     this.model = model;
     this.#prefix = prefix;
+    this.#transport = transport;
   }
   async embed(texts: string[], kind: 'query' | 'document' = 'document') {
-    const response = await fetch(`${this.#baseUrl.replace(/\/$/, '')}/embeddings`, {
+    const response = await this.#transport(`${this.#baseUrl.replace(/\/$/, '')}/embeddings`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${this.#apiKey}` },
       body: JSON.stringify({ model: this.model, input: texts.map((text) => this.#prefix[kind] + text) }),

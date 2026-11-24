@@ -562,5 +562,93 @@ theorem{
   proof: linear_arithmetic{definitions: [breaksConfirmNeverRevokes, membershipChange]},
   axioms: [Quot.sound, propext]
 }
+definition{
+  name: experimentGate,
+  parameters: [approved : Nat, scope : Nat, abort : Nat],
+  result: Nat,
+  body: (if (abort =? 1) then 2 else (if ((approved =? 0) && (scope <=? 1)) then 1 else 0))
+}
+
+definition{
+  name: breaksRunOnlyApproved,
+  parameters: [approved : Nat, scope : Nat, abort : Nat],
+  result: Bool,
+  body: (((experimentGate approved scope abort) =? 1) && (not (approved =? 0)))
+}
+
+theorem{
+  name: runOnlyApproved,
+  parameters: [approved : Nat, scope : Nat, abort : Nat],
+  statement: ((breaksRunOnlyApproved approved scope abort) = false),
+  proof: linear_arithmetic{definitions: [breaksRunOnlyApproved, experimentGate]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksNeverOnLiveTraffic,
+  parameters: [approved : Nat, abort : Nat],
+  result: Bool,
+  body: ((experimentGate approved 2 abort) =? 1)
+}
+
+theorem{
+  name: neverOnLiveTraffic,
+  parameters: [approved : Nat, abort : Nat],
+  statement: ((breaksNeverOnLiveTraffic approved abort) = false),
+  proof: linear_arithmetic{definitions: [breaksNeverOnLiveTraffic, experimentGate]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksAbortWins,
+  parameters: [approved : Nat, scope : Nat],
+  result: Bool,
+  body: (not ((experimentGate approved scope 1) =? 2))
+}
+
+theorem{
+  name: abortWins,
+  parameters: [approved : Nat, scope : Nat],
+  statement: ((breaksAbortWins approved scope) = false),
+  proof: linear_arithmetic{definitions: [breaksAbortWins, experimentGate]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: steadyState,
+  parameters: [errorPct : Nat, maxErrorPct : Nat, p95 : Nat, maxP95 : Nat, breaches : Nat],
+  result: Bool,
+  body: ((breaches =? 0) && ((errorPct <=? maxErrorPct) && (p95 <=? maxP95)))
+}
+
+definition{
+  name: breaksBreachNeverSteady,
+  parameters: [errorPct : Nat, maxErrorPct : Nat, p95 : Nat, maxP95 : Nat, breaches : Nat],
+  result: Bool,
+  body: ((steadyState errorPct maxErrorPct p95 maxP95 breaches) && (not (breaches =? 0)))
+}
+
+theorem{
+  name: breachNeverSteady,
+  parameters: [errorPct : Nat, maxErrorPct : Nat, p95 : Nat, maxP95 : Nat, breaches : Nat],
+  statement: ((breaksBreachNeverSteady errorPct maxErrorPct p95 maxP95 breaches) = false),
+  proof: linear_arithmetic{definitions: [breaksBreachNeverSteady, steadyState]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksSteadyWithinBounds,
+  parameters: [errorPct : Nat, maxErrorPct : Nat, p95 : Nat, maxP95 : Nat, breaches : Nat],
+  result: Bool,
+  body: ((steadyState errorPct maxErrorPct p95 maxP95 breaches) && ((not (errorPct <=? maxErrorPct)) || (not (p95 <=? maxP95))))
+}
+
+theorem{
+  name: steadyWithinBounds,
+  parameters: [errorPct : Nat, maxErrorPct : Nat, p95 : Nat, maxP95 : Nat, breaches : Nat],
+  statement: ((breaksSteadyWithinBounds errorPct maxErrorPct p95 maxP95 breaches) = false),
+  proof: linear_arithmetic{definitions: [breaksSteadyWithinBounds, steadyState]},
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}

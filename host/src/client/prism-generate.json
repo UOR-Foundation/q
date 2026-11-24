@@ -1,7 +1,7 @@
 {
   "files": {
-    "q.d.ts": "1482a4896323e9eae88d4d371b81dc08ead2e9c376d53cb1b2d56850d63536cf",
-    "q.js": "36031bf3cd1a79efe619f6b5461c989b884d011a4411aa11ec48667117cedce7",
+    "q.d.ts": "a0c94532af90db55b2f93e99e61e46126ca1796650c6b7d33c071a6dcf05e5bb",
+    "q.js": "f03f00fc6bda627ae9066885df4b04f244f391ac924d9ef44b12d268abdf52c7",
     "world.d.ts": "e4555dab8820c573f34bb41b336231dad5523d35bbcaeecbb73e8b04ce8de58b",
     "world.js": "4217413d7b62ef8c98d7cd3787bff7a9db7e86966bde58e66445110f392b14ce"
   },
@@ -12,8 +12,8 @@
   },
   "language": "js",
   "model": {
-    "blake3": "c4f3f2026493872ed7a7189699beb7d16b3c49dbe4abcd0f66a80b3a244390a2",
-    "sha256": "b29d0960d10afec7659efe070178d81e68644f0eb4e8977fcb3512423e7f279a"
+    "blake3": "9779a9f515e743635e039955200abe3bac21aac58a6cbb4200540c93115e0a01",
+    "sha256": "94aee8ca8993a16f394cd71f24f516196ca4850588e3f6e4d8a1774db53cd0ee"
   },
   "schema": "prismpm/generate-record/1",
   "world": {

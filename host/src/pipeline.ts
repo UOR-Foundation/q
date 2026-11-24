@@ -188,6 +188,11 @@ export class Pipeline {
 
   #sessions = new Map<string, Promise<unknown>>();
 
+  /** Questions being worked on or waiting: a chaos experiment yields whenever a real one is here. */
+  get load(): number {
+    return this.#running + this.#waiting.length;
+  }
+
   /** LangBot's controller: one question at a time per session (a person in a channel), then the global pool. */
   handle(message: Incoming): Promise<Outgoing | undefined> {
     const session = `${message.surface ?? 'discord'}:${message.channelId}:${message.authorId}`;

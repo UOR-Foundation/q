@@ -20,6 +20,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { SearchIndex } from '../src/search.ts';
+import { faulty, loadExperiments, runExperiment, ShadowStore, shadowIndex, strikes, type Experiment, type ExperimentEvent } from '../src/chaos.ts';
+import { OpenAiCompatibleLlm } from '../src/providers.ts';
 import { FileStore, isRevoked, MemoryStore } from '../src/store.ts';
 
 const HOLO = new URL('../../app/.prism/build/q.holo', import.meta.url);
@@ -774,4 +776,112 @@ test('the member role changes only on a human confirming the rules message: gran
   for (const [onRules, human, added] of [[false, true, true], [false, true, false], [true, false, true], [true, false, false]] as const) {
     assert.equal(await kernel.membership(onRules, human, added), 'none');
   }
+});
+
+// Chaos engineering: a fake model provider on the network, so a fault takes the real path through the gate and the retries.
+const chat: typeof fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'Prism applications are built from a LexLean model [1].' } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+const experimentOf = (fault: Experiment['variable']['fault'], ratePct: number): Experiment => ({
+  type: 'experiment', spec: 'uor-q/experiment/1', name: `test-${fault}`, why: 'a test',
+  hypothesis: { maxErrorPct: 0, maxP95Seconds: 30 }, variable: { fault, ratePct },
+  questions: [{ text: 'How are Prism applications built from a LexLean model?', expect: 'answered' }, { text: '', expect: 'empty' }],
+});
+async function chaosWorld(approve: boolean, experiment: Experiment, load = 0) {
+  const w = await world();
+  const label = labelOf(experiment);
+  const events: ExperimentEvent[] = [];
+  let llmCalls = 0;
+  const counted = (base: typeof fetch) => (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => { llmCalls++; return base(input, init); }) as typeof fetch;
+  const deps = {
+    kernel,
+    community: () => ({ pin: w.decider.pin, experiments: new Set(approve ? [label] : []) }),
+    shadow: (llm: typeof fetch, _embedder: typeof fetch, concurrency: number) => {
+      const shadowStore = new ShadowStore(w.store);
+      const quiet = shadowIndex(w.index);
+      const model = new OpenAiCompatibleLlm('http://model.test', '', 'test-model', false, 1024, concurrency, counted(llm));
+      return new Pipeline(kernel, shadowStore, quiet, w.embedder, model, { ...settings, userLimit: 255, channelLimit: 255, concurrency },
+        { memory: new Memory(kernel, shadowStore, quiet, w.embedder, 30), reindex: async () => '', community: () => w.decider, emit: () => {} });
+    },
+    load: () => load, store: w.store, emit: (e: ExperimentEvent) => events.push(e), now: () => 0, network: chat,
+  };
+  return { ...w, deps, events, label, llmCalls: () => llmCalls };
+}
+
+test('a fault strikes the calls BLAKE3 of the experiment label and the index picks, the same calls every run', () => {
+  const struck = Array.from({ length: 1000 }, (_, i) => strikes('blake3:' + 'a'.repeat(64), i, 30));
+  assert.deepEqual(struck, Array.from({ length: 1000 }, (_, i) => strikes('blake3:' + 'a'.repeat(64), i, 30)));
+  const share = struck.filter(Boolean).length / 10;
+  assert.ok(share > 25 && share < 35, `struck ${share}% of calls at 30%`);
+  assert.ok(Array.from({ length: 100 }, (_, i) => strikes('x', i, 0)).every((s) => !s));
+  assert.ok(Array.from({ length: 100 }, (_, i) => strikes('x', i, 100)).every(Boolean));
+});
+
+test('a faulty network fails the way its fault says, and is the real one on calls it does not strike', async () => {
+  assert.equal((await faulty(chat, 'llm-busy', 'x', 100)('http://model.test')).status, 429);
+  assert.equal((await faulty(chat, 'embedder-down', 'x', 100)('http://model.test')).status, 503);
+  await assert.rejects(faulty(chat, 'llm-down', 'x', 100)('http://model.test'), /fetch failed/);
+  await assert.rejects((await faulty(chat, 'llm-malformed', 'x', 100)('http://model.test')).json());
+  assert.equal((await faulty(chat, 'llm-down', 'x', 0)('http://model.test')).status, 200);
+});
+
+test('an experiment the community has not approved by its exact label holds, and nothing is asked', async () => {
+  const w = await chaosWorld(false, experimentOf('llm-down', 100));
+  const { result } = await runExperiment(w.deps, experimentOf('llm-down', 100));
+  assert.equal(result.verdict, 'held');
+  assert.equal(w.llmCalls(), 0);
+  // One changed byte is a new experiment: approving the old label does not approve it.
+  assert.notEqual(labelOf(experimentOf('llm-down', 100)), labelOf(experimentOf('llm-down', 99)));
+});
+
+test('an approved experiment yields to a real question: it is aborted before it asks anything', async () => {
+  const w = await chaosWorld(true, experimentOf('llm-down', 100), 1);
+  const { result } = await runExperiment(w.deps, experimentOf('llm-down', 100));
+  assert.equal(result.verdict, 'aborted');
+  assert.equal(w.llmCalls(), 0);
+});
+
+test('an approved experiment measures a control and an experimental arm: a fault Q withstands is confirmed, one it does not is disproved', async () => {
+  const fine = await chaosWorld(true, experimentOf('llm-busy', 0));
+  const confirmed = await runExperiment(fine.deps, experimentOf('llm-busy', 0));
+  assert.equal(confirmed.result.verdict, 'confirmed');
+  assert.equal(confirmed.result.control!.steady, 'steady');
+  assert.equal(confirmed.result.experimental!.errorPct, 0);
+
+  const down = await chaosWorld(true, experimentOf('llm-down', 100));
+  const disproved = await runExperiment(down.deps, experimentOf('llm-down', 100));
+  assert.equal(disproved.result.verdict, 'disproved');
+  assert.equal(disproved.result.experimental!.steady, 'disturbed');
+  assert.equal(disproved.result.experimental!.outcomes.error, 1);
+  // The empty question needs no model, so it still meets its expectation.
+  assert.equal(disproved.result.experimental!.outcomes.empty, 1);
+
+  // The result is a labelled record, linked to the experiment and to both holos, and its event carries its label as id.
+  const [event] = down.events;
+  assert.equal(event.id, disproved.label);
+  assert.equal(event.data.experiment, down.label);
+  assert.equal(labelOf((await down.store.get('public', disproved.label))!), disproved.label);
+  assert.ok(await down.store.has('public', down.label));
+  const edges = down.store.edges.public.filter((e) => e.source === disproved.label);
+  assert.deepEqual(edges.map((e) => e.relation).sort(), ['certified-by', 'certified-by', 'derived-from']);
+  // The shadow wrote nothing to production but the result: no answer, no context, no memo.
+  const kinds = (await Promise.all((await down.store.labels('private')).map((l) => down.store.get('private', l)))).map((i) => i?.type);
+  assert.ok(!kinds.includes('answer') && !kinds.includes('context'));
+});
+
+test('an experiment, its result and its event match their published schemas exactly', async () => {
+  const [experimentSchema, resultSchema, eventSchema] = await Promise.all(['experiment', 'experiment-result', 'experiment-event'].map(schema));
+  for (const { experiment } of await loadExperiments(new URL('../../experiments', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))) {
+    assert.deepEqual(conforms(experiment, experimentSchema, experimentSchema), []);
+  }
+  for (const approve of [false, true]) {
+    const w = await chaosWorld(approve, experimentOf('llm-busy', 0));
+    const { label } = await runExperiment(w.deps, experimentOf('llm-busy', 0));
+    assert.deepEqual(conforms((await w.store.get('public', label))!, resultSchema, resultSchema), []);
+    assert.deepEqual(conforms(w.events[0], eventSchema, eventSchema), []);
+  }
+});
+
+test('the experiments in experiments/ are well formed, each named by its BLAKE3 label', async () => {
+  const all = await loadExperiments(new URL('../../experiments', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  assert.ok(all.length >= 6);
+  for (const { label, experiment } of all) assert.equal(label, labelOf(experiment));
 });

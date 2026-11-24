@@ -204,3 +204,21 @@ statement = "The member role changes only when a human reacts with the confirmat
 theorems = ["Policy.roleOnlyFromRules", "Policy.confirmNeverRevokes"]
 failure = "none"
 negative = "DA-23"
+
+[[id]]
+id = "DA-24"
+level = "build"
+suite = "agent"
+statement = "A chaos experiment runs only when the community approved its exact BLAKE3 label, never on live traffic, and an abort signal always stops it"
+theorems = ["Policy.runOnlyApproved", "Policy.neverOnLiveTraffic", "Policy.abortWins"]
+failure = "hold"
+negative = "DA-24"
+
+[[id]]
+id = "DA-25"
+level = "build"
+suite = "agent"
+statement = "Steady state holds only with no invariant breach and the error rate and the 95th percentile latency within the hypothesis's bounds"
+theorems = ["Policy.breachNeverSteady", "Policy.steadyWithinBounds"]
+failure = "disturbed"
+negative = "DA-25"

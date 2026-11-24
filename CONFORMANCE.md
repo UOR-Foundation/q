@@ -42,6 +42,8 @@ The three honesty levels (R2):
 | `DA-21` | `build` | An earlier turn is used as context only when it is the same author's, in the same channel, and recent | `Policy.historyOwnOnly` |
 | `DA-22` | `build` | An item in the private namespace is never served off Discord: the agent's MCP server serves only public items | `Policy.privateStaysOnDiscord`, refuses with `withhold` |
 | `DA-23` | `build` | The member role changes only when a human reacts with the confirmation emoji on the rules message: confirming grants it, withdrawing the reaction revokes it, and a confirmation never revokes | `Policy.roleOnlyFromRules`, `Policy.confirmNeverRevokes`, refuses with `none` |
+| `DA-24` | `build` | A chaos experiment runs only when the community approved its exact BLAKE3 label, never on live traffic, and an abort signal always stops it | `Policy.runOnlyApproved`, `Policy.neverOnLiveTraffic`, `Policy.abortWins`, refuses with `hold` |
+| `DA-25` | `build` | Steady state holds only with no invariant breach and the error rate and the 95th percentile latency within the hypothesis's bounds | `Policy.breachNeverSteady`, `Policy.steadyWithinBounds`, refuses with `disturbed` |
 
 ## contract
 

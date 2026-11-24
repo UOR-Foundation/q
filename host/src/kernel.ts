@@ -146,4 +146,13 @@ export class Kernel {
   membership(onRules: boolean, human: boolean, added: boolean) {
     return this.#ask<'grant' | 'revoke' | 'none'>(18, flag(!onRules), flag(!human), flag(!added));
   }
+  /** A chaos experiment: may it run? Only when the community approved its exact label, never on live traffic. */
+  experiment(approved: boolean, scope: 'shadow' | 'test' | 'live', abort: boolean) {
+    return this.#ask<'run' | 'hold' | 'abort'>(19, flag(!approved), { shadow: 0, test: 1, live: 2 }[scope], flag(abort));
+  }
+  /** Is the measured output in its steady state, within the hypothesis's bounds and with no invariant broken? */
+  steady(errorPct: number, maxErrorPct: number, p95Seconds: number, maxP95Seconds: number, breaches: number) {
+    const pct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
+    return this.#ask<'steady' | 'disturbed'>(20, pct(errorPct), pct(maxErrorPct), byte(Math.ceil(p95Seconds)), byte(maxP95Seconds), byte(breaches));
+  }
 }

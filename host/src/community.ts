@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { kappa, load } from 'prism-code';
 import type { ChannelFacts, Kernel } from './kernel.ts';
+import { isLabel } from './address.ts';
 import { attested } from './provenance.ts';
 
 export interface CommunityPin {
@@ -76,10 +77,12 @@ export class Community implements Decider {
   readonly repository: string;
   /** Prompt files whose examples the holo does not all answer as stated. Left out of the catalog, and logged. */
   readonly skipped: string[];
+  /** The BLAKE3 labels of the chaos experiments the community approved (automation/chaos-approvals.json). */
+  readonly experiments: ReadonlySet<string>;
   #dispatch: (request: Uint8Array) => Promise<Uint8Array>;
 
-  private constructor(pin: CommunityPin, apps: Map<string, DecisionApp>, skipped: string[], labels: ChannelLabels, repository: string, dispatch: (request: Uint8Array) => Promise<Uint8Array>) {
-    this.pin = pin; this.apps = apps; this.skipped = skipped; this.labels = labels; this.repository = repository; this.#dispatch = dispatch;
+  private constructor(pin: CommunityPin, apps: Map<string, DecisionApp>, skipped: string[], labels: ChannelLabels, repository: string, dispatch: (request: Uint8Array) => Promise<Uint8Array>, experiments: ReadonlySet<string>) {
+    this.pin = pin; this.apps = apps; this.skipped = skipped; this.labels = labels; this.repository = repository; this.#dispatch = dispatch; this.experiments = experiments;
   }
 
   static async open(options: CommunityOptions): Promise<Community> {
@@ -137,9 +140,14 @@ export class Community implements Decider {
     }
     const governance = JSON.parse(await raw('governance/discord.json')) as { labels: { default: string; channels: Record<string, string> } };
     const labels = channelLabels(governance.labels);
+    // The chaos experiments the community approved, each by its exact BLAKE3 label, at this same commit.
+    // No file yet is no approval: every experiment holds.
+    const approvals = await fetch(`https://raw.githubusercontent.com/${repository}/${commit}/automation/chaos-approvals.json`)
+      .then(async (r) => (r.ok ? ((await r.json()) as { approvals?: { experiment: string }[] }).approvals ?? [] : []));
+    const experiments = new Set(approvals.map((a) => a.experiment).filter(isLabel));
 
     const pin: CommunityPin = { holo: kappa(bytes), sha256, commit, signer, signedAt };
-    return new Community(pin, apps, skipped, labels, repository, (request) => app.dispatch(request));
+    return new Community(pin, apps, skipped, labels, repository, (request) => app.dispatch(request), experiments);
   }
 
   /** Ask one decision. Values are checked against the app's own fields first, so a request is never guessed. */

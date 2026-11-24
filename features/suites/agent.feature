@@ -157,3 +157,17 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.roleOnlyFromRules and Policy.confirmNeverRevokes
     Then grant is answered for a human's confirmation on the rules message, and revoke for its withdrawal
     And prism-code build replays a reaction elsewhere and a bot's reaction, each answered none
+
+  @DA-24 @build @rejects
+  Scenario: A chaos experiment runs only when the community approved its exact BLAKE3 label, never on live traffic, and an abort signal always stops it
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.runOnlyApproved, Policy.neverOnLiveTraffic and Policy.abortWins
+    Then run is answered only for an approved experiment off live traffic with no abort signal
+    And prism-code build replays an unapproved experiment and one on live traffic, each answered hold
+
+  @DA-25 @build @rejects
+  Scenario: Steady state holds only with no invariant breach and the error rate and the 95th percentile latency within the hypothesis's bounds
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.breachNeverSteady and Policy.steadyWithinBounds
+    Then steady is answered only within both bounds and with no breach
+    And prism-code build replays an error rate, a latency and a breach past their bounds, each answered disturbed

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/experiment.schema.json",
+  "title": "uor-q/experiment/1",
+  "description": "One chaos experiment, in the shape of principlesofchaos.org: a steady-state hypothesis measured on Q's output, a real-world event to introduce, and the questions to measure it with. Its BLAKE3 kappa label (JCS, NFC) is its identity: the community approves that exact label in automation/chaos-approvals.json, so a changed experiment is a new, unapproved one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "spec",
+    "name",
+    "why",
+    "hypothesis",
+    "variable",
+    "questions"
+  ],
+  "properties": {
+    "type": {
+      "const": "experiment"
+    },
+    "spec": {
+      "const": "uor-q/experiment/1"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "why": {
+      "type": "string",
+      "description": "The real-world event this stands for, and why it matters."
+    },
+    "hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxErrorPct",
+        "maxP95Seconds"
+      ],
+      "description": "The steady state the experiment tries to disprove: at most this share of questions with a wrong outcome, and the 95th percentile latency at most this many seconds.",
+      "properties": {
+        "maxErrorPct": {
+          "type": "integer"
+        },
+        "maxP95Seconds": {
+          "type": "integer"
+        }
+      }
+    },
+    "variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fault",
+        "ratePct"
+      ],
+      "description": "The fault, at the network, and the share of calls it strikes, drawn from BLAKE3 of the label and the call index. For a burst: how many copies of each question arrive at once.",
+      "properties": {
+        "fault": {
+          "enum": [
+            "llm-busy",
+            "llm-down",
+            "llm-slow",
+            "llm-malformed",
+            "embedder-down",
+            "burst"
+          ]
+        },
+        "ratePct": {
+          "type": "integer"
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "expect"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "expect": {
+            "enum": [
+              "answered",
+              "refused",
+              "empty"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "type": "experiment",
+  "spec": "uor-q/experiment/1",
+  "name": "embedder-down",
+  "why": "The embeddings server answers 503 to a share of calls: llama.cpp restarting or out of memory. Q should still answer what it can, without its vector search.",
+  "hypothesis": {
+    "maxErrorPct": 0,
+    "maxP95Seconds": 45
+  },
+  "variable": {
+    "fault": "embedder-down",
+    "ratePct": 30
+  },
+  "questions": [
+    {
+      "text": "What is UOR?",
+      "expect": "answered"
+    },
+    {
+      "text": "What is a holo?",
+      "expect": "answered"
+    },
+    {
+      "text": "How do I start a new Prism app?",
+      "expect": "answered"
+    },
+    {
+      "text": "What will the price of Bitcoin be in December 2027?",
+      "expect": "refused"
+    },
+    {
+      "text": "Write me a poem about cats.",
+      "expect": "refused"
+    },
+    {
+      "text": "",
+      "expect": "empty"
+    }
+  ]
+}

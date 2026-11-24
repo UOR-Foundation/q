@@ -1,0 +1,40 @@
+{
+  "type": "experiment",
+  "spec": "uor-q/experiment/1",
+  "name": "model-busy",
+  "why": "The model provider is at its concurrency cap and answers 429 to a share of calls, as Featherless does under load. Q should wait and retry, and every answer should still come, grounded and cited.",
+  "hypothesis": {
+    "maxErrorPct": 0,
+    "maxP95Seconds": 45
+  },
+  "variable": {
+    "fault": "llm-busy",
+    "ratePct": 30
+  },
+  "questions": [
+    {
+      "text": "What is UOR?",
+      "expect": "answered"
+    },
+    {
+      "text": "What is a holo?",
+      "expect": "answered"
+    },
+    {
+      "text": "How do I start a new Prism app?",
+      "expect": "answered"
+    },
+    {
+      "text": "What will the price of Bitcoin be in December 2027?",
+      "expect": "refused"
+    },
+    {
+      "text": "Write me a poem about cats.",
+      "expect": "refused"
+    },
+    {
+      "text": "",
+      "expect": "empty"
+    }
+  ]
+}

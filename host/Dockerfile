@@ -9,6 +9,7 @@ COPY host/package.json host/package-lock.json ./
 RUN npm ci --omit=dev
 COPY host/src ./src
 COPY app/.prism/build/q.holo /agent/kernel/q.holo
+COPY experiments /agent/experiments
 ENV KERNEL_HOLO=/agent/kernel/q.holo \
     STORE_DIR=/data/store \
     INDEX_FILE=/data/index.sqlite \

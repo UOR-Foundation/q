@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/experiment-result.schema.json",
+  "title": "uor-q/experiment-result/1",
+  "description": "What one try of an experiment found. Stored in the public namespace under its BLAKE3 kappa label, linked derived-from the experiment and certified-by the kernel and the community holo. It holds no question and no answer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "spec",
+    "experiment",
+    "name",
+    "fault",
+    "kernel",
+    "community",
+    "verdict",
+    "reason",
+    "control",
+    "experimental",
+    "started",
+    "ended"
+  ],
+  "$defs": {
+    "label": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "arm": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "questions",
+        "wrong",
+        "errorPct",
+        "p95Seconds",
+        "breaches",
+        "outcomes",
+        "steady"
+      ],
+      "description": "One arm's measured output. Counts and durations only.",
+      "properties": {
+        "questions": {
+          "type": "integer"
+        },
+        "wrong": {
+          "type": "integer"
+        },
+        "errorPct": {
+          "type": "integer"
+        },
+        "p95Seconds": {
+          "type": [
+            "number",
+            "integer"
+          ]
+        },
+        "breaches": {
+          "type": "integer",
+          "description": "Answers sent without a citation. A breach is never steady."
+        },
+        "outcomes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "steady": {
+          "enum": [
+            "steady",
+            "disturbed"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "type": {
+      "const": "experiment-result"
+    },
+    "spec": {
+      "const": "uor-q/experiment-result/1"
+    },
+    "experiment": {
+      "$ref": "#/$defs/label"
+    },
+    "name": {
+      "type": "string"
+    },
+    "fault": {
+      "enum": [
+        "llm-busy",
+        "llm-down",
+        "llm-slow",
+        "llm-malformed",
+        "embedder-down",
+        "burst"
+      ]
+    },
+    "kernel": {
+      "$ref": "#/$defs/label"
+    },
+    "community": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "holo",
+        "commit"
+      ],
+      "properties": {
+        "holo": {
+          "$ref": "#/$defs/label"
+        },
+        "commit": {
+          "type": "string"
+        }
+      }
+    },
+    "verdict": {
+      "enum": [
+        "confirmed",
+        "disproved",
+        "held",
+        "aborted"
+      ],
+      "description": "confirmed: the steady state held under the fault. disproved: it did not, a weakness to fix. held: not approved, or Q was not steady without the fault. aborted: a real question was waiting."
+    },
+    "reason": {
+      "type": "string"
+    },
+    "control": {
+      "$ref": "#/$defs/arm"
+    },
+    "experimental": {
+      "$ref": "#/$defs/arm"
+    },
+    "started": {
+      "type": "integer"
+    },
+    "ended": {
+      "type": "integer"
+    }
+  }
+}

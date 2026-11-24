@@ -53,6 +53,8 @@ export function config() {
     llmConcurrency: number('LLM_CONCURRENCY', 2),
     // LangBot's message aggregator: messages from one person in one channel this close together are one question.
     aggregateMs: number('AGGREGATE_MS', 1500),
+    // Chaos experiments (chaos.ts): where they are, and how often each approved one is tried. 0 hours: never.
+    chaos: { dir: process.env.CHAOS_DIR ?? '../experiments', everyHours: number('CHAOS_EVERY_HOURS', 24), firstMinutes: number('CHAOS_FIRST_MINUTES', 10) },
     embeddingsUrl: need('EMBEDDINGS_URL'),
     embeddingsKey: process.env.EMBEDDINGS_API_KEY ?? '',
     embeddingsModel: need('EMBEDDINGS_MODEL'),

@@ -12,7 +12,8 @@ import { Kernel } from './kernel.ts';
 import { CommunitySource, GitHubSource, WebsiteSource, ingest } from './knowledge.ts';
 import { Memory } from './memory.ts';
 import { Pipeline } from './pipeline.ts';
-import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm } from './providers.ts';
+import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm, type Transport } from './providers.ts';
+import { loadExperiments, runExperiment, ShadowStore, shadowIndex } from './chaos.ts';
 import { SearchIndex } from './search.ts';
 import { Tools } from './tools.ts';
 import { mcpServer } from './mcp-server.ts';
@@ -97,6 +98,32 @@ if (mode === 'ingest') {
     await mcpServer(pipeline, kernel, () => community).connect(new StdioServerTransport());
     log('mcp', { tools: ['ask', 'search', 'status', 'community_apps', 'community_decide'] });
   } else {
+    // Chaos experiments, on the production host but never on live traffic: a shadow pipeline over the same
+    // model, embedder, index, community and kernel, whose writes stay in memory and whose answers go nowhere.
+    const experiments = await loadExperiments(c.chaos.dir);
+    log('chaos', { experiments: experiments.map((e) => ({ name: e.experiment.name, label: e.label, approved: community.experiments.has(e.label) })), everyHours: c.chaos.everyHours });
+    if (c.chaos.everyHours > 0 && experiments.length && c.llm.provider === 'openai-compatible') {
+      const { url, key, model, thinking } = c.llm;
+      const shadow = (llmTransport: Transport, embedderTransport: Transport, concurrency: number) => {
+        const shadowStore = new ShadowStore(store);
+        const quietIndex = shadowIndex(index);
+        const shadowEmbedder = new OpenAiCompatibleEmbedder(c.embeddingsUrl, c.embeddingsKey, c.embeddingsModel, c.embeddingsPrefix, embedderTransport);
+        const shadowLlm = new OpenAiCompatibleLlm(url, key, model, thinking, 1024, concurrency, llmTransport);
+        const shadowMemory = new Memory(kernel, shadowStore, quietIndex, shadowEmbedder, c.retentionDays);
+        return new Pipeline(kernel, shadowStore, quietIndex, shadowEmbedder, shadowLlm, { ...c.settings, userLimit: 255, channelLimit: 255, concurrency },
+          { memory: shadowMemory, reindex: async () => 'not in an experiment', community: () => community, emit: () => {} });
+      };
+      const deps = { kernel, community: () => community, shadow, load: () => pipeline.load, store, emit: (e: object) => out(JSON.stringify(e)), now: Date.now };
+      const tryAll = async () => {
+        for (const { experiment } of experiments) {
+          const { label, result } = await runExperiment(deps, experiment);
+          log('experiment', { name: result.name, result: label, verdict: result.verdict, reason: result.reason, control: result.control, experimental: result.experimental });
+        }
+      };
+      const tick = () => tryAll().catch((error) => console.error(JSON.stringify({ event: 'error', message: String(error) })));
+      setTimeout(() => { tick(); setInterval(tick, c.chaos.everyHours * 3_600_000).unref(); }, c.chaos.firstMinutes * 60_000).unref();
+    }
+
     const sweep = async () => log('retention', { removed: await memory.sweep() });
     await sweep();
     setInterval(sweep, 86_400_000).unref();

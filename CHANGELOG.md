@@ -10,6 +10,8 @@ This project follows Semantic Versioning and Conventional Commits.
 
 ### Added
 
+- Chaos engineering, following principlesofchaos.org and coordinated by UOR-Foundation/community ([docs/chaos.md](docs/chaos.md)). Six experiments live in `experiments/`, each a `uor-q/experiment/1` record named by its BLAKE3 label: the model busy, down, slow or malformed, the embedder down, and a burst. They run on the production host through a shadow pipeline whose writes stay in memory and whose answers go nowhere. Faults are injected at the network, on calls drawn from BLAKE3. The kernel runs an experiment only when the community approved its exact label in `automation/chaos-approvals.json`, never on live traffic, and stops it when a real question waits (decision 19, DA-24). It judges steady state on Q's output, and a broken invariant is never steady (decision 20, DA-25). Each try leaves a result record and an `org.uorfoundation.q.experiment` event, with schemas in `docs/schemas`.
+
 - Q replaces UOR Bot (carl-bot) for the rules reaction role. When a member confirms the #rules message with ✅, they get the member role, and removing the ✅ takes it away. This is decision 18, proved by `Policy.roleOnlyFromRules` and `Policy.confirmNeverRevokes` (DA-23). At start, anyone who confirmed while Q was away is given the role. Configure it with `RULES_MESSAGE`, `MEMBER_ROLE` and `RULES_EMOJI`.
 
 - Q reads every conversation in a server: the backfill covers every active thread and every public archived thread, so every forum post is included. A channel Q may not read is skipped, and the rest of the server is still read.
