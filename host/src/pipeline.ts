@@ -28,6 +28,8 @@ export interface Incoming {
   surface?: Surface;
   /** A command's other options, by name: /feedback's kind. */
   options?: Record<string, string>;
+  /** A line of status while a long command runs (/build): the platform shows it to the person who asked. */
+  status?: (text: string) => void;
 }
 
 /** A stage of one answer that a platform may show before the answer is whole. Never anything the kernel has not admitted. */
@@ -164,7 +166,13 @@ export interface Actions {
   channelName?(id: string): string | undefined;
   /** A member's feedback or request (improve.ts): recorded, merged with others like it, filed to the community. */
   feedback?(f: { kind: string; text: string; authorId: string; channelId: string }): Promise<string>;
+  /** Build a Prism app from one prompt and publish it in its own holospace (apps.ts, builder-service.ts). */
+  build?(b: { prompt: string; progress: (text: string) => void }): Promise<string>;
 }
+
+/** Builds take the builder's time: at most this many an hour, per person and per channel. */
+const BUILDS_PER_PERSON = 3;
+const BUILDS_PER_CHANNEL = 10;
 
 const ROUTER = `You read a question for the inputs of one UOR Foundation community decision.
 Reply with one JSON object and nothing else: {"app": "<name>", "inputs": {"<field>": "<value>"}}.
@@ -272,6 +280,7 @@ export class Pipeline {
   #waiting: (() => void)[] = [];
 
   #sessions = new Map<string, Promise<unknown>>();
+  #builds = new Map<string, number[]>();
 
   /** Questions being worked on or waiting: a chaos experiment yields whenever a real one is here. */
   get load(): number {
@@ -349,6 +358,19 @@ export class Pipeline {
         return done(`Forgot ${await this.actions.memory.forget({ author: message.authorId })} items from you. Your messages will not be indexed from now on.`);
       case 'improve':
         return done(this.actions.improve ? await this.actions.improve() : 'The improvement loop is not running here.');
+      case 'build': {
+        if (!this.actions.build) return done('Building apps is not set up here.');
+        if (!message.text.trim()) return done('Describe the app you want, for example: a tip advisor from how the service was and how large the party is.');
+        const hour = this.now() - 3_600_000;
+        const mine = (this.#builds.get(message.authorId) ?? []).filter((t) => t > hour);
+        const here = (this.#builds.get(`#${message.channelId}`) ?? []).filter((t) => t > hour);
+        if ((await this.kernel.rate(mine.length, BUILDS_PER_PERSON, here.length, BUILDS_PER_CHANNEL)) === 'rate limited') {
+          return { text: `Rate limited: at most ${BUILDS_PER_PERSON} apps an hour each. Try again later.`, decision: 'rate limited', citations: [] };
+        }
+        this.#builds.set(message.authorId, [...mine, this.now()]);
+        this.#builds.set(`#${message.channelId}`, [...here, this.now()]);
+        return done(await this.actions.build({ prompt: message.text, progress: message.status ?? (() => {}) }));
+      }
       case 'feedback':
         return done(this.actions.feedback
           ? await this.actions.feedback({ kind: message.options?.kind ?? 'idea', text: message.text, authorId: message.authorId, channelId: message.channelId })

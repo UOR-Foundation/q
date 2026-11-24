@@ -26,7 +26,7 @@ Q is the UOR Foundation's AI agent on Discord, built like LangBot with one diffe
 `host/src/main.ts`, in order:
 
 1. Load configuration from the environment (`config.ts`).
-2. Open the kernel: verify the holo's identities, replay its 221 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
+2. Open the kernel: verify the holo's identities, replay its 223 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
 3. Open the store and the search index.
 4. Open the community root: fetch its holo, verify its signed provenance, pin the newest commit, replay its vectors, admit each decision app whose examples it answers, read its channel labels, and check Q's read policy against it on all 96 requests (`community.ts`).
 5. Connect the configured MCP servers (`tools.ts`).
@@ -119,6 +119,7 @@ When one of these changes, update the others. Drift is a bug.
 - New model provider: `host/src/providers.ts`.
 - New knowledge source: a `Source` in `host/src/knowledge.ts`.
 - New MCP tool for other agents: `host/src/mcp-server.ts`, public items only.
+- New kind of app for /build: the spec and generator in `host/src/appgen.ts` ([docs/apps.md](docs/apps.md)).
 - New chaos experiment: a `uor-q/experiment/1` record in `experiments/`; it runs once the community approves its BLAKE3 label ([docs/chaos.md](docs/chaos.md)).
 
 ## Design biases

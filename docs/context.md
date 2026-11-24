@@ -10,7 +10,7 @@ A Discord answer about a community's rules is only as good as the rules it was r
 
 | Input | What it is | Identity | How it is fixed |
 | --- | --- | --- | --- |
-| The kernel | Q's own decisions, twenty-nine of them | the label of `q.holo` | built by prism-code 0.11.2; at every start its 221 vectors replay, and its exact bytes must be a build that `UOR-Foundation/q`'s `holo.yml` signed from `main` (verified with Sigstore, as for the community); the context record names that commit |
+| The kernel | Q's own decisions, twenty-nine of them | the label of `q.holo` | built by prism-code 0.11.2; at every start its 223 vectors replay, and its exact bytes must be a build that `UOR-Foundation/q`'s `holo.yml` signed from `main` (verified with Sigstore, as for the community); the context record names that commit |
 | The community root | `UOR-Foundation/community`: its 35 decision apps, its channel labels, its documents | the label of the community `app.holo` | see below |
 | The question | the text, the channel's facts, the author's role, the trigger | the label of the turn's context record | read by the Discord adapter; message text never enters the kernel |
 

@@ -13,7 +13,7 @@ export const INTENT = { granted: 0, missing: 1 } as const;
 export const TRIGGER = { none: 0, mention: 1, replyToAgent: 2, slash: 3 } as const;
 // Who a message is from and to: a person talking in the channel, a bot, or a person asking the agent.
 export const ORIGIN = { conversation: 0, bot: 1, request: 2 } as const;
-export const COMMAND = { ask: 0, search: 1, status: 2, reindex: 3, 'forget-channel': 4, 'forget-me': 5, improve: 6, feedback: 7 } as const;
+export const COMMAND = { ask: 0, search: 1, status: 2, reindex: 3, 'forget-channel': 4, 'forget-me': 5, improve: 6, feedback: 7, build: 8 } as const;
 export const ROLE = { member: 0, admin: 1 } as const;
 export const BAND = { low: 0, medium: 1, high: 2 } as const;
 export const LEVEL = { build: 0, 'some-true': 1, open: 2 } as const;

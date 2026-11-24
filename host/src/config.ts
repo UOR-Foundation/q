@@ -58,6 +58,8 @@ export function config() {
     // The improvement loop (improve.ts): how often it measures and reviews, how many tests a day, and the bounds.
     // Members' requests (/feedback): how many must ask before one is filed, and a token that may open issues in the
     // community repository. Without the token, requests are kept and wait.
+    // The app builder service (builder-service.ts), on the internal network. Unset: /build is not offered.
+    builderUrl: process.env.BUILDER_URL ?? '',
     requests: { threshold: number('REQUEST_THRESHOLD', 2), token: process.env.COMMUNITY_ISSUES_TOKEN ?? '' },
     loop: { everyHours: number('LOOP_EVERY_HOURS', 24), firstMinutes: number('LOOP_FIRST_MINUTES', 20), evaluationSize: number('LOOP_EVALUATION_SIZE', 12), maxErrorPct: number('LOOP_MAX_ERROR_PCT', 10), maxP95Seconds: number('LOOP_MAX_P95_SECONDS', 60), minClass: number('LOOP_MIN_CLASS', 10), maxRefusedPct: number('LOOP_MAX_REFUSED_PCT', 50), maxWrongPct: number('LOOP_MAX_WRONG_PCT', 20) },
     embeddingsUrl: need('EMBEDDINGS_URL'),

@@ -18,6 +18,7 @@ const COMMANDS: [CommandName, string, boolean][] = [
   ['forget-me', 'Forget everything indexed from you, and stop indexing you', false],
   ['improve', 'What Q is learning, and what it proposes to change (admin)', false],
   ['feedback', 'Tell Q what to do better, or ask for a feature. Shared with the community, without your name.', false],
+  ['build', 'Describe an app: Q builds it, proves it, and links it running in its own holospace', false],
 ];
 
 // Discord refuses a message over 2000 characters.
@@ -109,6 +110,7 @@ export function discord(config: Config, label: Labeler): Adapter {
         COMMANDS.map(([name, description, question]) => {
           const command = new SlashCommandBuilder().setName(name).setDescription(description);
           if (question) command.addStringOption((option) => option.setName('question').setDescription('What to ask').setRequired(true));
+          if (name === 'build') command.addStringOption((option) => option.setName('prompt').setDescription('What the app should decide, in your words').setRequired(true).setMaxLength(1500));
           if (name === 'feedback') {
             command.addStringOption((option) => option.setName('kind').setDescription('What it is').setRequired(true)
               .addChoices({ name: 'An idea or a feature', value: 'idea' }, { name: 'Something went wrong', value: 'problem' }, { name: 'Something went well', value: 'praise' }));
@@ -251,8 +253,9 @@ export function discord(config: Config, label: Labeler): Adapter {
           role: role(interaction.member as GuildMember | null),
           trigger: 'slash',
           command: interaction.commandName as CommandName,
-          text: interaction.options.getString('question') ?? interaction.options.getString('text') ?? '',
+          text: interaction.options.getString('question') ?? interaction.options.getString('text') ?? interaction.options.getString('prompt') ?? '',
           options: { kind: interaction.options.getString('kind') ?? '' },
+          status: (text) => { interaction.editReply(text).catch(() => {}); },
         });
         const [first, ...rest] = reply ? payloads(reply, LIMIT) : [{ content: 'No reply in this channel.' }];
         const sent = await interaction.editReply(send(first));

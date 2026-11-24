@@ -7,8 +7,8 @@ Project-owned evidence for the gates in `VERIFICATION.md`. Run with prism-code 0
 | Command | Result |
 | --- | --- |
 | `npx prism-code@0.11.2 check --json` | exit 0; 51 of 51 theorems proved; 35 IDs, 35 scenarios, 1 authority, 1 claim; no contract violation |
-| `npx prism-code@0.11.2 build --json` | exit 0; 221 of 221 acceptance vectors replayed; holo `blake3:c0f949629393e4a616b26fd5a7120a934db79c081fb546601535f021166387bf` |
-| `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 221 of 221 vectors on fresh instances |
+| `npx prism-code@0.11.2 build --json` | exit 0; 223 of 223 acceptance vectors replayed; holo `blake3:df186b7ce42b6640826d8bef096f940cb6fe973d0c0af7b4a5a7fd5735135b81` |
+| `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 223 of 223 vectors on fresh instances |
 | `npx prism-code@0.11.2 manifest --json` | no finding; no capability granted |
 
 ## Planted defects
@@ -34,7 +34,7 @@ Each defect was planted in the model, the gate was run, and the model was restor
 | `promoteSafe` skips decision 24 (`true` for `promote ...`) | `check` | DA-34, `Policy.safeNeverWorse` not proved; 50 of 51; exit 1 |
 | `classRoute` judges a class on any sample (`asked <? 0`) | `check` | DA-35, `Policy.routeNeedsSample` not proved; 50 of 51; exit 1 |
 | `classRoute` never looks at wrong answers (`maxWrongPct <? 0`) | `check` | DA-35, `Policy.soundWithinBounds` not proved; 50 of 51; exit 1 |
-| The dispatcher answers `learn` where decision 27 says `dispute` | `build` | `build.vectors`: 2 of 221 vectors are not what the model answers; no holo written |
+| The dispatcher answers `learn` where decision 27 says `dispute` | `build` | `build.vectors`: 2 of 223 vectors are not what the model answers; no holo written |
 
 After restoring, `build` and `verify` passed again with the figures above.
 
@@ -43,7 +43,7 @@ After restoring, `build` and `verify` passed again with the figures above.
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` in `host/` | exit 0 |
-| `npm test` in `host/` | 84 of 84 tests pass, against the real holo with an in-process store, embedder, language model and community |
+| `npm test` in `host/` | 88 of 88 tests pass, against the real holo with an in-process store, embedder, language model and community |
 
 ## Host planted defects
 

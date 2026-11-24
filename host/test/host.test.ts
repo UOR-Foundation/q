@@ -29,6 +29,8 @@ import { verifyReview } from '../src/self.ts';
 import { promptOf, STYLES, systemFor } from '../src/pipeline.ts';
 import { areaOf } from '../src/titles.ts';
 import { titleOf } from '../src/titles.ts';
+import { checkSpec, decide as decideApp, generate, type AppSpec } from '../src/appgen.ts';
+import { designSpec, usage } from '../src/apps.ts';
 import type { Outgoing } from '../src/pipeline.ts';
 import { FileStore, isRevoked, MemoryStore } from '../src/store.ts';
 
@@ -1516,4 +1518,68 @@ test('a streamed completion gives the answer as it arrives, never the reasoning,
     provider.close();
   }
   assert.deepEqual(['<thi', '<think>so far', 'Plain words', 'a</think> b'].map(visibleSoFar), ['', '', 'Plain words', 'b']);
+});
+
+// Apps from one prompt.
+const tipSpec: AppSpec = {
+  name: 'tip-advisor', title: 'Tip advisor', purpose: 'Suggest a tip.',
+  fields: [{ name: 'service', values: ['poor', 'ok', 'great'] }, { name: 'party', values: ['small', 'large'] }],
+  outcomes: ['10%', '15%', '18%', '20%'],
+  rules: [{ when: { service: 'poor' }, then: '10%' }, { when: { service: 'great', party: 'large' }, then: '20%' }, { when: { service: 'great' }, then: '18%' }, { when: {}, then: '15%' }],
+};
+
+test('a spec is refused with its reason unless it is a sound decision table, and decided first match wins', () => {
+  assert.deepEqual(checkSpec(tipSpec), tipSpec);
+  const refuse = (change: object, why: RegExp) => assert.throws(() => checkSpec({ ...tipSpec, ...change }), why);
+  refuse({ name: 'Tip Advisor' }, /slug/);
+  refuse({ fields: [] }, /between 1 and 4 fields/);
+  refuse({ outcomes: ['a', 'a'] }, /distinct/);
+  refuse({ outcomes: ['invalid', 'b'] }, /not "invalid"/);
+  refuse({ rules: [{ when: { service: 'superb' }, then: '10%' }, { when: {}, then: '15%' }] }, /superb is not a value/);
+  refuse({ rules: [{ when: {}, then: '99%' }] }, /not a declared outcome/);
+  refuse({ rules: [{ when: { service: 'poor' }, then: '10%' }] }, /last rule must name no field/);
+  assert.equal(decideApp(tipSpec, ['great', 'large']), '20%');
+  assert.equal(decideApp(tipSpec, ['great', 'small']), '18%');
+  assert.equal(decideApp(tipSpec, ['poor', 'large']), '10%');
+  assert.equal(decideApp(tipSpec, ['ok', 'large']), '15%');
+});
+
+test('the generated app states one theorem per rule, replays every combination as the table answers, and refuses malformed requests', () => {
+  const files = generate(tipSpec);
+  const model = files['app/src/Contract.lex.tex']!;
+  for (const name of ['answersDeclared', 'rule1Decides', 'rule2Decides', 'rule3Decides', 'rule4Decides']) assert.match(model, new RegExp(`name: ${name},`));
+  const vectors = [...model.matchAll(/request := 0x([0-9a-f]*), response := 0x([0-9a-f]*)/g)].map((m) => [Buffer.from(m[1], 'hex').toString(), Buffer.from(m[2], 'hex').toString()]);
+  assert.equal(vectors.filter(([, r]) => r !== 'invalid').length, 6);
+  for (const [request, response] of vectors.filter(([, r]) => r !== 'invalid')) assert.equal(response, decideApp(tipSpec, request.split(' ')));
+  assert.ok(vectors.some(([q, r]) => q === '' && r === 'invalid'));
+  assert.match(files['model/ids.toml']!, /^spec = "template\/2"$/m);
+  assert.equal(files['features/suites/contract.feature'], null);
+  // Text a person wrote never reaches the model unescaped.
+  assert.doesNotMatch(generate({ ...tipSpec, title: 'A "quoted" \\ title' })['app/src/Contract.lex.tex']!, /"quoted"/);
+});
+
+test('the model designs a spec; one it gets wrong goes back once with the reason', async () => {
+  const replies = ['Here you go: {"name":"Bad Name"}', JSON.stringify(tipSpec)];
+  const asked: string[] = [];
+  const llm = { model: 'm', complete: async (_s: string, u: string) => { asked.push(u); return replies.shift()!; } };
+  assert.deepEqual(await designSpec(llm, 'a tip advisor'), tipSpec);
+  assert.match(asked[1], /was refused: name must be a lowercase slug/);
+  const never = { model: 'm', complete: async () => 'no json here' };
+  await assert.rejects(designSpec(never, 'x'), /no JSON object/);
+  assert.match(usage(tipSpec), /\*\*service\*\* \(poor, ok, great\), then \*\*party\*\* \(small, large\)\. For example: `great large`/);
+});
+
+test('/build is open to members, shows progress, and is rate limited per person', async () => {
+  const w = await world();
+  const lines: string[] = [];
+  (w.pipeline as unknown as { actions: { build: unknown } }).actions.build = async ({ prompt, progress }: { prompt: string; progress: (t: string) => void }) => { progress('Designing your app…'); return `built: ${prompt}`; };
+  const build = (text: string) => w.pipeline.handle(ask(text, { command: 'build', trigger: 'slash', authorId: 'maker', status: (t: string) => lines.push(t) }));
+  assert.equal((await build('a tip advisor'))?.text, 'built: a tip advisor');
+  assert.deepEqual(lines, ['Designing your app…']);
+  w.clock.now += 61_000;
+  await build('two');
+  w.clock.now += 61_000;
+  await build('three');
+  w.clock.now += 61_000;
+  assert.match((await build('four'))!.text, /Rate limited: at most 3 apps an hour/);
 });

@@ -61,13 +61,27 @@ services:
       # A different embeddings model needs measuring again.
       SIMILARITY_MEDIUM: "0.60"
       SIMILARITY_HIGH: "0.70"
+      BUILDER_URL: http://builder:8099
     volumes:
       - agent-data:/data
-    mem_limit: 512m
+    # The search index's vectors are held in memory (about 3 KB a chunk), and a backfill shares the process.
+    mem_limit: 768m
     restart: unless-stopped
     depends_on:
       embed:
         condition: service_healthy
+
+  # Apps from one prompt (/build): the same image, its own process, memory and CPU, so a build can never starve the
+  # agent. It proves and builds one app at a time and publishes it to Filebase. Nothing outside this network reaches it.
+  builder:
+    build:
+      context: ..
+      dockerfile: host/Dockerfile
+    command: ["node", "src/builder-main.ts"]
+    env_file: .env
+    mem_limit: 1g
+    cpus: 2
+    restart: unless-stopped
 
 volumes:
   agent-data:
