@@ -17,9 +17,9 @@ jobs:
         with:
           node-version: 22
       # The kernel: the model checks, every theorem is proved, every vector replays.
-      - run: npx --yes prism-code@0.11.1 check --json
-      - run: npx --yes prism-code@0.11.1 build --json
-      - run: npx --yes prism-code@0.11.1 verify --json
+      - run: npx --yes prism-code@0.11.2 check --json
+      - run: npx --yes prism-code@0.11.2 build --json
+      - run: npx --yes prism-code@0.11.2 verify --json
       # The host: locked dependencies, bindings that match the kernel just built, types, tests.
       - run: npm ci
         working-directory: host

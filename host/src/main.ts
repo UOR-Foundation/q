@@ -15,10 +15,15 @@ import { Pipeline } from './pipeline.ts';
 import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm } from './providers.ts';
 import { SearchIndex } from './search.ts';
 import { Tools } from './tools.ts';
+import { mcpServer } from './mcp-server.ts';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { FileStore, KappaRegistryStore } from './store.ts';
 
 const c = config();
-const log = (event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ event, ...fields }));
+const mode = process.argv[2];
+// On the MCP surface stdout carries the protocol, so the log goes to stderr.
+const out = mode === 'mcp' ? console.error : console.log;
+const log = (event: string, fields: Record<string, unknown> = {}) => out(JSON.stringify({ event, ...fields }));
 
 const kernel = await Kernel.open(c.holo);
 // The kernel's own provenance, checked as the community's is: these exact bytes must be a build
@@ -75,21 +80,26 @@ async function reindex(): Promise<string> {
   return lines.join('\n');
 }
 
-const mode = process.argv[2];
 if (mode === 'ingest') {
   console.log(await reindex());
 } else if (mode === 'backfill') {
   await discord(c, (ids) => community.label(ids)).backfill((message) => memory.observe(message));
 } else {
   const llm = c.llm.provider === 'anthropic' ? new AnthropicLlm(c.llm.key, c.llm.model, 1024, c.llmConcurrency) : new OpenAiCompatibleLlm(c.llm.url, c.llm.key, c.llm.model, c.llm.thinking, 1024, c.llmConcurrency);
-  // Each turn's public event, as one CloudEvents 1.0 JSON line on stdout.
-  const emit = (e: object) => console.log(JSON.stringify(e));
+  // Each turn's public event, as one CloudEvents 1.0 JSON line on the log.
+  const emit = (e: object) => out(JSON.stringify(e));
   // MCP servers: every tool offered to the language model, every call decided by the kernel.
   const { tools, failed } = await Tools.connect(c.mcpServers);
   log('tools', { servers: c.mcpServers.map((s) => ({ name: s.name, allow: s.allow === true })), tools: tools.list().length, failed });
   const pipeline = new Pipeline(kernel, store, index, embedder, llm, c.settings, { memory, reindex, community: () => community, emit, tools: () => tools });
-  const sweep = async () => log('retention', { removed: await memory.sweep() });
-  await sweep();
-  setInterval(sweep, 86_400_000).unref();
-  await discord(c, (ids) => community.label(ids)).start({ handle: (message) => pipeline.handle(message), observe: (message) => memory.observe(message) });
+  if (mode === 'mcp') {
+    // Q's own MCP server on stdio: a client launches this process and talks to it; no port is opened.
+    await mcpServer(pipeline, kernel, () => community).connect(new StdioServerTransport());
+    log('mcp', { tools: ['ask', 'search', 'status', 'community_apps', 'community_decide'] });
+  } else {
+    const sweep = async () => log('retention', { removed: await memory.sweep() });
+    await sweep();
+    setInterval(sweep, 86_400_000).unref();
+    await discord(c, (ids) => community.label(ids)).start({ handle: (message) => pipeline.handle(message), observe: (message) => memory.observe(message) });
+  }
 }

@@ -1,15 +1,15 @@
 # Verification record
 
-Project-owned evidence for the gates in `VERIFICATION.md`. Run with prism-code 0.11.1 on 2026-11-24. Build with the version host/package.json pins: the host's runtime must read the holo the build writes.
+Project-owned evidence for the gates in `VERIFICATION.md`. Run with prism-code 0.11.2 on 2026-11-24. Build with the version host/package.json pins: the host's runtime must read the holo the build writes.
 
 ## Result
 
 | Command | Result |
 | --- | --- |
-| `npx prism-code@0.11.1 check --json` | exit 0; 25 of 25 theorems proved; 20 IDs, 20 scenarios, 1 authority, 1 claim; no contract violation |
-| `npx prism-code@0.11.1 build --json` | exit 0; 115 of 115 acceptance vectors replayed |
-| `npx prism-code@0.11.1 verify --json` | exit 0; identities verified; 115 of 115 vectors on fresh instances |
-| `npx prism-code@0.11.1 manifest --json` | no finding; no capability granted |
+| `npx prism-code@0.11.2 check --json` | exit 0; 27 of 27 theorems proved; 22 IDs, 22 scenarios, 1 authority, 1 claim; no contract violation |
+| `npx prism-code@0.11.2 build --json` | exit 0; 128 of 128 acceptance vectors replayed |
+| `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 128 of 128 vectors on fresh instances |
+| `npx prism-code@0.11.2 manifest --json` | no finding; no capability granted |
 
 ## Planted defects
 
@@ -21,6 +21,7 @@ Each defect was planted in the model, the gate was run, and the model was restor
 | `rateAllowed` admits a user at the limit (`<=?` for `<?`) | `check` | `contract.theorem-unproved`: DA-05, `Policy.rateUnderBothLimits` not proved |
 | `indexAdmit` admits origin 2, a request to the agent (`origin <=? 2` for `origin =? 0`) | `check` | `contract.theorem-unproved`: DA-02, `Policy.indexAdmitOnly` and `Policy.noRequestIndexed` not proved; exit 1 |
 | `toolAllowed` lets a member call a tool that writes (`role <=? 1` for `role =? 1`) | `check` | `contract.theorem-unproved`: DA-19, `Policy.toolGuard` not proved; exit 1 |
+| `exposeServe` serves a private item off Discord (`space <=? 1` for `space =? 0`) | `check` | `contract.theorem-unproved`: DA-22, `Policy.privateStaysOnDiscord` not proved; exit 1 |
 | The dispatcher answers `denied` where the register says `not authorized` | `build` | `build.vectors`: 2 of 80 vectors are not what the model answers; no holo written |
 
 After restoring, `build` and `verify` passed again with the figures above.
@@ -30,7 +31,7 @@ After restoring, `build` and `verify` passed again with the figures above.
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` in `host/` | exit 0 |
-| `npm test` in `host/` | 36 of 36 tests pass, against the real holo with an in-process store, embedder, language model and community |
+| `npm test` in `host/` | 48 of 48 tests pass, against the real holo with an in-process store, embedder, language model and community |
 
 ## Not covered
 

@@ -32,8 +32,10 @@ export interface DecisionAsked {
 export interface ContextFields {
   kernel: { holo: string; model: string; commit: string | null };
   community: { holo: string; commit: string };
-  request: { command: string; trigger: string; question: string };
+  request: { command: string; trigger: string; surface: 'discord' | 'mcp'; question: string };
   retrieval: { band: 'low' | 'medium' | 'high'; items: string[] };
+  /** The earlier answers this question builds on, by label: a reply to Q, admitted turn by turn by the kernel. */
+  history: string[];
   decision: DecisionAsked | null;
   author: string;
   channel: string;

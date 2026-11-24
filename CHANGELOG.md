@@ -12,6 +12,14 @@ This project follows Semantic Versioning and Conventional Commits.
 - A message addressed to the agent is never indexed (DA-02, `Policy.noRequestIndexed`).
 - `.github/workflows/holo.yml`: the holo built, verified, provenance-signed and published to Pages.
 
+### Added (LangBot's runtime graph, in full)
+
+- A message aggregator: a burst from one person in one channel is one question (`AGGREGATE_MS`).
+- A per-session controller: one question per person and channel at a time, beside the global pool.
+- Conversation history: a reply to Q builds on the same author's recent turns, each admitted by the kernel (DA-21), named in the context record and in the answer key.
+- Q's own MCP server on stdio (`node src/main.ts mcp`): `ask`, `search`, `status`, `community_apps`, `community_decide`, serving public items only (DA-22).
+- `ARCHITECTURE.md` in LangBot's structure. prism-code 0.11.2.
+
 ### Added (speed and accuracy, from a stress run)
 
 - Compute once: each answer carries its answer key, the BLAKE3 label of the normalized question, the kernel, the community pin, the evidence, the prompts and the model; the same key reuses the computed answer, the reply says so, and forgetting the author forgets the reuse.
@@ -26,7 +34,7 @@ This project follows Semantic Versioning and Conventional Commits.
 
 ### Changed
 
-- prism-code 0.11.1 for the build and the host runtime.
+- prism-code 0.11.2 for the build and the host runtime.
 - Superseded chunks are revoked after a complete ingest, so the index shows each source as it is now.
 
 ### Added (first version)

@@ -39,6 +39,8 @@ The three honesty levels (R2):
 | `DA-18` | `build` | A reply longer than one Discord message is never sent as one, and a reply longer than five is never split into messages | `Policy.neverOverLimit`, `Policy.neverFlood` |
 | `DA-19` | `build` | A tool is called only on an allowlisted MCP server, and a tool that writes only for the admin role | `Policy.toolGuard`, refuses with `refuse` |
 | `DA-20` | `open` | The agent runs only a kernel whose exact bytes this repository's holo workflow signed from a commit on main, checked at every start, unless an operator turns the check off |  |
+| `DA-21` | `build` | An earlier turn is used as context only when it is the same author's, in the same channel, and recent | `Policy.historyOwnOnly` |
+| `DA-22` | `build` | An item in the private namespace is never served off Discord: the agent's MCP server serves only public items | `Policy.privateStaysOnDiscord`, refuses with `withhold` |
 
 ## contract
 

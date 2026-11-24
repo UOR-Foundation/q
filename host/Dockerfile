@@ -1,5 +1,5 @@
 # The host shell. Build from the repository root, after the kernel is built and verified:
-#   npx prism-code@0.11.1 build && npx prism-code@0.11.1 verify
+#   npx prism-code@0.11.2 build && npx prism-code@0.11.2 verify
 # Use the version host/package.json pins: the runtime that reads the holo must match the build that wrote it.
 #   docker build -f host/Dockerfile -t uor-discord-agent .
 # The image carries the holo it was built with; the host replays its vectors at every start.

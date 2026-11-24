@@ -8,7 +8,7 @@ A decision lives in the model, never in the host.
 
 1. Add or change the row in `model/ids.toml`, then its scenario in `features/suites/`.
 2. Change the model in `app/src/`: the definition, the theorem the row names, and an acceptance vector for each accepted path and each refusal.
-3. Run `npx prism-code@0.11.1 check --json` until it exits 0, then `build` and `verify`.
+3. Run `npx prism-code@0.11.2 check --json` until it exits 0, then `build` and `verify`.
 4. Plant a defect that the new theorem or vector should catch, confirm it is refused, and record it in `docs/verification.md`.
 5. In `host/`, run `npm run generate`, then add the question to `src/kernel.ts`.
 

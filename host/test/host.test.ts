@@ -13,6 +13,8 @@ import { ANSWER_SCHEMA, CONTEXT_SCHEMA, type CloudEvent } from '../src/records.t
 import { Gate, retrying, withoutReasoning, type Embedder, type Llm, type RunTool, type ToolCall, type ToolSpec } from '../src/providers.ts';
 import { Tools } from '../src/tools.ts';
 import { payloads } from '../src/adapter/adapter.ts';
+import { Aggregator } from '../src/aggregator.ts';
+import { mcpServer } from '../src/mcp-server.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -74,6 +76,7 @@ class FakeCommunity implements Decider {
   ]);
   flip?: string;
   async decide(app: string, values: string[]) {
+    if (!this.apps.has(app)) throw new Error(`no community decision named ${app}`);
     if (app === 'uor-test-naming') return values[0] === 'lowercase' ? 'conformant' : 'nonconforming';
     const [kind, visibility, label, install, intent] = values as [never, never, never, never, never];
     const answer = await kernel.read({ kind, visibility, label, install, intent });
@@ -97,7 +100,7 @@ const website = fixture('website', 'some-true', [
 const open: ChannelFacts = { kind: 'text', visibility: 'everyone', label: 'unlabeled', install: 'admin', intent: 'granted' };
 const settings: Settings = {
   userLimit: 3, channelLimit: 20, windowMs: 60_000, mediumSimilarity: 0.35, highSimilarity: 0.5, retrieve: 4,
-  access: { mode: 'blacklist', list: new Set() }, filter: { scope: 'both', terms: [] }, longText: 'split', concurrency: 4,
+  access: { mode: 'blacklist', list: new Set() }, filter: { scope: 'both', terms: [] }, longText: 'split', concurrency: 4, historyMinutes: 30,
 };
 const labeled: ChannelFacts = { ...open, label: 'public' };
 const said = (text: string, more: Partial<Observed> = {}): Observed => ({ channel: labeled, channelId: 'c1', authorId: 'u1', origin: 'conversation', url: `https://discord.test/c1/${text.length}`, createdMs: Date.parse('2026-11-20T00:00:00Z'), text, ...more });
@@ -655,4 +658,90 @@ test('a busy provider is retried, after its Retry-After or a backoff, and any ot
   assert.deepEqual(slept, [3000, 2000]);
   await assert.rejects(retrying(async () => new Response('bad', { status: 400 }), [1000], sleep), /400/);
   await assert.rejects(retrying(async () => new Response('busy', { status: 429 }), [1], sleep), /429/);
+});
+
+test('the aggregator folds a burst from one person in one channel into one batch, and keeps others apart', async () => {
+  const aggregator = new Aggregator<string>(20);
+  const [a, b, c, other] = await Promise.all([
+    aggregator.offer('c1:u1', 'what is'),
+    aggregator.offer('c1:u1', 'LexLean'),
+    aggregator.offer('c1:u1', 'exactly?'),
+    aggregator.offer('c1:u2', 'unrelated'),
+  ]);
+  assert.equal(a, null);
+  assert.equal(b, null);
+  assert.deepEqual(c, ['what is', 'LexLean', 'exactly?']);
+  assert.deepEqual(other, ['unrelated']);
+  assert.deepEqual(await new Aggregator<string>(0).offer('k', 'now'), ['now']);
+});
+
+test('one session works on one question at a time, in order, while other sessions run beside it', async () => {
+  const { pipeline, llm } = await world({ concurrency: 4 });
+  const order: string[] = [];
+  let running = 0, most = 0;
+  const complete = llm.complete.bind(llm);
+  llm.complete = async (system: string, user: string) => {
+    if (system.startsWith('You read a question')) return complete(system, user);
+    running++; most = Math.max(most, running);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    order.push(user.slice(user.lastIndexOf('Question:')));
+    running--;
+    return complete(system, user);
+  };
+  await Promise.all([
+    pipeline.handle(ask('How are Prism applications built from a LexLean model? first', { authorId: 'same' })),
+    pipeline.handle(ask('How are Prism applications built from a LexLean model? second', { authorId: 'same' })),
+  ]);
+  assert.equal(most, 1);
+  assert.deepEqual(order.map((q) => q.endsWith('first') ? 1 : 2), [1, 2]);
+});
+
+test('a reply to Q builds on the same author\'s recent turns only, and records them; a forgotten turn is gone', async () => {
+  const { pipeline, llm, store } = await world();
+  const prompts: string[] = [];
+  const complete = llm.complete.bind(llm);
+  llm.complete = async (system: string, user: string) => { prompts.push(user); return complete(system, user); };
+  await pipeline.handle(ask('How are Prism applications built from a LexLean model?', { authorId: 'ana' }));
+  await pipeline.handle(ask('What does the Discord read policy permit?', { authorId: 'ben' }));
+  prompts.length = 0;
+  await pipeline.handle(ask('And are Prism applications built from a LexLean model proved?', { authorId: 'ana', trigger: 'replyToAgent' }));
+  const sent = prompts.find((p) => p.includes('Question: And are Prism applications built from a LexLean model proved?'))!;
+  assert.match(sent, /^Earlier in this conversation/);
+  assert.match(sent, /Question: How are Prism applications built from a LexLean model\?/);
+  // Ben's turn is another author's: it is not history, whatever the sources say.
+  assert.doesNotMatch(sent.slice(0, sent.indexOf('Sources:')), /What does the Discord read policy permit/);
+  const contexts = (await Promise.all((await store.labels('private')).map((l) => store.get('private', l)))).filter((i) => i?.type === 'context');
+  const reply = contexts.find((i) => (i!.request as { question: string }).question === 'And are Prism applications built from a LexLean model proved?')!;
+  assert.equal((reply.history as string[]).length, 1);
+  // Forgetting the author removes the turn: the next reply has no history.
+  await pipeline.handle(ask('', { command: 'forget-me', trigger: 'slash', authorId: 'ana' }));
+  prompts.length = 0;
+  await pipeline.handle(ask('And are Prism applications built from a LexLean model verified?', { authorId: 'ana', trigger: 'replyToAgent' }));
+  assert.ok(prompts.every((p) => !p.startsWith('Earlier in this conversation')));
+});
+
+test("Q's MCP server serves public knowledge, withholds every Discord item, and answers community decisions", async () => {
+  const { pipeline, memory, decider } = await world();
+  // A Discord message that would match the query, indexed in the private namespace.
+  await memory.observe(said('Prism applications are discussed here on Discord with a secret detail'));
+  const server = mcpServer(pipeline, kernel, () => decider);
+  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverSide);
+  const client = new Client({ name: 'test-client', version: '1.0.0' });
+  await client.connect(clientSide);
+  const tools = (await client.listTools()).tools.map((t) => t.name).sort();
+  assert.deepEqual(tools, ['ask', 'community_apps', 'community_decide', 'search', 'status']);
+  const found = await client.callTool({ name: 'search', arguments: { query: 'Prism applications self-verifying archives built from a LexLean model' } });
+  const found_text = (found.content as { text: string }[])[0].text;
+  assert.match(found_text, /example\.test\/site\/prism/);
+  assert.doesNotMatch(found_text, /discord\.test|secret detail/);
+  // On Discord the same item may be served: the surface decides, not the query.
+  const onDiscord = await pipeline.handle(ask('Prism applications discussed on Discord secret detail', { command: 'search', trigger: 'slash', authorId: 'd1' }));
+  assert.match(onDiscord!.text, /discord\.test/);
+  const status = JSON.parse((await client.callTool({ name: 'status', arguments: {} }) as { content: { text: string }[] }).content[0].text);
+  assert.equal(status.kernel.holo, kernel.holo);
+  const decided = await client.callTool({ name: 'community_decide', arguments: { app: 'uor-test-naming', inputs: ['lowercase'] } });
+  assert.match((decided.content as { text: string }[])[0].text, /^conformant/);
+  const refused = await client.callTool({ name: 'community_decide', arguments: { app: 'no-such-app', inputs: [] } });
+  assert.equal(refused.isError, true);
 });

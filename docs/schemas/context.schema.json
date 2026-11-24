@@ -5,7 +5,7 @@
   "description": "The input of one turn: everything an answer is made from. Stored in the private namespace under its BLAKE3 kappa label (uor-addr, JCS + NFC), and forgotten with its author.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["type", "schema", "kernel", "community", "request", "retrieval", "decision", "author", "channel", "created"],
+  "required": ["type", "schema", "kernel", "community", "request", "retrieval", "history", "decision", "author", "channel", "created"],
   "$defs": {
     "label": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" }
   },
@@ -33,12 +33,18 @@
     "request": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["command", "trigger", "question"],
+      "required": ["command", "trigger", "surface", "question"],
       "properties": {
         "command": { "enum": ["ask", "search"] },
         "trigger": { "enum": ["mention", "replyToAgent", "slash"] },
+        "surface": { "description": "Discord, or a client of the agent's own MCP server, where only public items are served (decision 17).", "enum": ["discord", "mcp"] },
         "question": { "type": "string" }
       }
+    },
+    "history": {
+      "description": "The earlier answers this question builds on, by label: a reply to the agent, each turn admitted by the kernel (decision 16) as the same author's, in the same channel, and recent.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/label" }
     },
     "retrieval": {
       "description": "The score band the kernel was told, and every item retrieval offered, before the kernel admitted any as a citation.",

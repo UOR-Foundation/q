@@ -41,6 +41,8 @@ export function config() {
     mcpServers: JSON.parse(process.env.MCP_SERVERS || '[]') as ServerConfig[],
     // Model calls at once. A provider's plan caps concurrent requests; past the cap it refuses them.
     llmConcurrency: number('LLM_CONCURRENCY', 2),
+    // LangBot's message aggregator: messages from one person in one channel this close together are one question.
+    aggregateMs: number('AGGREGATE_MS', 1500),
     embeddingsUrl: need('EMBEDDINGS_URL'),
     embeddingsKey: process.env.EMBEDDINGS_API_KEY ?? '',
     embeddingsModel: need('EMBEDDINGS_MODEL'),
@@ -75,6 +77,7 @@ export function config() {
       filter: { scope: choice('FILTER_SCOPE', ['both', 'incoming', 'outgoing'] as const, 'both'), terms: list('FILTER_TERMS') },
       longText: choice('LONG_TEXT', ['split', 'file'] as const, 'split'),
       concurrency: number('CONCURRENCY', 4),
+      historyMinutes: number('HISTORY_MINUTES', 30),
     },
   };
   // A limit is one byte in a kernel request, and an age past 255 days is sent as 255,

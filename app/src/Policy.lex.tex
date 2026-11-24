@@ -483,5 +483,48 @@ theorem{
   proof: linear_arithmetic{definitions: [breaksToolGuard, toolAllowed]},
   axioms: [Quot.sound, propext]
 }
+definition{
+  name: historyUse,
+  parameters: [author : Nat, channel : Nat, age : Nat],
+  result: Bool,
+  body: ((author =? 0) && ((channel =? 0) && (age =? 0)))
+}
+
+definition{
+  name: breaksHistoryOwnOnly,
+  parameters: [author : Nat, channel : Nat, age : Nat],
+  result: Bool,
+  body: ((historyUse author channel age) && ((not (author =? 0)) || ((not (channel =? 0)) || (not (age =? 0)))))
+}
+
+theorem{
+  name: historyOwnOnly,
+  parameters: [author : Nat, channel : Nat, age : Nat],
+  statement: ((breaksHistoryOwnOnly author channel age) = false),
+  proof: linear_arithmetic{definitions: [breaksHistoryOwnOnly, historyUse]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: exposeServe,
+  parameters: [space : Nat, surface : Nat],
+  result: Bool,
+  body: ((space =? 0) || (surface =? 0))
+}
+
+definition{
+  name: breaksPrivateStaysOnDiscord,
+  parameters: [space : Nat],
+  result: Bool,
+  body: ((exposeServe space 1) && (not (space =? 0)))
+}
+
+theorem{
+  name: privateStaysOnDiscord,
+  parameters: [space : Nat],
+  statement: ((breaksPrivateStaysOnDiscord space) = false),
+  proof: linear_arithmetic{definitions: [breaksPrivateStaysOnDiscord, exposeServe]},
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}

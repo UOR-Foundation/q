@@ -26,6 +26,8 @@ export const FILTER = { pass: 0, warn: 1, masked: 2, block: 3 } as const;
 /** A reply's size against Discord's 2,000-character message: one message, up to five, or more. */
 export const SIZE = { one: 0, few: 1, many: 2 } as const;
 export const STRATEGY = { split: 0, file: 1 } as const;
+/** Where a question came from: a Discord channel, or a client of the agent's own MCP server. */
+export const SURFACE = { discord: 0, mcp: 1 } as const;
 
 export type Level = keyof typeof LEVEL;
 export type SourceName = keyof typeof SOURCE;
@@ -131,5 +133,13 @@ export class Kernel {
   /** Whether one MCP tool call may run: its server's place on the allowlist, whether it writes, and who asked. */
   tool(allowlisted: boolean, writes: boolean, role: keyof typeof ROLE) {
     return this.#ask<'call' | 'refuse'>(15, flag(!allowlisted), flag(writes), ROLE[role]);
+  }
+  /** LangBot's conversation history: whether an earlier turn may be context for this question. */
+  history(sameAuthor: boolean, sameChannel: boolean, recent: boolean) {
+    return this.#ask<'use' | 'skip'>(16, flag(!sameAuthor), flag(!sameChannel), flag(!recent));
+  }
+  /** Whether an item may be served on this surface: Discord, or the agent's own MCP server. */
+  expose(namespace: 'public' | 'private', surface: keyof typeof SURFACE) {
+    return this.#ask<'serve' | 'withhold'>(17, namespace === 'public' ? 0 : 1, SURFACE[surface]);
   }
 }

@@ -31,8 +31,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 22
-      - run: npx --yes prism-code@0.11.1 build --json
-      - run: npx --yes prism-code@0.11.1 verify --json
+      - run: npx --yes prism-code@0.11.2 build --json
+      - run: npx --yes prism-code@0.11.2 verify --json
       - name: Assemble the page
         run: |
           mkdir -p site

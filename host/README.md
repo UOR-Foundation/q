@@ -27,6 +27,9 @@ Discord event
 | `src/pipeline.ts` | The stages from message to reply, the query pool, and the commands |
 | `src/community.ts` | The community root: its signed holo, the pinned commit, its decision catalog and channel labels, the read-policy drift check |
 | `src/records.ts` | The context record, the answer record and the event of every turn |
+| `src/aggregator.ts` | LangBot's message aggregator: a burst from one person in one channel is one question |
+| `src/provenance.ts` | Sigstore verification of a holo's signed SLSA provenance, for both holos |
+| `src/mcp-server.ts` | Q's own MCP server on stdio (`node src/main.ts mcp`): public items only |
 | `src/tools.ts` | MCP client: lists every configured server's tools and runs a call the kernel allowed |
 | `src/providers.ts` | Language models (Anthropic, OpenAI-compatible, Ollama), each with a tool loop, and embeddings |
 | `src/adapter/adapter.ts` | The platform adapter interface, and how a reply is cut into messages |
@@ -57,7 +60,7 @@ At start the host checks that the kernel's exact bytes are a build `UOR-Foundati
 On one machine with Docker, from the repository root:
 
 ```bash
-npx prism-code@0.11.1 build && npx prism-code@0.11.1 verify
+npx prism-code@0.11.2 build && npx prism-code@0.11.2 verify
 cp host/.env.example host/.env    # then fill it in
 docker compose -f host/docker-compose.yml up -d --build
 docker compose -f host/docker-compose.yml run --rm agent node --no-warnings src/main.ts ingest
@@ -84,7 +87,7 @@ The bot answers mentions in any public text or forum channel. Its inputs and out
 
 ## What is tested, and what is not
 
-Tested (36 tests, real kernel, in-process store, embedder and language model): labels, chunking, deduplication, index rebuild, a cited answer listing only the sources it cites, source order, refusal of an ungrounded question, a tampered item, a revoked item, silence in DMs and restricted channels, command authorization, rate limiting, message indexing, a request to the agent never indexed, the read-policy drift check with one planted difference, channel labels, both turn records and the event against their published schemas for every kind of turn, a community decision answered and one with a missing input, superseded chunks after a newer commit, the kernel's and the community's provenance against real Sigstore bundles (verified, and refused for other bytes, another repository and another signer), access control under a whitelist and a blacklist, the content filter both ways and out of scope, long-text delivery, the query pool, MCP tools over the protocol with a read allowed, a write refused for a member and allowed for an admin, and a server not allowlisted, a Discord citation marked open, forget-me, forget-channel, the retention sweep.
+Tested (48 tests, real kernel, in-process store, embedder and language model): labels, chunking, deduplication, index rebuild, a cited answer listing only the sources it cites, source order, refusal of an ungrounded question, a tampered item, a revoked item, silence in DMs and restricted channels, command authorization, rate limiting, message indexing, a request to the agent never indexed, the read-policy drift check with one planted difference, channel labels, both turn records and the event against their published schemas for every kind of turn, a community decision answered and one with a missing input, superseded chunks after a newer commit, the kernel's and the community's provenance against real Sigstore bundles (verified, and refused for other bytes, another repository and another signer), the message aggregator, one question per session at a time, conversation history from the same author only and gone once forgotten, the MCP server over the protocol withholding every Discord item, access control under a whitelist and a blacklist, the content filter both ways and out of scope, long-text delivery, the query pool, MCP tools over the protocol with a read allowed, a write refused for a member and allowed for an admin, and a server not allowlisted, a Discord citation marked open, forget-me, forget-channel, the retention sweep.
 
 Run once by hand on 2026-11-23: the community source (39 documents) and the website source (45 pages), 612 chunks together; the GitHub source on one repository (9 files, 34 issues and pull requests).
 

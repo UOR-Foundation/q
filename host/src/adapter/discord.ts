@@ -6,6 +6,7 @@ import { AttachmentBuilder, ChannelType, Client, Events, GatewayIntentBits, Perm
 import type { Config } from '../config.ts';
 import type { ChannelFacts, CommandName } from '../kernel.ts';
 import type { Observed } from '../memory.ts';
+import { Aggregator } from '../aggregator.ts';
 import { payloads, type Adapter, type Handlers, type Payload } from './adapter.ts';
 
 const COMMANDS: [CommandName, string, boolean][] = [
@@ -31,6 +32,7 @@ export type Labeler = (ids: string[]) => ChannelFacts['label'];
 
 export function discord(config: Config, label: Labeler): Adapter {
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+  const aggregator = new Aggregator<Message>(config.aggregateMs);
 
   const facts = (channel: Message['channel'] | null): ChannelFacts => {
     const parent = channel && 'parent' in channel ? channel.parent : null;
@@ -85,9 +87,15 @@ export function discord(config: Config, label: Labeler): Adapter {
 
     client.on(Events.MessageCreate, async (message) => {
       try {
-        if (!message.author.bot) {
+        // LangBot's aggregator: a burst of messages from one person in one channel is one question, handled
+        // when the burst ends, in reply to its last message. Earlier messages of the burst are folded in.
+        const batch = message.author.bot ? null : await aggregator.offer(`${message.channelId}:${message.author.id}`, message);
+        if (batch) {
           const me = client.user!.id;
-          const trigger = message.mentions.users.has(me) ? (message.reference && message.mentions.repliedUser?.id === me ? 'replyToAgent' : 'mention') : 'none';
+          const triggerOf = (m: Message) => (m.mentions.users.has(me) ? (m.reference && m.mentions.repliedUser?.id === me ? 'replyToAgent' : 'mention') : 'none');
+          const triggers = batch.map(triggerOf);
+          const trigger = triggers.includes('replyToAgent') ? 'replyToAgent' : triggers.includes('mention') ? 'mention' : 'none';
+          const text = batch.map((m) => m.content.replaceAll(`<@${me}>`, '').trim()).filter(Boolean).join('\n');
           // "Q is typing" from the moment the kernel decides to answer until the reply is sent; Discord
           // shows it for ten seconds, so it is renewed.
           let working = false;
@@ -102,7 +110,7 @@ export function discord(config: Config, label: Labeler): Adapter {
               authorId: message.author.id,
               role: role(message.member),
               trigger,
-              text: message.content.replaceAll(`<@${me}>`, '').trim(),
+              text,
               working: () => { working = true; show(); typing = setInterval(show, 8000); },
             });
             clearInterval(typing);

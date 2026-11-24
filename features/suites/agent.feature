@@ -136,3 +136,17 @@ Feature: agent
     When the host fetches GitHub's attestations for its SHA-256 and verifies them with Sigstore against .github/workflows/holo.yml on main
     Then it starts only when a verified provenance names these bytes, and records that commit in every context record
     And bytes nobody signed are refused, and the host tests refuse the real bundles for another signer, other bytes and another repository
+
+  @DA-21 @build
+  Scenario: An earlier turn is used as context only when it is the same author's, in the same channel, and recent
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.historyOwnOnly
+    Then use is answered only for the same author in the same channel within the window
+    And prism-code build replays another author's turn, another channel's and an older one, each answered skip
+
+  @DA-22 @build @rejects
+  Scenario: An item in the private namespace is never served off Discord: the agent's MCP server serves only public items
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.privateStaysOnDiscord
+    Then serve is answered off Discord only for a public item
+    And prism-code build replays a private item asked for over MCP, answered withhold

@@ -11,7 +11,8 @@ import type { Tools } from './tools.ts';
 import { isRevoked, type Namespace, type Store } from './store.ts';
 
 export interface Incoming {
-  channel: ChannelFacts;
+  /** The Discord channel's facts; absent on the MCP surface, which has no channel. */
+  channel?: ChannelFacts;
   channelId: string;
   authorId: string;
   role: 'member' | 'admin';
@@ -20,7 +21,12 @@ export interface Incoming {
   text: string;
   /** Called once the kernel has decided to answer, so the platform can show that Q is working. */
   working?: () => void;
+  /** Where the question came from. Discord unless the agent's own MCP server asked. */
+  surface?: 'discord' | 'mcp';
 }
+
+/** One answered turn, as conversation history remembers it: labels and facts only, never text. */
+interface Turn { author: string; channel: string; answer: string; context: string; created: number }
 
 export interface Settings {
   userLimit: number;
@@ -38,6 +44,8 @@ export interface Settings {
   longText: 'split' | 'file';
   /** LangBot's query pool: how many questions are worked on at once. */
   concurrency: number;
+  /** LangBot's conversation history: how long an earlier turn can be context for a reply to Q. */
+  historyMinutes: number;
 }
 
 export interface Citation { label: string; url: string; source: SourceName; level: Level; text: string }
@@ -178,7 +186,19 @@ export class Pipeline {
   #running = 0;
   #waiting: (() => void)[] = [];
 
-  async handle(message: Incoming): Promise<Outgoing | undefined> {
+  #sessions = new Map<string, Promise<unknown>>();
+
+  /** LangBot's controller: one question at a time per session (a person in a channel), then the global pool. */
+  handle(message: Incoming): Promise<Outgoing | undefined> {
+    const session = `${message.surface ?? 'discord'}:${message.channelId}:${message.authorId}`;
+    const before = this.#sessions.get(session) ?? Promise.resolve();
+    const run = before.catch(() => {}).then(() => this.#pooled(message));
+    this.#sessions.set(session, run);
+    run.finally(() => { if (this.#sessions.get(session) === run) this.#sessions.delete(session); }).catch(() => {});
+    return run;
+  }
+
+  async #pooled(message: Incoming): Promise<Outgoing | undefined> {
     // The query pool: past the concurrency limit, a question waits its turn.
     if (this.#running >= Math.max(1, this.settings.concurrency)) await new Promise<void>((resolve) => this.#waiting.push(resolve));
     this.#running++;
@@ -199,7 +219,10 @@ export class Pipeline {
   }
 
   async #decide(message: Incoming): Promise<Draft | undefined> {
-    if ((await this.kernel.reply(message.channel, message.trigger)) === 'silent') return undefined;
+    // The reply rule is about Discord channels; a client of Q's own MCP server is answered on that surface,
+    // where the exposure decision keeps every private item out.
+    const surface = message.surface ?? 'discord';
+    if (surface === 'discord' && (!message.channel || (await this.kernel.reply(message.channel, message.trigger)) === 'silent')) return undefined;
 
     // LangBot's access control, then its incoming content filter.
     const onList = ['*', message.channelId, message.authorId].some((id) => this.settings.access.list.has(id));
@@ -254,6 +277,7 @@ export class Pipeline {
       const verified = item !== undefined && matches(item, hit.label);
       const revoked = await isRevoked(this.store, hit.namespace, hit.label);
       if ((await this.kernel.cite(isLabel(hit.label), verified, revoked)) === 'drop') continue;
+      if ((await this.kernel.expose(hit.namespace, surface)) === 'withhold') continue;
       citations.push({ label: hit.label, url: String(item!.url), source: item!.source as SourceName, level: item!.level as Level, text: String(item!.text) });
       best = Math.max(best, hit.similarity);
     }
@@ -268,8 +292,10 @@ export class Pipeline {
     // Compute once. The same question on the same evidence, kernel, community, prompt and model is the
     // same computation: its key is the BLAKE3 label of exactly those, and a computed answer is reused.
     const namespace = await this.kernel.namespace('discord');
+    // A reply to Q continues the conversation: the earlier turns the kernel admits are context, and part of the key.
+    const history = grounded !== 'not grounded' && command === 'ask' && message.trigger === 'replyToAgent' ? await this.#history(message, namespace) : [];
     const key = grounded !== 'not grounded' && command === 'ask'
-      ? labelOf({ type: 'answer-key', question: normalize(message.text), kernel: this.kernel.holo, community: community.pin.holo, evidence: ordered.map((c) => c.label), prompt: PROMPT, model: this.llm.model })
+      ? labelOf({ type: 'answer-key', question: normalize(message.text), kernel: this.kernel.holo, community: community.pin.holo, evidence: ordered.map((c) => c.label), history: history.map((h) => h.answer), prompt: PROMPT, model: this.llm.model })
       : null;
     const earlier = key ? await this.#recall(key, namespace) : undefined;
     clock.lap('memo');
@@ -280,7 +306,10 @@ export class Pipeline {
     const withTools = Boolean(tools?.list().length && this.llm.completeWithTools);
     const compose = (decided: DecisionAsked | null): Promise<string> => {
       const sources = ordered.map((c, i) => `[${i + 1}] (${c.source}, ${c.level}, ${c.url})\n${c.text}`).join('\n\n');
-      const prompt = `Sources:\n\n${sources}${decisionBrief(decided, community)}\n\nQuestion: ${message.text.slice(0, PROMPT_QUESTION_LIMIT)}`;
+      const earlierTurns = history.length
+        ? `Earlier in this conversation (context for the question; cite only the sources):\n\n${history.map((h) => `Question: ${h.question}\nYour answer: ${h.text}`).join('\n\n')}\n\n`
+        : '';
+      const prompt = `${earlierTurns}Sources:\n\n${sources}${decisionBrief(decided, community)}\n\nQuestion: ${message.text.slice(0, PROMPT_QUESTION_LIMIT)}`;
       return withTools
         ? this.llm.completeWithTools!(SYSTEM, prompt, tools!.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools!, call, message, namespace, used))
         : this.llm.complete(SYSTEM, prompt);
@@ -304,8 +333,9 @@ export class Pipeline {
     const turn = context({
       kernel: { holo: this.kernel.holo, model: this.kernel.model, commit: this.kernel.commit },
       community: pinOf(community.pin),
-      request: { command, trigger: message.trigger, question: message.text },
+      request: { command, trigger: message.trigger, surface, question: message.text },
       retrieval: { band, items: hits.map((hit) => hit.label) },
+      history: history.map((h) => h.answer),
       decision,
       author: message.authorId, channel: message.channelId, created: this.now(),
     });
@@ -381,8 +411,36 @@ export class Pipeline {
     if (turn.decision?.answer) await this.store.link(namespace, { source: label, target: turn.community.holo, relation: 'certified-by' });
     // Computed now, and reusable: index it under its key, so the same question on the same evidence is answered once.
     if (said.memo && !said.reused) this.index.memoSet(said.memo, label, turnLabel);
+    // An answer, not a refusal, can be context for a reply to it.
+    if (said.level !== null) {
+      const turns = this.#turns.get(said.channel) ?? [];
+      turns.push({ author: said.author, channel: said.channel, answer: label, context: turnLabel, created: said.created });
+      this.#turns.set(said.channel, turns.slice(-20));
+    }
     this.actions.emit(event(turn, said));
     return label;
+  }
+
+  #turns = new Map<string, Turn[]>();
+
+  /**
+   * The earlier turns a reply to Q may build on, newest three at most. The kernel decides each one (decision 16);
+   * a turn whose records were forgotten or no longer carry their labels is gone.
+   */
+  async #history(message: Incoming, namespace: Namespace): Promise<{ answer: string; question: string; text: string }[]> {
+    const out: { answer: string; question: string; text: string }[] = [];
+    const window = this.settings.historyMinutes * 60_000;
+    for (const turn of [...(this.#turns.get(message.channelId) ?? [])].reverse()) {
+      if (out.length >= 3) break;
+      const allowed = await this.kernel.history(turn.author === message.authorId, turn.channel === message.channelId, this.now() - turn.created <= window);
+      if (allowed === 'skip') continue;
+      const said = await this.store.get(namespace, turn.answer);
+      const turnRecord = await this.store.get(namespace, turn.context);
+      if (!said || !turnRecord || !matches(said, turn.answer) || !matches(turnRecord, turn.context)) continue;
+      const question = String((turnRecord.request as { question?: unknown } | undefined)?.question ?? '');
+      out.unshift({ answer: turn.answer, question: question.slice(0, 600), text: String(said.text).slice(0, 1500) });
+    }
+    return out;
   }
 
   /**

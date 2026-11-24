@@ -10,9 +10,9 @@ A community assistant answers for the community. If its rules live in code besid
 
 ## How
 
-Q has two parts, the same shape as [LangBot](https://github.com/langbot-app/LangBot) ([docs/langbot.md](docs/langbot.md) maps them):
+Q has two parts, the same shape as [LangBot](https://github.com/langbot-app/LangBot): [ARCHITECTURE.md](ARCHITECTURE.md) is the map, and [docs/langbot.md](docs/langbot.md) matches each LangBot component to Q's.
 
-- **Kernel** (`app/src/`). Fifteen decisions: read, index, reply, command, rate limit, grounding, claim level, source trust, retention, citation, namespace, access control, content filter, long text, tool calls. Pure: no network, clock or storage. Built with `npx prism-code@latest`.
+- **Kernel** (`app/src/`). Seventeen decisions: read, index, reply, command, rate limit, grounding, claim level, source trust, retention, citation, namespace, access control, content filter, long text, tool calls, conversation history, exposure. Pure: no network, clock or storage. Built with `npx prism-code@latest`.
 - **Host** (`host/`). Everything with an effect: the Discord adapter, the pipeline, the language model and embeddings, retrieval, MCP tools, the store. It holds no policy. Before each effect it asks the kernel and obeys.
 
 Q's inputs and outputs are defined in [docs/context.md](docs/context.md): Q's kernel, the community root (UOR-Foundation/community's signed holo, pinned by its BLAKE3 label and verified provenance), and the question go in. A context record, an answer record and a public event come out of every turn, each named by its BLAKE3 kappa label, each with a published schema.
@@ -21,8 +21,8 @@ Q's inputs and outputs are defined in [docs/context.md](docs/context.md): Q's ke
 
 | Kind | What |
 | --- | --- |
-| Proved | The 25 theorems named in [CONFORMANCE.md](CONFORMANCE.md), about the decision functions in `app/src/Policy.lex.tex` and the request length in `app/src/Contract.lex.tex` |
-| Tested | 115 acceptance vectors through the byte-level dispatcher; 36 host tests, including a real MCP server over the protocol, the records against their schemas, and provenance against real Sigstore bundles |
+| Proved | The 27 theorems named in [CONFORMANCE.md](CONFORMANCE.md), about the decision functions in `app/src/Policy.lex.tex` and the request length in `app/src/Contract.lex.tex` |
+| Tested | 128 acceptance vectors through the byte-level dispatcher; 48 host tests, including a real MCP server over the protocol, the records against their schemas, and provenance against real Sigstore bundles |
 | Measured at every start | Q's own kernel is a build this repository's `holo.yml` signed (DA-20); the community holo's signed provenance; Q's read policy against the community's `uor-discord-read`, on all 96 requests (DA-13); every vector of both holos |
 | Cited | The community Discord read policy, from `UOR-Foundation/community`. DA-01 reproduces it |
 | Open | The facts the host passes in, the similarity thresholds, the language model's reading of a question, and what [host/README.md](host/README.md) lists as not run |
@@ -32,12 +32,12 @@ The theorems are about the decision functions. That the dispatcher decodes a req
 ## What
 
 ```bash
-npx prism-code@0.11.1 check --json     # the model checks and every theorem is proved
-npx prism-code@0.11.1 build --json     # write app/.prism/build/uor-discord-agent.holo and replay its vectors
-npx prism-code@0.11.1 verify --json    # judge what was built
+npx prism-code@0.11.2 check --json     # the model checks and every theorem is proved
+npx prism-code@0.11.2 build --json     # write app/.prism/build/uor-discord-agent.holo and replay its vectors
+npx prism-code@0.11.2 verify --json    # judge what was built
 ```
 
-`0.11.1` is `@latest` today, and `host/package.json` pins the same runtime: the host must read the holo the build writes. To run the agent, see [host/README.md](host/README.md).
+`0.11.2` is `@latest` today, and `host/package.json` pins the same runtime: the host must read the holo the build writes. To run the agent, see [host/README.md](host/README.md).
 
 On every push to `main`, `.github/workflows/holo.yml` builds the holo, signs its SLSA provenance and publishes it at `https://uor-foundation.github.io/uor-discord-agent/app.holo`. The build is reproducible, so a deployment builds the same bytes itself, and the host refuses to start on a kernel no such signature names (DA-20). To run a model you changed and have not published, set `KERNEL_PROVENANCE=off`; the host then says so in its log.
 
@@ -62,6 +62,8 @@ Exactly eight bytes: one decision, then seven facts. Unused facts are zero. The 
 | 13 | content filter | stage, scope, filter result | `continue`, `masked`, `interrupt` |
 | 14 | long text | size, strategy | `send`, `split`, `file` |
 | 15 | tool call | server, effect, role | `call`, `refuse` |
+| 16 | history | author, channel, age | `use`, `skip` |
+| 17 | exposure | namespace, surface | `serve`, `withhold` |
 
 Fact codes:
 
@@ -88,6 +90,10 @@ Fact codes:
 | strategy | 0 split, 1 file |
 | server | 0 allowlisted, 1 not |
 | effect | 0 reads, 1 writes |
+| author, channel | 0 the same, 1 another |
+| age | 0 within the window, 1 older |
+| namespace | 0 public, 1 private |
+| surface | 0 Discord, 1 the agent's MCP server |
 | yes or no | 0 no, 1 yes |
 
 Counts, ages and limits are one byte, 0 to 255, in units the host fixes.
@@ -96,7 +102,7 @@ Counts, ages and limits are one byte, 0 to 255, in units the host fixes.
 
 - The holo is at assurance level P0: its provenance is signed by the publishing workflow, but it carries no signed proof statement.
 - `GOVERNANCE.md` leaves the owner, review and amendment authority `NOT_ESTABLISHED`, `SECURITY.md` names no reporting channel, and there is no `.github/CODEOWNERS`. Each needs the owner.
-- The LexLean project and its entry module keep the template's names (`prism-template-contract`, `Contract`). Renaming them makes `lexlean.lock` stale, and `prism-code` 0.11.1 has no command to rewrite the lock.
+- The LexLean project and its entry module keep the template's names (`prism-template-contract`, `Contract`). Renaming them makes `lexlean.lock` stale, and `prism-code` 0.11.2 has no command to rewrite the lock.
 - A reply (decision 3) does not require the channel to be readable. The agent may answer a mention in a public channel it is not allowed to index.
 
 ## License

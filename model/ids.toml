@@ -179,3 +179,19 @@ id = "DA-20"
 level = "open"
 suite = "agent"
 statement = "The agent runs only a kernel whose exact bytes this repository's holo workflow signed from a commit on main, checked at every start, unless an operator turns the check off"
+
+[[id]]
+id = "DA-21"
+level = "build"
+suite = "agent"
+statement = "An earlier turn is used as context only when it is the same author's, in the same channel, and recent"
+theorems = ["Policy.historyOwnOnly"]
+
+[[id]]
+id = "DA-22"
+level = "build"
+suite = "agent"
+statement = "An item in the private namespace is never served off Discord: the agent's MCP server serves only public items"
+theorems = ["Policy.privateStaysOnDiscord"]
+failure = "withhold"
+negative = "DA-22"

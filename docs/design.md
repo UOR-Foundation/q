@@ -59,4 +59,4 @@ Not built: an MCP client. A tool call is an effect, and no kernel decision yet s
 - Counts, ages and limits are one byte in a kernel request: rate limits to 255, retention to 254 days.
 - Forgetting and retention scan every private item. That is fine for one community server and will need an index on author and channel beyond it.
 - The holo is unsigned and at assurance level P0.
-- The LexLean project keeps the template's internal names, because prism-code 0.11.1 cannot rewrite the lockfile.
+- The LexLean project keeps the template's internal names, because prism-code 0.11.2 cannot rewrite the lockfile.
