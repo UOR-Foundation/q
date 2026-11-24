@@ -240,3 +240,10 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.routeNeedsSample and Policy.soundWithinBounds
     Then needs knowledge is answered past the refusal bound, needs correction past the wrong-answer bound, and sound within both
     And prism-code build replays a class under the minimum sample and a minimum of zero, each answered too few
+
+  @DA-36 @build @rejects
+  Scenario: An open question, promise or request is closed only by a human, as its kind allows
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.closeOnlyByHumans, Policy.promiseNeedsConfirmation and Policy.ownReplyNeverAnswers
+    Then close is answered for someone else's reply to a question or request, and for the right confirmation
+    And prism-code build replays a bot's reply, an asker's own reply and a reply to a promise, each answered open

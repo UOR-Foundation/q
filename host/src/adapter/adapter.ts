@@ -30,6 +30,8 @@ export interface Adapter {
   backfill(observe: Handlers['observe']): Promise<void>;
   /** A channel's or thread's name, when the platform knows it: a cited message reads as "#general", not as ids. */
   channelName?(id: string): string | undefined;
+  /** Post a message Q writes on its own, such as the admin digest, to one channel. */
+  post?(channelId: string, text: string): Promise<void>;
 }
 
 /** One message to send: text, and a file when the kernel decided the reply goes as one. */

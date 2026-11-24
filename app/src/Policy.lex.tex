@@ -109,14 +109,14 @@ definition{
   name: commandAllowed,
   parameters: [command : Nat, role : Nat],
   result: Bool,
-  body: ((command <=? 2) || ((command =? 5) || ((command =? 7) || ((command =? 8) || (((command =? 3) || ((command =? 4) || (command =? 6))) && (role =? 1))))))
+  body: ((command <=? 2) || ((command =? 5) || ((command =? 7) || ((command =? 8) || (((command =? 3) || ((command =? 4) || ((command =? 6) || (command =? 9)))) && (role =? 1))))))
 }
 
 definition{
   name: breaksAdminNeedsRole,
   parameters: [command : Nat, role : Nat],
   result: Bool,
-  body: ((commandAllowed command role) && (((command =? 3) || ((command =? 4) || (command =? 6))) && (not (role =? 1))))
+  body: ((commandAllowed command role) && (((command =? 3) || ((command =? 4) || ((command =? 6) || (command =? 9)))) && (not (role =? 1))))
 }
 
 theorem{
@@ -959,6 +959,57 @@ theorem{
   parameters: [asked : Nat, refusedPct : Nat, wrongPct : Nat, minAsked : Nat, maxRefusedPct : Nat, maxWrongPct : Nat],
   statement: ((breaksSoundWithinBounds asked refusedPct wrongPct minAsked maxRefusedPct maxWrongPct) = false),
   proof: linear_arithmetic{definitions: [breaksSoundWithinBounds, classRoute]},
+  axioms: [Quot.sound, propext]
+}
+definition{
+  name: closeItem,
+  parameters: [kind : Nat, event : Nat, byAuthor : Nat, human : Nat],
+  result: Bool,
+  body: ((human =? 0) && ((((kind =? 0) || (kind =? 2)) && (((event =? 0) && (not (byAuthor =? 0))) || ((event =? 1) && (byAuthor =? 0)))) || ((kind =? 1) && (event =? 1))))
+}
+
+definition{
+  name: breaksCloseOnlyByHumans,
+  parameters: [kind : Nat, event : Nat, byAuthor : Nat, human : Nat],
+  result: Bool,
+  body: ((closeItem kind event byAuthor human) && (not (human =? 0)))
+}
+
+theorem{
+  name: closeOnlyByHumans,
+  parameters: [kind : Nat, event : Nat, byAuthor : Nat, human : Nat],
+  statement: ((breaksCloseOnlyByHumans kind event byAuthor human) = false),
+  proof: linear_arithmetic{definitions: [breaksCloseOnlyByHumans, closeItem]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksPromiseNeedsConfirmation,
+  parameters: [byAuthor : Nat, human : Nat],
+  result: Bool,
+  body: (closeItem 1 0 byAuthor human)
+}
+
+theorem{
+  name: promiseNeedsConfirmation,
+  parameters: [byAuthor : Nat, human : Nat],
+  statement: ((breaksPromiseNeedsConfirmation byAuthor human) = false),
+  proof: linear_arithmetic{definitions: [breaksPromiseNeedsConfirmation, closeItem]},
+  axioms: [Quot.sound, propext]
+}
+
+definition{
+  name: breaksOwnReplyNeverAnswers,
+  parameters: [kind : Nat, human : Nat],
+  result: Bool,
+  body: ((closeItem kind 0 0 human) && (not (kind =? 1)))
+}
+
+theorem{
+  name: ownReplyNeverAnswers,
+  parameters: [kind : Nat, human : Nat],
+  statement: ((breaksOwnReplyNeverAnswers kind human) = false),
+  proof: linear_arithmetic{definitions: [breaksOwnReplyNeverAnswers, closeItem]},
   axioms: [Quot.sound, propext]
 }
 \end{semanticmodule}

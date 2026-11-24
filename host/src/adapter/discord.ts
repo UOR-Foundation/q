@@ -18,6 +18,7 @@ const COMMANDS: [CommandName, string, boolean][] = [
   ['forget-me', 'Forget everything indexed from you, and stop indexing you', false],
   ['improve', 'What Q is learning, and what it proposes to change (admin)', false],
   ['feedback', 'Tell Q what to do better, or ask for a feature. Shared with the community, without your name.', false],
+  ['open', 'Open questions, promises and requests in this server (admin)', false],
   ['build', 'Describe an app: Q builds it, proves it, and links it running in its own holospace', false],
 ];
 
@@ -245,7 +246,7 @@ export function discord(config: Config, label: Labeler): Adapter {
       // Forgetting is between the author and the agent; everything else is answered in the open.
       // Forgetting is between the author and the agent, and /improve can quote members' questions to an admin:
       // both are answered to the one who asked only. Everything else is answered in the open.
-      await interaction.deferReply({ ephemeral: ['forget-me', 'improve', 'feedback'].includes(interaction.commandName) });
+      await interaction.deferReply({ ephemeral: ['forget-me', 'improve', 'feedback', 'open'].includes(interaction.commandName) });
       try {
         const reply = await handlers.handle({
           channel: facts(interaction.channel as Message['channel'] | null),
@@ -343,5 +344,12 @@ export function discord(config: Config, label: Labeler): Adapter {
     return channel && 'name' in channel && channel.name ? channel.name : undefined;
   };
 
-  return { start, backfill, channelName };
+  /** Post a message Q writes on its own (the admin digest), split under Discord's limit, mentioning no one. */
+  const post = async (channelId: string, text: string) => {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel?.isTextBased() || !('send' in channel)) throw new Error(`cannot post to ${channelId}`);
+    for (const payload of payloads({ text, decision: 'allowed', citations: [], delivery: text.length > LIMIT ? 'split' : 'send' }, LIMIT)) await channel.send(send(payload));
+  };
+
+  return { start, backfill, channelName, post };
 }

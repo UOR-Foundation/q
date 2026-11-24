@@ -160,6 +160,8 @@ export interface Actions {
   tools?(): Tools | undefined;
   /** What Q is learning and what it proposes: the latest review of the improvement loop (improve.ts). */
   improve?(): Promise<string>;
+  /** The open questions, promises and requests the tracker holds (tracker.ts), for /open. */
+  open?(): Promise<string>;
   /** Who Q is, from its latest self-model, for anyone who asks with /status (improve.ts introduction). */
   self?(): Promise<string>;
   /** A Discord channel's or thread's name, for a cited message's title. */
@@ -358,6 +360,8 @@ export class Pipeline {
         return done(`Forgot ${await this.actions.memory.forget({ author: message.authorId })} items from you. Your messages will not be indexed from now on.`);
       case 'improve':
         return done(this.actions.improve ? await this.actions.improve() : 'The improvement loop is not running here.');
+      case 'open':
+        return done(this.actions.open ? await this.actions.open() : 'Tracking is not switched on for this server.');
       case 'build': {
         if (!this.actions.build) return done('Building apps is not set up here.');
         if (!message.text.trim()) return done('Describe the app you want, for example: a tip advisor from how the service was and how large the party is.');

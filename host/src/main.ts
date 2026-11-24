@@ -19,6 +19,8 @@ import { Pipeline } from './pipeline.ts';
 import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm, type Transport } from './providers.ts';
 import { loadExperiments, runExperiment, ShadowStore, shadowIndex, type Verdict } from './chaos.ts';
 import { Loop } from './improve.ts';
+import { Tracker } from './tracker.ts';
+import { titleOf } from './titles.ts';
 import { verifyReview } from './self.ts';
 import { communityFiler } from './community-issues.ts';
 import { designSpec, usage } from './apps.ts';
@@ -218,16 +220,36 @@ if (mode === 'ingest') {
     setInterval(sweep, 86_400_000).unref();
     const adapter = discord(c, (ids) => community.label(ids));
     actions.channelName = (id) => adapter.channelName?.(id);
+    // The tracker (tracker.ts): open questions, promises and requests, in the servers it is switched on for.
+    const tracker = c.tracker.guilds ? new Tracker({ kernel, store, index, llm, now: Date.now, guilds: c.tracker.guilds.has('*') ? null : c.tracker.guilds }) : null;
+    log('tracker', { servers: c.tracker.guilds ? [...c.tracker.guilds] : 'off', digest: c.tracker.channel || 'off' });
+    if (tracker) {
+      const title = (url: string) => titleOf(url, (id) => adapter.channelName?.(id));
+      actions.open = () => tracker.summary(title);
+      if (c.tracker.channel && adapter.post) {
+        // The daily digest, at the hour set, to the one admin channel set.
+        const digest = async () => adapter.post!(c.tracker.channel, `**Daily digest of open items**\n${await tracker.summary(title, 10)}`);
+        const untilHour = () => { const next = new Date(); next.setUTCHours(c.tracker.hourUtc, 0, 0, 0); if (next.getTime() <= Date.now()) next.setUTCDate(next.getUTCDate() + 1); return next.getTime() - Date.now(); };
+        setTimeout(() => { digest().catch(failed); setInterval(() => digest().catch(failed), 86_400_000).unref(); }, untilHour()).unref();
+      }
+    }
     await adapter.start({
       handle: (message) => pipeline.handle(message),
       observe: async (message) => {
         const decision = await memory.observe(message);
         await loop.observed(message, decision).catch(failed);
+        if (tracker) tracker.observed(message, decision).then((t) => t && log('tracker', { event: t })).catch(failed);
         return decision;
       },
       delivered: (d) => loop.delivered(d),
-      react: (url, emoji, human, member) => loop.reacted(url, emoji, human, member),
-      withdraw: (url, before) => memory.withdraw(url, before),
+      react: async (url, emoji, human, member) => {
+        if (tracker) await tracker.reacted(url, emoji, member, human).then((t) => t && log('tracker', { event: t })).catch(failed);
+        return loop.reacted(url, emoji, human, member);
+      },
+      withdraw: async (url, before) => {
+        await tracker?.withdraw(url).catch(failed);
+        return memory.withdraw(url, before);
+      },
       forgetChannel: (id) => memory.forget({ channel: id }),
       membership: (onRules, human, added) => kernel.membership(onRules, human, added),
     });

@@ -21,8 +21,8 @@ Q's inputs and outputs are defined in [docs/context.md](docs/context.md): Q's ke
 
 | Kind | What |
 | --- | --- |
-| Proved | The 51 theorems named in [CONFORMANCE.md](CONFORMANCE.md), about the decision functions in `app/src/Policy.lex.tex` and the request length in `app/src/Contract.lex.tex` |
-| Tested | 223 acceptance vectors through the byte-level dispatcher; 90 host tests, including a real MCP server over the protocol and over HTTP, the website's adapter over HTTP, the records against their schemas, and provenance against real Sigstore bundles |
+| Proved | The 54 theorems named in [CONFORMANCE.md](CONFORMANCE.md), about the decision functions in `app/src/Policy.lex.tex` and the request length in `app/src/Contract.lex.tex` |
+| Tested | 235 acceptance vectors through the byte-level dispatcher; 94 host tests, including a real MCP server over the protocol and over HTTP, the website's adapter over HTTP, the records against their schemas, and provenance against real Sigstore bundles |
 | Measured at every start | Q's own kernel is a build this repository's `holo.yml` signed (DA-20); the community holo's signed provenance; Q's read policy against the community's `uor-discord-read`, on all 96 requests (DA-13); every vector of both holos |
 | Cited | The community Discord read policy, from `UOR-Foundation/community`. DA-01 reproduces it |
 | Open | The facts the host passes in, the similarity thresholds, the language model's reading of a question, and what [host/README.md](host/README.md) lists as not run |

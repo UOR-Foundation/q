@@ -54,6 +54,7 @@ The three honesty levels (R2):
 | `DA-33` | `build` | A member's correction is used only when its words were kept and its author disapproved the answer, and only once an admin wrote it or another human confirmed it; a correction of a more trusted source is a dispute for people to settle, never learned over it | `Policy.correctionNeedsSecondHuman`, `Policy.correctionNeedsKeptWords`, `Policy.trustedSourceOnlyDisputed`, refuses with `hold` |
 | `DA-34` | `build` | An evolved genome replaces the current one only when it is promoted by decision 24 and answers none of the questions Q must refuse | `Policy.neverLeakRefusal`, `Policy.safeNeverWorse`, refuses with `keep` |
 | `DA-35` | `build` | A class of questions is judged weak or sound only on at least the minimum sample, and sound only within both the refusal and the wrong-answer bounds | `Policy.routeNeedsSample`, `Policy.soundWithinBounds`, refuses with `too few` |
+| `DA-36` | `build` | An open question, promise or request is closed only by a human: a question or request by someone else's reply or its author's confirmation, a promise only by a confirmation | `Policy.closeOnlyByHumans`, `Policy.promiseNeedsConfirmation`, `Policy.ownReplyNeverAnswers`, refuses with `open` |
 
 ## contract
 

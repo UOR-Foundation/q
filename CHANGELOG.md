@@ -35,6 +35,8 @@ This project follows Semantic Versioning and Conventional Commits.
 
 ### Added
 
+- Open questions, promises and requests ([docs/tracker.md](docs/tracker.md)). Q catches each one made in a server's public channels and keeps it open until a person closes it: someone else's reply or the author's ✅ for a question or request, and only a ✅ for a promise (decision 30, DA-36). Admins see what is open with `/open` (command 9) and in a daily digest. It runs only on the servers in `TRACKER_GUILDS`.
+
 - Q gets better with every interaction, verifiably ([docs/self-improvement.md](docs/self-improvement.md)).
   - Every approval, disapproval, reply and confirmation on what Q said is a typed signal record, admitted only from a consenting human (decision 26, DA-32).
   - A member's correction, a reply plus 👎 confirmed by a second member or written by an admin, is learned and found by the question it answers. Where Q cited a more trusted source it becomes a dispute for people (decision 27, DA-33).

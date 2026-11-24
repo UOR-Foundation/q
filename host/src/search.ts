@@ -222,6 +222,14 @@ export function loopRecord(index: SearchIndex, label: string, item: { type: stri
     const request = index.loopGet<Record<string, unknown>>('request', item.request);
     index.loopSet('request', item.request, { ...(request ?? {}), filed: item.issue });
   }
+  if (item.type === 'tracked' && typeof item.url === 'string') {
+    const was = index.loopGet<{ closed: string | null }>('tracked', item.url);
+    index.loopSet('tracked', item.url, { label, kind: item.kind, url: item.url, channel: item.channel, author: item.author, summary: item.summary, due: item.due, at: item.at, closed: was?.closed ?? null });
+  }
+  if (item.type === 'tracked-close' && typeof item.url === 'string') {
+    const tracked = index.loopGet<Record<string, unknown>>('tracked', item.url);
+    if (tracked) index.loopSet('tracked', item.url, { ...tracked, closed: label });
+  }
   if (item.type === 'review') {
     const latest = index.loopGet<{ at: number }>('review', 'latest');
     if (!latest || Number(item.at) > latest.at) index.loopSet('review', 'latest', { label, at: item.at });

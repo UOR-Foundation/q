@@ -310,3 +310,12 @@ statement = "A class of questions is judged weak or sound only on at least the m
 theorems = ["Policy.routeNeedsSample", "Policy.soundWithinBounds"]
 failure = "too few"
 negative = "DA-35"
+
+[[id]]
+id = "DA-36"
+level = "build"
+suite = "agent"
+statement = "An open question, promise or request is closed only by a human: a question or request by someone else's reply or its author's confirmation, a promise only by a confirmation"
+theorems = ["Policy.closeOnlyByHumans", "Policy.promiseNeedsConfirmation", "Policy.ownReplyNeverAnswers"]
+failure = "open"
+negative = "DA-36"

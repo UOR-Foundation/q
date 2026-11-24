@@ -30,6 +30,7 @@ import { verifyReview } from '../src/self.ts';
 import { promptOf, STYLES, systemFor } from '../src/pipeline.ts';
 import { areaOf } from '../src/titles.ts';
 import { titleOf } from '../src/titles.ts';
+import { candidate, Tracker } from '../src/tracker.ts';
 import { checkSpec, decide as decideApp, generate, type AppSpec } from '../src/appgen.ts';
 import { designSpec, usage } from '../src/apps.ts';
 import type { Outgoing } from '../src/pipeline.ts';
@@ -1659,4 +1660,86 @@ test('/build is open to members, shows progress, and is rate limited per person'
   await build('three');
   w.clock.now += 61_000;
   assert.match((await build('four'))!.text, /Rate limited: at most 3 apps an hour/);
+});
+
+// The tracker: open questions, promises and requests.
+const GUILD = '1342910418754076732';
+const msg = (text: string, more: Partial<Observed> = {}): Observed => said(text, { url: `https://discord.com/channels/${GUILD}/c1/${text.length}${more.authorId ?? 'u1'}`, ...more });
+async function trackerWorld(guilds: ReadonlySet<string> | null = null) {
+  const w = await world();
+  const reads: Record<string, { kind: string | null; summary?: string; due?: string | null }> = {
+    'Can someone review my PR for the LexLean lexer?': { kind: 'request', summary: 'Asks for a review of a LexLean lexer PR', due: null },
+    'How do I pin a holo to IPFS?': { kind: 'question', summary: 'Asks how to pin a holo to IPFS', due: null },
+    "I'll send the spec draft by Friday": { kind: 'promise', summary: 'Will send the spec draft', due: '2026-11-27' },
+    'Is this cool or what?': { kind: null },
+  };
+  const asked: string[] = [];
+  const llm = { model: 'm', complete: async (_s: string, u: string) => { asked.push(u); const text = u.slice(u.indexOf('Message: ') + 9); return JSON.stringify(reads[text] ?? { kind: null }); } };
+  const tracker = new Tracker({ kernel, store: w.store, index: w.index, llm, now: () => w.clock.now, guilds });
+  return { ...w, tracker, asked };
+}
+
+test('the tracker reads only likely messages, and keeps questions, promises and requests, not chatter', async () => {
+  assert.ok(candidate('How do I pin a holo to IPFS?'));
+  assert.ok(candidate("I'll send the spec draft by Friday"));
+  assert.ok(candidate('Can someone review my PR for the LexLean lexer?'));
+  assert.ok(!candidate('gm everyone'));
+  assert.ok(!candidate('Thanks, that worked great'));
+  const w = await trackerWorld();
+  assert.equal(await w.tracker.observed(msg('Thanks, that worked great'), 'index'), undefined);
+  assert.equal(w.asked.length, 0, 'chatter never reaches the model');
+  assert.equal(await w.tracker.observed(msg('Is this cool or what?'), 'index'), undefined);
+  for (const text of ['How do I pin a holo to IPFS?', "I'll send the spec draft by Friday", 'Can someone review my PR for the LexLean lexer?']) {
+    assert.equal(await w.tracker.observed(msg(text), 'index'), 'tracked');
+  }
+  // A message Q may not keep (a restricted channel, an opted-out author, a request to Q) is never tracked.
+  assert.equal(await w.tracker.observed(msg('How do I pin a holo to IPFS? again', { authorId: 'u9' }), 'skip'), undefined);
+  const open = await w.tracker.open();
+  assert.deepEqual(open.map((i) => i.kind).sort(), ['promise', 'question', 'request']);
+  assert.equal(open.find((i) => i.kind === 'promise')!.due, '2026-11-27');
+});
+
+test('a reply from someone else answers a question; the asker replying does not; a promise closes only with a check', async () => {
+  const w = await trackerWorld();
+  const q = msg('How do I pin a holo to IPFS?');
+  const p = msg("I'll send the spec draft by Friday");
+  await w.tracker.observed(q, 'index');
+  await w.tracker.observed(p, 'index');
+  // The asker adding detail does not answer their own question.
+  assert.equal(await w.tracker.observed(msg('Also with BLAKE3 CIDs', { replyTo: q.url, authorId: 'u1', url: 'https://discord.com/channels/x/c1/r0' }), 'index'), undefined);
+  // A bot's reply does not answer it.
+  assert.equal(await w.tracker.observed(msg('Beep', { replyTo: q.url, authorId: 'bot', origin: 'bot', url: 'https://discord.com/channels/x/c1/r1' }), 'index'), undefined);
+  // Someone else's reply does.
+  assert.equal(await w.tracker.observed(msg('Use the Filebase S3 API', { replyTo: q.url, authorId: 'u2', url: 'https://discord.com/channels/x/c1/r2' }), 'index'), 'closed');
+  // A reply to a promise does not close it; a check does.
+  assert.equal(await w.tracker.observed(msg('Thanks!', { replyTo: p.url, authorId: 'u2', url: 'https://discord.com/channels/x/c1/r3' }), 'index'), undefined);
+  assert.equal(await w.tracker.reacted(p.url, '👍', 'u2', true), undefined);
+  assert.equal(await w.tracker.reacted(p.url, '✅', 'u2', true), 'closed');
+  assert.deepEqual(await w.tracker.open(), []);
+});
+
+test('a deleted message, or a forgotten author, takes the item with it; tracking runs only in the servers it is on for', async () => {
+  const w = await trackerWorld();
+  const q = msg('How do I pin a holo to IPFS?');
+  const r = msg('Can someone review my PR for the LexLean lexer?', { authorId: 'u7' });
+  await w.tracker.observed(q, 'index');
+  await w.tracker.observed(r, 'index');
+  await w.tracker.withdraw(q.url);
+  await w.memory.forget({ author: 'u7' });
+  assert.deepEqual(await w.tracker.open(), []);
+  const elsewhere = await trackerWorld(new Set(['1574440187105251398']));
+  assert.equal(await elsewhere.tracker.observed(msg('How do I pin a holo to IPFS?'), 'index'), undefined);
+  assert.equal(elsewhere.asked.length, 0);
+});
+
+test('/open lists what is open by kind, oldest first, with its link and how old it is, and is for admins only', async () => {
+  const w = await trackerWorld();
+  await w.tracker.observed(msg('How do I pin a holo to IPFS?', { createdMs: w.clock.now - 3 * 86_400_000 }), 'index');
+  await w.tracker.observed(msg("I'll send the spec draft by Friday", { createdMs: w.clock.now }), 'index');
+  const text = await w.tracker.summary((url) => `#general (${url.length})`);
+  assert.match(text, /^\*\*Open:\*\* 1 question, 1 promise, 0 requests\./);
+  assert.match(text, /\*\*Questions\*\*\n- Asks how to pin a holo to IPFS · <@u1> · 3 days · \[#general/);
+  assert.match(text, /Will send the spec draft · <@u1> · today · due 2026-11-27/);
+  assert.equal(await kernel.command('open', 'member'), 'not authorized');
+  assert.equal(await kernel.command('open', 'admin'), 'allowed');
 });
