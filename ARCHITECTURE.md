@@ -119,6 +119,7 @@ When one of these changes, update the others. Drift is a bug.
 - New model provider: `host/src/providers.ts`.
 - New knowledge source: a `Source` in `host/src/knowledge.ts`.
 - New MCP tool for other agents: `host/src/mcp-server.ts`, public items only.
+- New kind of app for /build: the spec and generator in `host/src/appgen.ts` ([docs/apps.md](docs/apps.md)).
 - New chaos experiment: a `uor-q/experiment/1` record in `experiments/`; it runs once the community approves its BLAKE3 label ([docs/chaos.md](docs/chaos.md)).
 
 ## Design biases

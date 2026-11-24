@@ -109,7 +109,7 @@ definition{
   name: commandAllowed,
   parameters: [command : Nat, role : Nat],
   result: Bool,
-  body: ((command <=? 2) || ((command =? 5) || ((command =? 7) || (((command =? 3) || ((command =? 4) || (command =? 6))) && (role =? 1)))))
+  body: ((command <=? 2) || ((command =? 5) || ((command =? 7) || ((command =? 8) || (((command =? 3) || ((command =? 4) || (command =? 6))) && (role =? 1))))))
 }
 
 definition{

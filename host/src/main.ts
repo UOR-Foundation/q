@@ -19,6 +19,8 @@ import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm, type Trans
 import { loadExperiments, runExperiment, ShadowStore, shadowIndex, type Verdict } from './chaos.ts';
 import { Loop } from './improve.ts';
 import { communityFiler } from './community-issues.ts';
+import { designSpec, usage } from './apps.ts';
+import { requestBuild } from './builder-service.ts';
 import { SearchIndex } from './search.ts';
 import { Tools } from './tools.ts';
 import { mcpServer } from './mcp-server.ts';
@@ -158,6 +160,30 @@ if (mode === 'ingest') {
     });
     actions.improve = () => loop.summary();
     actions.feedback = (f) => loop.feedback(f);
+    // One prompt, one app: the model designs a small decision table; the builder service proves and publishes it.
+    if (c.builderUrl) {
+      const STAGES: Record<string, string> = { scaffold: 'setting up a Prism app', model: 'writing its LexLean model', prove: "proving it with Lean's kernel", verify: 'verifying the build', publish: 'publishing it to IPFS' };
+      actions.build = async ({ prompt, progress }) => {
+        progress('Designing your app…');
+        let spec;
+        try {
+          spec = await designSpec(llm, prompt);
+        } catch (error) {
+          return `I couldn't design an app from that: ${error instanceof Error ? error.message : String(error)}. Try saying what it decides, and from which choices.`;
+        }
+        const title = spec.title;
+        const result = await requestBuild(c.builderUrl, spec, (s) => { if (s.stage in STAGES) progress(`**${title}**: ${STAGES[s.stage]}…`); });
+        log('build', { name: spec.name, stage: result.stage, ...(result.stage === 'done' ? { label: result.label, seconds: result.seconds } : {}) });
+        if (result.stage !== 'done') return `I couldn't build **${title}**: ${result.stage === 'refused' ? result.reason : 'the builder stopped'}.`;
+        const label = '`' + result.label.slice(0, 19) + '`';
+        return [
+          `**${title}** is live in its own holospace. ${spec.purpose}`,
+          `**[Open ${title}](<${result.link}>)**`,
+          usage(spec),
+          `-# ${result.theorems} theorems proved by Lean's kernel · ${result.vectors} acceptance vectors · built in ${result.seconds} s · ${label}`,
+        ].join('\n');
+      };
+    }
     log('requests', { threshold: c.requests.threshold, filing: c.requests.token ? community.repository : 'off: no COMMUNITY_ISSUES_TOKEN' });
     log('genome', { label: await loop.restore(), genes: { mediumSimilarity: pipeline.settings.mediumSimilarity, highSimilarity: pipeline.settings.highSimilarity, retrieve: pipeline.settings.retrieve } });
     if (c.loop.everyHours > 0 && shadowing) {
