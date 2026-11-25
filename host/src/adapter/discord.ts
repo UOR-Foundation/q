@@ -22,6 +22,13 @@ const COMMANDS: [CommandName, string, boolean][] = [
   ['build', 'Describe an app: Q builds it, proves it, and links it running in its own holospace', false],
 ];
 
+/**
+ * A message's text without Q's own mention. Discord writes a user mention as `<@id>`, and as `<@!id>` when it was
+ * made through a nickname: both are the same mention. Mentions of anyone else are left as written.
+ */
+export const withoutMention = (content: string, me: string): string =>
+  content.replace(new RegExp(`<@!?${me.replace(/\D/g, '')}>`, 'g'), '').trim();
+
 // Discord refuses a message over 2000 characters.
 const LIMIT = 2000;
 const send = (payload: Payload) => ({
@@ -140,7 +147,7 @@ export function discord(config: Config, label: Labeler): Adapter {
           const triggers = batch.map(triggerOf);
           const trigger = triggers.includes('replyToAgent') ? 'replyToAgent' : triggers.includes('mention') ? 'mention' : 'none';
           // One sentence typed in pieces reads as one sentence: joined with spaces, not line breaks.
-          const text = batch.map((m) => m.content.replaceAll(`<@${me}>`, '').trim()).filter(Boolean).join(' ');
+          const text = batch.map((m) => withoutMention(m.content, me)).filter(Boolean).join(' ');
           // "Q is typing" from the moment the kernel decides to answer until the reply is sent; Discord
           // shows it for ten seconds, so it is renewed.
           let working = false;
