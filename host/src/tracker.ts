@@ -163,18 +163,19 @@ export class Tracker {
     this.#deps.index.loopDelete('tracked', url);
   }
 
-  /** What is still open, oldest first; an item its author has since been forgotten for is left out. */
-  async open(): Promise<Item[]> {
+  /** What is still open, oldest first, in one server or in all; an item its author has since been forgotten for is left out. */
+  async open(guild?: string): Promise<Item[]> {
     const items: Item[] = [];
     for (const { value } of this.#deps.index.loopAll<Item>('tracked')) {
-      if (!value.closed && (await this.#deps.store.has('private', value.label))) items.push(value);
+      if (value.closed || (guild && guildOf(value.url) !== guild)) continue;
+      if (await this.#deps.store.has('private', value.label)) items.push(value);
     }
     return items.sort((a, b) => a.at - b.at);
   }
 
   /** The open items as an admin reads them: by kind, oldest first, each linked to its message. */
-  async summary(title: (url: string) => string, limit = 20): Promise<string> {
-    const items = await this.open();
+  async summary(title: (url: string) => string, limit = 20, guild?: string): Promise<string> {
+    const items = await this.open(guild);
     if (!items.length) return 'Nothing open: every tracked question, promise and request has been answered or kept.';
     const now = this.#deps.now();
     const age = (at: number) => { const d = Math.floor((now - at) / DAY); return d === 0 ? 'today' : d === 1 ? '1 day' : `${d} days`; };

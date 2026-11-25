@@ -225,7 +225,7 @@ if (mode === 'ingest') {
     log('tracker', { servers: c.tracker.guilds ? [...c.tracker.guilds] : 'off', digest: c.tracker.channel || 'off' });
     if (tracker) {
       const title = (url: string) => titleOf(url, (id) => adapter.channelName?.(id));
-      actions.open = () => tracker.summary(title);
+      actions.open = (guild) => tracker.summary(title, 20, guild);
       if (c.tracker.channel && adapter.post) {
         // The daily digest, at the hour set, to the one admin channel set.
         const digest = async () => adapter.post!(c.tracker.channel, `**Daily digest of open items**\n${await tracker.summary(title, 10)}`);

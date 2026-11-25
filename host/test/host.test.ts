@@ -2003,6 +2003,9 @@ test('/open lists what is open by kind, oldest first, with its link and how old 
   assert.match(text, /^\*\*Open:\*\* 1 question, 1 promise, 0 requests\./);
   assert.match(text, /\*\*Questions\*\*\n- Asks how to pin a holo to IPFS · <@u1> · 3 days · \[#general/);
   assert.match(text, /Will send the spec draft · <@u1> · today · due 2026-11-27/);
+  // A server's open items are its own: run in another server, /open shows none of them.
+  assert.match(await w.tracker.summary(() => '', 20, GUILD), /^\*\*Open:\*\* 1 question, 1 promise/);
+  assert.match(await w.tracker.summary(() => '', 20, '1574440187105251398'), /^Nothing open/);
   assert.equal(await kernel.command('open', 'member'), 'not authorized');
   assert.equal(await kernel.command('open', 'admin'), 'allowed');
 });

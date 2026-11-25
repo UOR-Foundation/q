@@ -251,6 +251,7 @@ export function discord(config: Config, label: Labeler): Adapter {
         const reply = await handlers.handle({
           channel: facts(interaction.channel as Message['channel'] | null),
           channelId: interaction.channelId,
+          guildId: interaction.guildId ?? undefined,
           authorId: interaction.user.id,
           role: role(interaction.member as GuildMember | null),
           trigger: 'slash',
