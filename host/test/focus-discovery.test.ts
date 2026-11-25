@@ -76,7 +76,7 @@ test('focus inventory does not follow private, foreign, malformed or archived re
 
 test('focus inventory paginates, respects budget and distinguishes partial coverage from enumeration', async () => {
   const rows = Array.from({ length: 100 }, (_, i) => repo('archived-' + i, { archived: true }));
-  const data = { ...routes([]), [firstPage]: rows, [firstPage.replace('page=1', 'page=2')]: [repo('q'), repo('later')] };
+  const data = { ...routes([]), [firstPage]: rows, [firstPage.replace(/&page=1$/, '&page=2')]: [repo('q'), repo('later')] };
   const calls: string[] = [];
   const report = await collectPublicInventory(mock(data, calls), { observedAt: time, maxRepositories: 1 });
   assert.equal(report.pagesRead, 2);
