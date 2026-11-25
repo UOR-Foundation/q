@@ -22,7 +22,7 @@ function allowed(path: string): boolean {
     try { ref = decodeURIComponent(match[2]); } catch { return false; }
     // Require the same canonical encoding produced by the collector.
     if (encodeURIComponent(ref) !== match[2] || ref.length > 255 ||
-        /[\x00-\x20\x7f~^:?*\[\\]/.test(ref) || ref.includes('..') ||
+        /[\x00-\x20\x7f~^:?*\[\\]/.test(ref) || ref.includes('%') || ref.includes('..') ||
         ref.includes('@{') || ref.split('/').some(s => !s || s.startsWith('.') || s.endsWith('.') || s.endsWith('.lock'))) return false;
   }
   return true;
