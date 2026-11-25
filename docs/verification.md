@@ -1,14 +1,14 @@
 # Verification record
 
-Project-owned evidence for the gates in `VERIFICATION.md`. Run with prism-code 0.11.2 on 2026-11-24. Build with the version host/package.json pins: the host's runtime must read the holo the build writes.
+Project-owned evidence for the gates in `VERIFICATION.md`. Run with prism-code 0.11.2 on 2026-11-25. Build with the version host/package.json pins: the host's runtime must read the holo the build writes.
 
 ## Result
 
 | Command | Result |
 | --- | --- |
-| `npx prism-code@0.11.2 check --json` | exit 0; 55 of 55 theorems proved; 37 IDs, 37 scenarios, 1 authority, 1 claim; no contract violation |
-| `npx prism-code@0.11.2 build --json` | exit 0; 240 of 240 acceptance vectors replayed; holo `blake3:9df691806f47ac52de7a23ea283281e966530576479665dd8a65988bb8142ab6` |
-| `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 240 of 240 vectors on fresh instances |
+| `npx prism-code@0.11.2 check --json` | exit 0; 57 of 57 theorems proved; 38 IDs, 38 scenarios, 1 authority, 1 claim; no contract violation |
+| `npx prism-code@0.11.2 build --json` | exit 0; 248 of 248 acceptance vectors replayed; holo `blake3:5a6e2386cc8e0e42b1c85d981624044ec42ec4f130debc26b882ee0157c8eda8` |
+| `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 248 of 248 vectors on fresh instances |
 | `npx prism-code@0.11.2 manifest --json` | no finding; no capability granted |
 
 ## Planted defects
@@ -25,6 +25,7 @@ Each defect was planted in the model, the gate was run, and the model was restor
 | `exposeServe` serves a private item on the website (`|| (surface =? 2)` added) | `check` | `contract.theorem-unproved`: DA-31, `Policy.privateNeverLeavesDiscord` not proved (41 of 42); exit 1. `Policy.privateStaysOnDiscord` still holds, which is why DA-31 needs its own theorem |
 | DA-37 registered with its scenario before `threadOnlyKnown` was stated | `check` | `contract.theorem-unstated`: DA-37 names `Policy.threadOnlyKnown`, which the model does not state; exit 1 |
 | `threadUse` admits an earlier answer the host no longer reads back (`(known =? 0)` dropped) | `check` | `contract.theorem-unproved`: DA-37, `Policy.threadOnlyKnown` not proved (54 of 55); exit 1 |
+| `focusCollect` admits an unresolved community decision (`((community =? 0) \|\| (community =? 2))` for `(community =? 0)`) | `check`, `build` | `contract.theorem-unproved`: DA-38, `Policy.focusCollectOnly` not proved (56 of 57); exit 1. `build` refuses the same way and writes no holo. Restored byte-identical; the rebuilt holo is unchanged |
 | Decision 31 added while a vector still asks 31 as the first unassigned decision | `build` | `build.vectors`: 1 of 240 vectors is not what the model answers; no holo written. That vector now asks 32 |
 | The dispatcher refuses surface 2 (`(field value 2) <=? 1`) while the vectors ask for it | `build` | `build.vectors`: 2 of 190 vectors are not what the model answers; no holo written |
 | The dispatcher answers `denied` where the register says `not authorized` | `build` | `build.vectors`: 2 of 80 vectors are not what the model answers; no holo written |
