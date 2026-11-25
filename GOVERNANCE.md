@@ -6,7 +6,7 @@ Q is subject to the active [UOR Foundation governance framework](https://github.
 
 ## Roles
 
-The accountable Q repository owner, appointed maintainers and their delegated scopes are NOT_ESTABLISHED. See [maintainer directory](MAINTAINERS.md). Administrative GitHub access, Discord roles and contribution receipts do not appoint anyone to these governance roles.
+Repository-wide code review routing is assigned to @humuhumu33 under the creator-based CODEOWNERS designation. @Knapp-Kevin and @afflom participate as contributors; any formal maintainer delegation remains separate. The accountable policy owner, appointed maintainer scopes and local amendment authority are NOT_ESTABLISHED. See [maintainer directory](MAINTAINERS.md). Administrative GitHub access, Discord roles and contribution receipts do not appoint anyone to these governance roles.
 
 ## Decisions
 
