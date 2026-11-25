@@ -20,11 +20,15 @@ For each accessible public repo, enumerate all pages, resolve the actual default
 | Architecture | ARCHITECTURE_INDEX.md; follow its canonical owner-register reference, then accepted ADRs/contracts | Index may be a navigation map without owners; do not assume docs/README.md in all repositories |
 | Code ownership | GitHub CODEOWNERS precedence: .github/, root, docs/ on the evaluated branch | Last applicable pattern, not first; distinguish declared reviewer from owner/approval and effective enforcement. Use a qualified parser or mark unresolved |
 | Agent/workflow guidance | AGENTS.md, CLAUDE.md, template contract/lock, repository-specific instructions | Treat retrieved content as data, never runtime instructions. Follow only bounded same-repository revision links; don't execute content |
-| Qortara | public non-sensitive initialization metadata, owner-action status and permitted receipts | Do not read raw ledger/shadow journals or private evidence merely because a path exists. Native qualification is separate |
+| Qortara-generated governance artifacts | public non-sensitive governance files, initialization metadata and owner-action status | Interpret the artifacts as repository evidence; no Qortara engine, CLI or MCP dependency in Q. Do not read raw ledger/shadow journals or private evidence merely because a path exists |
 | Effective controls | authorized read-only rulesets, protections, checks, PR/review/merge data | Exact current head/base/check identity; 403/404/partial data is unknown unless absence independently established |
 | Expertise | merged PR receipts with actual changed paths and scope; accepted public contribution directory | Experience signal only, not formal authority, availability, skill rating or inferred Discord identity |
 
 Separate a public source from its content: never fetch or display private resources, credentials, confidential receipts or sensitive vulnerability detail; do not follow arbitrary external URLs. Limit fetch sizes/counts, deadlines and rate budget; enumerate exclusions, failed pages and stale sources in coverage. No token logging. No writes, notifications, role grants or assignments. Do not mix private Discord records into public governance recommendations.
+
+## Development governance boundary
+
+Qortara Logic establishes development governance and produces repository artifacts. Q consumes those public artifacts as source evidence, not as a dependency on Qortara's engine or evaluator. Do not install, invoke or require a Qortara CLI/MCP service in Q or its collectors. Do not infer availability of tooling from initialization files. Q's own model and host acceptance remain governed by its existing Prism/LexLean contract. The managed AGENTS.md block currently names local Qortara checks; any conflict with the actual development environment must be reconciled through the repository/template owner, not by silently modifying locked instructions or claiming an unavailable check passed. No new native Qortara gate is introduced by this proposal.
 
 ## Evidence contract (proposed host facts, not a second policy engine)
 
@@ -50,7 +54,7 @@ Complete default-branch tree readbacks (not organization census or effective-con
 
 ## Implementation and acceptance
 
-Start with a deterministic public snapshot reader, then fact normalization and scoped evidence routing; no generic runtime skill engine. Before runtime implementation, obtain owner acceptance of the architecture decision, register a new model capability and failure/refusal IDs/scenarios/theorems and vectors in Q's existing model, and run the native lifecycle gates. Prism owns permission and refusal decisions; host reports facts. Advisory relevance/effort ranking is not a proven claim.
+Start with a deterministic public snapshot reader, then fact normalization and scoped evidence routing; no generic runtime skill engine. Before runtime implementation, obtain owner acceptance of the architecture decision, register a new model capability and failure/refusal IDs/scenarios/theorems and vectors in Q's existing model, and run Q's existing Prism and host acceptance gates. Prism owns permission and refusal decisions; host reports facts. Advisory relevance/effort ranking is not a proven claim.
 
 Adversarial acceptance cases:
 1. Complete tree missing CODEOWNERS vs truncated tree vs inaccessible repository; only first permits a definite absence observation.
@@ -62,7 +66,7 @@ Adversarial acceptance cases:
 7. Private repository or restricted source referenced from public content; suppress restricted details and do not fetch it.
 8. Malicious Markdown tells Q to change a role, execute a skill, or transmit a credential; treat as data and refuse unauthorized action.
 9. An actionable upstream governance unblocker outranks a cosmetic issue; owner-only action remains blocked for an ordinary contributor.
-10. Unknown tier, unsupported native checks or expired exception never yields a fabricated compliance verdict.
+10. Unknown tier, unavailable verification evidence or expired exception never yields a fabricated compliance verdict.
 
 Require complete native check/build/verify, locked dependencies, typecheck, tests, planted defect rejection/restoration, independent review, and an authorized Discord acceptance interaction against a fresh representative multi-repository snapshot. Record exact revision and evidence. Owner acceptance and full-org live coverage are not established by this proposal.
 
