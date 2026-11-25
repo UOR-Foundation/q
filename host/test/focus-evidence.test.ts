@@ -7,7 +7,7 @@ import { architectureRegisterHint, codeownersSource, readPublicEvidence } from '
 const commit = 'a'.repeat(40), tree = 'b'.repeat(40);
 const indexText = '# Architecture index\n\nThe single canonical architecture owner register is [Owner register](docs/README.md).\n';
 const payload = (text: string | Buffer) => {
-  const bytes = Buffer.from(text);
+  const bytes = typeof text === 'string' ? Buffer.from(text, 'utf8') : text;
   const sha = createHash('sha1').update('blob ' + bytes.length + '\0').update(bytes).digest('hex');
   return { sha, size: bytes.length, encoding: 'base64', content: bytes.toString('base64') };
 };
