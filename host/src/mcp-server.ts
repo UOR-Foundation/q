@@ -12,7 +12,7 @@ import type { Incoming, Pipeline } from './pipeline.ts';
 
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
 
-const TOOLS = [
+export const MCP_PUBLIC_TOOLS = [
   { name: 'ask', description: "Ask Q a question about the UOR Foundation. Answered from public sources only, with citations and a claim level.", inputSchema: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] }, annotations: { readOnlyHint: true } },
   { name: 'search', description: "Search Q's public knowledge: the community model, uor.foundation and the organization's repositories.", inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }, annotations: { readOnlyHint: true } },
   { name: 'status', description: "Q's kernel and community pins: the BLAKE3 labels and commits it runs.", inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
@@ -25,7 +25,7 @@ export function mcpServer(pipeline: Pick<Pipeline, 'handle'>, kernel: Kernel, co
   const question = (command: 'ask' | 'search', value: string): Incoming => ({
     surface: 'mcp', channelId: 'mcp', authorId: author, role: 'member', trigger: 'slash', command, text: value,
   });
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: MCP_PUBLIC_TOOLS }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const args = (request.params.arguments ?? {}) as Record<string, unknown>;
     switch (request.params.name) {

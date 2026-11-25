@@ -118,7 +118,9 @@ if (mode === 'ingest') {
   // MCP servers: every tool offered to the language model, every call decided by the kernel.
   const { tools, failed } = await Tools.connect(c.mcpServers);
   log('tools', { servers: c.mcpServers.map((s) => ({ name: s.name, allow: s.allow === true })), tools: tools.list().length, failed });
-  const actions: ConstructorParameters<typeof Pipeline>[6] = { memory, reindex, community: () => community, emit, tools: () => tools, ...(c.focusEnabled ? {focus: runFocus} : {}) };
+  const runtime = {web:false,membership:false,evaluation:false,experiments:false,trackerDigest:false,retention:false};
+  const actions: ConstructorParameters<typeof Pipeline>[6] = { memory, reindex, community: () => community, emit, tools: () => tools,
+    capabilityRuntime: () => ({...runtime}), ...(c.focusEnabled ? {focus: runFocus} : {}) };
   const pipeline = new Pipeline(kernel, store, index, embedder, llm, c.settings, actions);
   // The website's adapter, beside Discord or alone: the same pipeline on the `web` surface.
   const serveWeb = async () => {
@@ -127,6 +129,7 @@ if (mode === 'ingest') {
     const mcp = (asker: Pick<Pipeline, 'handle'>, author: string) => mcpServer(asker, kernel, () => community, author);
     const server = webServer(pipeline, { origins: c.web.origins, suggestions, concurrency: c.web.concurrency, trustProxy: c.web.trustProxy, log, mcp, kernel: { label: kernel.holo, bytes: new Uint8Array(await readFile(c.holo)) } });
     await new Promise<void>((resolve) => server.listen(c.web.port, c.web.host, resolve));
+    runtime.web = true;
     log('web', { host: c.web.host, port: c.web.port, origins: c.web.origins, suggestions: suggestions.length, manifest: (await pipeline.manifest()).label });
   };
   if (mode === 'mcp') {
@@ -157,6 +160,7 @@ if (mode === 'ingest') {
         { memory: shadowMemory, reindex: async () => 'not in a shadow', community: () => community, emit: () => {} });
     };
     if (c.chaos.everyHours > 0 && experiments.length && shadowing) {
+      runtime.experiments = true;
       const deps = { kernel, community: () => community, shadow: (l: Transport, e: Transport, n: number) => shadow(l, e, n), load: () => pipeline.load, store, emit: (e: object) => out(JSON.stringify(e)), now: Date.now };
       const tryAll = async () => {
         for (const { experiment } of experiments) {
@@ -212,12 +216,15 @@ if (mode === 'ingest') {
     log('requests', { threshold: c.requests.threshold, filing: c.requests.token ? community.repository : 'off: no COMMUNITY_ISSUES_TOKEN' });
     log('genome', { label: await loop.restore(), genes: { mediumSimilarity: pipeline.settings.mediumSimilarity, highSimilarity: pipeline.settings.highSimilarity, retrieve: pipeline.settings.retrieve } });
     if (c.loop.everyHours > 0 && shadowing) {
+      runtime.evaluation = true;
       const turn = () => loop.daily().then(({ label, review, evolution }) => log('review', { label, self: review.self, gaps: review.gaps, tests: review.tests, evolution: evolution?.decision ?? 'not tried', proposals: review.proposals.length })).catch(failed);
       setTimeout(() => { turn(); setInterval(turn, c.loop.everyHours * 3_600_000).unref(); }, c.loop.firstMinutes * 60_000).unref();
     }
 
     const sweep = async () => log('retention', { removed: await memory.sweep() });
     await sweep();
+    runtime.retention = true;
+    runtime.membership = Boolean(c.membership);
     setInterval(sweep, 86_400_000).unref();
     const adapter = discord(c, (ids) => community.label(ids));
     actions.channelName = (id) => adapter.channelName?.(id);
@@ -228,6 +235,7 @@ if (mode === 'ingest') {
       const title = (url: string) => titleOf(url, (id) => adapter.channelName?.(id));
       actions.open = (guild) => tracker.summary(title, 20, guild);
       if (c.tracker.channel && adapter.post) {
+        runtime.trackerDigest = true;
         // The daily digest, at the hour set, to the one admin channel set.
         const digest = async () => adapter.post!(c.tracker.channel, `**Daily digest of open items**\n${await tracker.summary(title, 10)}`);
         const untilHour = () => { const next = new Date(); next.setUTCHours(c.tracker.hourUtc, 0, 0, 0); if (next.getTime() <= Date.now()) next.setUTCDate(next.getUTCDate() + 1); return next.getTime() - Date.now(); };
