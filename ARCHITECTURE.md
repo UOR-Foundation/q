@@ -1,5 +1,7 @@
 # Architecture
 
+For canonical claim ownership and maintenance, begin at [ARCHITECTURE_INDEX.md](ARCHITECTURE_INDEX.md). This page is a design overview, not an independent authority.
+
 A map of Q's moving parts, in the shape of [LangBot's ARCHITECTURE.md](https://github.com/langbot-app/LangBot/blob/master/ARCHITECTURE.md). When you need to change behaviour, start here, then follow the file references. [docs/langbot.md](docs/langbot.md) maps each LangBot component to Q's; [docs/context.md](docs/context.md) defines Q's inputs and outputs.
 
 ## What Q is
@@ -26,7 +28,7 @@ Q is the UOR Foundation's AI agent on Discord, built like LangBot with one diffe
 `host/src/main.ts`, in order:
 
 1. Load configuration from the environment (`config.ts`).
-2. Open the kernel: verify the holo's identities, replay its 240 vectors, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
+2. Open the kernel: verify the holo's identities, replay the vectors bound to that holo, and verify that its exact bytes are a build this repository's `holo.yml` signed (`provenance.ts`).
 3. Open the store and the search index.
 4. Open the community root: fetch its holo, verify its signed provenance, pin the newest commit, replay its vectors, admit each decision app whose examples it answers, read its channel labels, and check Q's read policy against it on all 96 requests (`community.ts`).
 5. Connect the configured MCP servers (`tools.ts`).
@@ -106,6 +108,10 @@ Do not confuse Q's MCP client (`tools.ts`) with Q's own MCP server (`mcp-server.
 - `ARCHITECTURE.md` and `docs/`.
 
 When one of these changes, update the others. Drift is a bug.
+
+## Live contribution discovery
+
+[Focus design and evidence boundaries](docs/focus-governance-discovery.md) route to the `focus-*` host modules. The public diagnostic preview is operator-enabled; consult [the architecture register](docs/README.md) for source ownership and #11 for live acceptance.
 
 ## Persistence
 
