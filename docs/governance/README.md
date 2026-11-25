@@ -6,6 +6,14 @@
 
 On 2026-11-24, `main` at `0aaa4b45128a86f749f38121ec0d1819590f19a5` reported `protected: false`, no enforced required contexts, and no effective repository/parent rulesets via `GET /repos/UOR-Foundation/q/rulesets?includes_parents=true`. The classic branch protection endpoint returned 403 to this integration: that is **not** proof of settings absence. Q's existing `.github/workflows/ci.yml` has a `verify` job on PRs and `push.main`, covering Prism check/build/verify, locked host install, generated bindings parity, typecheck and host tests. GitHub's check-run record on the last main commit identifies `verify` as GitHub Actions app **15368**. Do not substitute the signed-holo publication job for `verify`.
 
+## Current effective state (2026-11-25)
+
+Live readback of [organization Default Main rule 28049721](https://github.com/UOR-Foundation/q/rules/28049721) at main `0aaa4b45128a86f749f38121ec0d1819590f19a5` reports active, targeting the default branch, and main reports protected. Rules require PRs, block deletion and non-fast-forward updates, and require zero approving reviews. The rule has always-bypass for OrganizationAdmin and repository role 5, and contains no required status checks. The classic protection summary also has no required contexts. Do not describe Q as wholly unprotected or equate this inherited rule with CI enforcement.
+
+The JSON below remains a disabled candidate, not a ready-to-import settings prescription. Before creating it, reconcile overlapping PR/deletion/non-fast-forward rules and the inherited bypass actors. Prefer the smallest additive repository rule that enforces the native check without weakening inherited protection, if owner-approved and effective under GitHub's combined rules. Verify all effective rule layers and test their bypass behavior; no administrative change was made here.
+
+At prior proposal head `2338eec819f891cef2dfdbe5c4d9a6dc80450da3`, [run 45521326029](https://github.com/UOR-Foundation/q/actions/runs/45521326029) reported success for job `verify`. That result does not qualify this newer revision or enforce a merge gate.
+
 ## Proposed minimum (repository-specific Tier 2)
 
 Payload: [disabled creation request](q-main-ruleset.json). Apply to `refs/heads/main` only; no broad bypass actors. Reject direct pushes, deletion and non-fast-forward changes; require a pull request and the exact `verify` context **from app 15368** with strict up-to-date base checks. Proposed approval count is **0 only as the current Foundation baseline**, pending authenticated owner decision. This is not approval of zero reviews as good long-term security practice. A formally accepted owner may choose a stricter approval requirement, but must first establish who has independent review authority and ensure a practical non-self-review path.
@@ -26,8 +34,8 @@ Payload: [disabled creation request](q-main-ruleset.json). Apply to `refs/heads/
 
 - The [draft CODEOWNERS proposal](https://github.com/UOR-Foundation/q/pull/2) cannot be counted until accepted, merged and verified at `main/.github/CODEOWNERS`.
 - Appoint owner/maintainers with authenticated evidence and scoped duties. Keep accepted contributors distinct from appointed maintainers; privately confirm Discord IDs before roles.
-- Establish and verify a private vulnerability intake channel, response/triage owner and supported-version policy before replacing `SECURITY.md` placeholders.
-- If Foundation Tier 0 is installed later, independently verify that stronger repo-specific Tier 2 gates continue to apply; an organization safety floor is not a substitute.
+- The [Foundation security policy](https://github.com/UOR-Foundation/.github/blob/main/SECURITY.md) declares organization-wide private reporting and response timelines. Verify actual intake availability, accountable Q incident triage and supported versions; reference the inherited policy rather than inventing a parallel process.
+- Independently verify how the active organization Default Main rule combines with any repository-specific Tier 2 check; an organization safety floor is not a substitute for native required CI.
 
 ## Completion status
 
