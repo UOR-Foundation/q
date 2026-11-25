@@ -15,13 +15,19 @@ const backlog = new RegExp('^' + ROOT + '(' + REPO + ')/issues\\?state=open&sort
 const pull = new RegExp('^' + ROOT + '(' + REPO + ')/pulls/([1-9][0-9]{0,14})$');
 const checks = new RegExp('^' + ROOT + '(' + REPO + ')/commits/' + SHA + '/check-runs\\?filter=latest&per_page=100&page=([1-9][0-9]{0,2})$');
 
+const issueDetail = new RegExp('^' + ROOT + '(' + REPO + ')/issues/([1-9][0-9]{0,14})$');
+const blockedBy = new RegExp('^' + ROOT + '(' + REPO + ')/issues/([1-9][0-9]{0,14})/dependencies/blocked_by\\?per_page=100&page=([1-9][0-9]{0,2})$');
+
 function allowed(path: string): boolean {
   if (path.length > 1400) return false;
   const list = listing.exec(path);
   if (list) return Number(list[1]) <= 100;
   const work = backlog.exec(path) ?? checks.exec(path);
   if (work) return work[1] !== '.' && work[1] !== '..' && Number(work[2]) <= 100;
-  const pr = pull.exec(path);
+  const dependency = blockedBy.exec(path);
+  if (dependency) return dependency[1] !== '.' && dependency[1] !== '..' &&
+    Number.isSafeInteger(Number(dependency[2])) && Number(dependency[3]) <= 100;
+  const pr = pull.exec(path) ?? issueDetail.exec(path);
   if (pr) return pr[1] !== '.' && pr[1] !== '..' && Number.isSafeInteger(Number(pr[2]));
   const match = tree.exec(path) ?? blob.exec(path) ?? commit.exec(path);
   if (!match || match[1] === '.' || match[1] === '..') return false;
