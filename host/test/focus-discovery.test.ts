@@ -4,11 +4,14 @@ import { collectPublicInventory, type PublicRead } from '../src/focus-discovery.
 
 const time = '2026-11-25T19:00:00.000Z';
 const sha = 'a'.repeat(40);
+const treeSha = 'b'.repeat(40);
+const blobSha = 'c'.repeat(40);
+const commit = { sha, commit: { tree: { sha: treeSha } } };
 const repo = (name: string, extras: Record<string, unknown> = {}) => ({
   name, full_name: 'UOR-Foundation/' + name, default_branch: 'main',
   private: false, visibility: 'public', archived: false, fork: false, ...extras,
 });
-const blob = (path: string, mode = '100644') => ({ path, type: 'blob', mode });
+const blob = (path: string, mode = '100644') => ({ path, type: 'blob', mode, sha: blobSha });
 const firstPage = '/orgs/UOR-Foundation/repos?type=public&sort=full_name&direction=asc&per_page=100&page=1';
 const base = '/repos/UOR-Foundation/q';
 function mock(routes: Record<string, unknown>, calls: string[] = []): PublicRead {
@@ -20,8 +23,8 @@ function mock(routes: Record<string, unknown>, calls: string[] = []): PublicRead
 }
 const routes = (entries: unknown[], truncated = false) => ({
   [firstPage]: [repo('q')],
-  [base + '/commits/main']: { sha },
-  [base + '/git/trees/' + sha + '?recursive=1']: { truncated, tree: entries },
+  [base + '/commits/main']: commit,
+  [base + '/git/trees/' + treeSha + '?recursive=1']: { sha: treeSha, truncated, tree: entries },
 });
 
 test('focus inventory pins the default branch and distinguishes verified presence from absence', async () => {
@@ -30,10 +33,11 @@ test('focus inventory pins the default branch and distinguishes verified presenc
   assert.equal(report.enumeration, 'complete');
   assert.equal(report.coverage, 'complete');
   assert.equal(report.repositories[0].commit, sha);
+  assert.equal(report.repositories[0].blobs['GOVERNANCE.md'], blobSha);
   assert.equal(report.repositories[0].files['GOVERNANCE.md'], 'present');
   assert.equal(report.repositories[0].files['docs/CODEOWNERS'], 'present');
   assert.equal(report.repositories[0].files['.github/CODEOWNERS'], 'absent');
-  assert.deepEqual(calls, [firstPage, base + '/commits/main', base + '/git/trees/' + sha + '?recursive=1']);
+  assert.deepEqual(calls, [firstPage, base + '/commits/main', base + '/git/trees/' + treeSha + '?recursive=1']);
   assert.ok(!JSON.stringify(report).includes('unrelated.txt'));
 });
 
@@ -50,8 +54,10 @@ test('focus inventory rejects inaccessible, malformed and duplicate tree entries
   const report = await collectPublicInventory(mock(data), { observedAt: time });
   assert.equal(report.repositories[0].files['SECURITY.md'], 'unknown');
   assert.equal(report.repositories[0].tree, 'partial');
+  assert.equal(report.repositories[0].files['GOVERNANCE.md'], 'unknown');
+  assert.equal(report.repositories[0].blobs['GOVERNANCE.md'], undefined);
   assert.ok(report.repositories[0].failures.includes('tree-invalid'));
-  const unavailable = await collectPublicInventory(mock({ [firstPage]: [repo('q')], [base + '/commits/main']: { sha } }), { observedAt: time });
+  const unavailable = await collectPublicInventory(mock({ [firstPage]: [repo('q')], [base + '/commits/main']: commit }), { observedAt: time });
   assert.equal(unavailable.repositories[0].tree, 'unavailable');
   assert.equal(unavailable.repositories[0].files['GOVERNANCE.md'], 'unknown');
   assert.deepEqual(unavailable.repositories[0].failures, ['tree-unavailable']);
@@ -119,4 +125,14 @@ test('focus inventory refuses malformed budgets and timestamps before reading', 
   await assert.rejects(collectPublicInventory(read, { observedAt: time, maxPages: 0 }), RangeError);
   await assert.rejects(collectPublicInventory(read, { observedAt: time, maxRepositories: 1001 }), RangeError);
   await assert.rejects(collectPublicInventory(read, { observedAt: '2026-02-30T00:00:00.000Z' }), RangeError);
+});
+
+test('focus inventory refuses a mismatched tree identity and malformed blob identity', async () => {
+  const key = base + '/git/trees/' + treeSha + '?recursive=1';
+  const mismatched = await collectPublicInventory(mock({ ...routes([]), [key]: { sha: sha, truncated: false, tree: [blob('GOVERNANCE.md')] } }), { observedAt: time });
+  assert.equal(mismatched.repositories[0].files['GOVERNANCE.md'], 'unknown');
+  assert.equal(mismatched.coverage, 'partial');
+  const invalid = await collectPublicInventory(mock(routes([{ ...blob('GOVERNANCE.md'), sha: 'invalid' }])), { observedAt: time });
+  assert.equal(invalid.repositories[0].files['GOVERNANCE.md'], 'unknown');
+  assert.deepEqual(invalid.repositories[0].blobs, {});
 });
