@@ -26,6 +26,7 @@ export function renderFocus(data: Assessment): string {
   if(data.state==='cancelled')return 'Live contribution assessment was cancelled.';
   const p=data.projection;
   lines.push('Public GitHub scan: '+data.sourceCoverage+'; '+p.matchingRepositories+' repositories matched, '+p.matchingItems+' work items matched.');
+  if(data.search)lines.push('Open work across all '+data.repositoryCoverage.length+' listed repositories came from the GitHub search index: '+data.search.read+' of '+data.search.totalCount+' open items read'+(data.search.incomplete?', and GitHub marked the search incomplete':'')+'. The index can lag the repositories, so this is never a complete snapshot.');
   lines.push('Inspected '+(data.issues.length+data.pulls.length)+' candidates; '+p.omittedMatchingItems+' matching items and '+p.omittedRepositories+' known repositories omitted; '+p.unavailableRepositories+' matching-scope repositories incomplete or unavailable. This is not a Foundation-wide optimum.');
   const scoped = data.repositoryCoverage.filter(r=>/^UOR-Foundation\/[A-Za-z0-9_.-]{1,100}$/.test(r.repository)).slice(0,24);
   const names = scoped.map(r=>r.repository.slice('UOR-Foundation/'.length)+' ('+r.coverage+')').join(', ');

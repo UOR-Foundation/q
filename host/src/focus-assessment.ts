@@ -33,6 +33,8 @@ const FAIL = new Set(['failure','timed_out','action_required','startup_failure']
 export async function assessFocus(read: PublicRead, options: {
   filter?: DiscoveryFilter; maxCandidates?: number;
   maxOrgPages?: number; maxRepositories?: number; maxWorkPages?: number;
+  /** Read open work for every listed repository through the organization-wide search index. */
+  orgWide?: boolean;
   now?: () => Date; signal?: AbortSignal;
 } = {}) {
   const limit = options.maxCandidates ?? 4;
@@ -135,6 +137,7 @@ export async function assessFocus(read: PublicRead, options: {
     startedAt:snapshot.startedAt,finishedAt:(options.now??(()=>new Date()))().toISOString(),
     sourceCoverage:snapshot.coverage,projection,issues,pulls,targets:[...targets.values()],
     repositoryCoverage:snapshot.repositories.map(r=>({repository:r.repository,coverage:r.coverage})),
+    search:snapshot.search,
     omittedDependencies,plan,
     diagnosticChoices:options.signal?.aborted||plan.state==='invalid'?[]:choices,
     recommendationBasis:'observed-blockers-and-read-only-investigation-not-execution-readiness' as const};

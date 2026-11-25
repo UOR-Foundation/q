@@ -2043,7 +2043,7 @@ test('Discord Focus runs the real entry and model against fresh provider data on
     const repo={name:'q',full_name:'UOR-Foundation/q',private:false,visibility:'public',archived:false,fork:false,default_branch:'main'};
     const issue={number:n,state:'open',title:'@everyone untrusted title',updated_at:'2026-11-25T20:00:00Z',assignees:[],
       repository_url:'https://api.github.com/repos/UOR-Foundation/q',html_url:'https://github.com/UOR-Foundation/q/issues/'+n};
-    const body=u.pathname.startsWith('/orgs/')?[repo]:u.pathname.endsWith('/dependencies/blocked_by')?[]:u.pathname.endsWith('/issues')?[issue]:issue;
+    const body=u.pathname.startsWith('/orgs/')?[repo]:u.pathname==='/search/issues'?{total_count:1,incomplete_results:false,items:[issue]}:u.pathname.endsWith('/dependencies/blocked_by')?[]:u.pathname.endsWith('/issues')?[issue]:issue;
     return new Response(JSON.stringify(body));
   }});
   const question='What should I work on next?';

@@ -15,6 +15,9 @@ const backlog = new RegExp('^' + ROOT + '(' + REPO + ')/issues\\?state=open&sort
 const pull = new RegExp('^' + ROOT + '(' + REPO + ')/pulls/([1-9][0-9]{0,14})$');
 const checks = new RegExp('^' + ROOT + '(' + REPO + ')/commits/' + SHA + '/check-runs\\?filter=latest&per_page=100&page=([1-9][0-9]{0,2})$');
 
+// One organization-wide query, exactly: open issues and PRs of active repositories, oldest first. GitHub search
+// returns at most 1000 results, so ten pages.
+const search = /^\/search\/issues\?q=org%3AUOR-Foundation\+is%3Aopen\+archived%3Afalse&sort=created&order=asc&per_page=100&page=([1-9][0-9]?)$/;
 const issueDetail = new RegExp('^' + ROOT + '(' + REPO + ')/issues/([1-9][0-9]{0,14})$');
 const blockedBy = new RegExp('^' + ROOT + '(' + REPO + ')/issues/([1-9][0-9]{0,14})/dependencies/blocked_by\\?per_page=100&page=([1-9][0-9]{0,2})$');
 
@@ -22,6 +25,8 @@ function allowed(path: string): boolean {
   if (path.length > 1400) return false;
   const list = listing.exec(path);
   if (list) return Number(list[1]) <= 100;
+  const found = search.exec(path);
+  if (found) return Number(found[1]) <= 10;
   const work = backlog.exec(path) ?? checks.exec(path);
   if (work) return work[1] !== '.' && work[1] !== '..' && Number(work[2]) <= 100;
   const dependency = blockedBy.exec(path);
