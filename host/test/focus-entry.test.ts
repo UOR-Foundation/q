@@ -66,3 +66,25 @@ test('focus entry asks for clarification rather than silently choosing among exp
   const model={async complete(){return '{"intent":"focus"}';}};
   assert.deepEqual(await runFocus(kernel,model,'What should I work on in UOR-Foundation/q or UOR-Foundation/lexlean?',admission,{fetcher:async()=>assert.fail('must not fetch')}),{kind:'clarify'});
 });
+test('focus entry does not treat sentence-final periods as part of a named repository',async()=>{
+  const model={async complete(){return '{"intent":"focus"}';}};
+  const repos=[...Array.from({length:25},(_,i)=>'a'+String(i).padStart(2,'0')),'q'].map(name=>({name,full_name:'UOR-Foundation/'+name,private:false,visibility:'public',archived:false,fork:false,default_branch:'main'}));
+  const run=async(question:string)=>{
+    const calls:string[]=[];
+    const result=await runFocus(kernel,model,question,admission,{fetcher:async url=>{
+      const u=new URL(String(url));calls.push(u.pathname);
+      return new Response(JSON.stringify(u.pathname.startsWith('/orgs/')?repos:[]));
+    }});
+    if(result.kind!=='assessment')return assert.fail();
+    return {calls,matching:result.data.projection.matchingRepositories};
+  };
+  for(const question of ['What should I work on in UOR-Foundation/q.','What should I work on in UOR-Foundation/q...']){
+    const {calls,matching}=await run(question);
+    assert.equal(matching,1);
+    assert.equal(calls[1],'/repos/UOR-Foundation/q/issues');
+  }
+  // An invalid explicitly named identity must not fall back to a broad scan.
+  for(const question of ['What should I work on in UOR-Foundation/...','What should I work on in UOR-Foundation/. or UOR-Foundation/q?']){
+    assert.deepEqual(await runFocus(kernel,model,question,admission,{fetcher:async()=>assert.fail('must not fetch')}),{kind:'clarify'});
+  }
+});
