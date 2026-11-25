@@ -1,6 +1,6 @@
 // Question-time Focus assessment. Deterministic host facts only, no LLM calls,
-// new access, writes or claims of implementation eligibility. Not wired into
-// the production pipeline; Prism registration and acceptance precede that.
+// new access, writes or claims of implementation eligibility. The Discord
+// entry is operator-gated; its live acceptance is distinct from native CI.
 import { createHash } from 'node:crypto';
 import type { PublicRead } from './focus-discovery.ts';
 import { collectLiveWork, inspectLivePull, type PullObservation } from './focus-live-work.ts';
@@ -134,6 +134,7 @@ export async function assessFocus(read: PublicRead, options: {
   return {state:options.signal?.aborted?'cancelled' as const:'assessed' as const,
     startedAt:snapshot.startedAt,finishedAt:(options.now??(()=>new Date()))().toISOString(),
     sourceCoverage:snapshot.coverage,projection,issues,pulls,targets:[...targets.values()],
+    repositoryCoverage:snapshot.repositories.map(r=>({repository:r.repository,coverage:r.coverage})),
     omittedDependencies,plan,
     diagnosticChoices:options.signal?.aborted||plan.state==='invalid'?[]:choices,
     recommendationBasis:'observed-blockers-and-read-only-investigation-not-execution-readiness' as const};

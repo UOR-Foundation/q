@@ -2072,3 +2072,13 @@ test('Discord Focus respects ordinary routing, access filters, and non-Discord s
   w.pipeline.settings.filter={scope:'both',terms:[]};
   await w.pipeline.handle(ask('What should I work on next?',{surface:'mcp',authorId:'mcp-test'}));
 });
+
+test('Discord Focus reports clarification and unavailability without ordinary cached answers',async()=>{
+  const w=await world();
+  w.pipeline.actions.focus=async()=>({kind:'clarify'});
+  assert.match((await w.pipeline.handle(ask('What should I work on next?')))!.text,/Which one public/);
+  w.pipeline.actions.focus=async()=>({kind:'unavailable'});
+  assert.match((await w.pipeline.handle(ask('What should I work on next?')))!.text,/cannot verify current work/);
+  assert.equal(w.llm.calls,0);
+  assert.equal((await w.store.labels('private')).length,0);
+});

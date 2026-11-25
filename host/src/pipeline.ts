@@ -502,6 +502,10 @@ export class Pipeline {
           clock.lap('focus');
           return { text: renderFocus(fresh.data), decision: 'allowed', citations: [], timings: clock.laps };
         }
+        // A declined or unresolved live route must not masquerade as a fresh
+        // recommendation from the ordinary indexed-answer path.
+        if (fresh.kind === 'clarify') return done('Which one public UOR Foundation repository or contribution objective should I assess?');
+        if (fresh.kind === 'hold' || fresh.kind === 'unavailable') return done('Live contribution assessment is unavailable; I cannot verify current work.');
       }
     }
 

@@ -26,7 +26,11 @@ export function renderFocus(data: Assessment): string {
   if(data.state==='cancelled')return 'Live contribution assessment was cancelled.';
   const p=data.projection;
   lines.push('Public GitHub scan: '+data.sourceCoverage+'; '+p.matchingRepositories+' repositories matched, '+p.matchingItems+' work items matched.');
-  lines.push('Inspected '+(data.issues.length+data.pulls.length)+' candidates; '+p.omittedMatchingItems+' matching items omitted. This is not a Foundation-wide optimum.');
+  lines.push('Inspected '+(data.issues.length+data.pulls.length)+' candidates; '+p.omittedMatchingItems+' matching items and '+p.omittedRepositories+' known repositories omitted; '+p.unavailableRepositories+' matching-scope repositories incomplete or unavailable. This is not a Foundation-wide optimum.');
+  const scoped = data.repositoryCoverage.filter(r=>/^UOR-Foundation\/[A-Za-z0-9_.-]{1,100}$/.test(r.repository)).slice(0,24);
+  const names = scoped.map(r=>r.repository.slice('UOR-Foundation/'.length)+' ('+r.coverage+')').join(', ');
+  if(names)lines.push('Repository coverage: '+names.slice(0,600)+(names.length>600?'…':'')+'.');
+  lines.push('Foundation objectives and contributor authority have not been independently established.');
   if(data.plan.state==='invalid')lines.push('The observed task graph is inconsistent. No implementation recommendation is established.');
   else if(!data.diagnosticChoices.length)lines.push('No supported next investigation was established from the inspected evidence.');
   else {
