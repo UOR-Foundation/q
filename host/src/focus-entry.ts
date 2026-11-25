@@ -1,0 +1,48 @@
+// Callable, model-gated entry to the Focus assessment. The existing answer
+// pipeline must supply admitted request and community-candidate facts after
+// its own access, filtering and rate checks. This module does not publish,
+// persist or cache answers and does not accept user-supplied policy facts.
+import type { Kernel } from './kernel.ts';
+import type { Llm } from './providers.ts';
+import { selectStrategy } from './focus-strategy.ts';
+import { assessFocus } from './focus-assessment.ts';
+import { createPublicRead } from './focus-public-read.ts';
+import type { DiscoveryFilter } from './focus-discovery-projection.ts';
+
+type Admission = {
+  admitted: boolean;
+  community: 'not-applicable' | 'applicable' | 'unknown';
+  scope: 'public' | 'other';
+};
+type Result = {kind:'hold'|'ordinary'|'clarify'|'unavailable'} |
+  {kind:'assessment'; data:Awaited<ReturnType<typeof assessFocus>>};
+
+export async function runFocus(kernel: Pick<Kernel,'focusCollect'>, model: Pick<Llm,'complete'>,
+  question:string, admission:Admission, options:{
+    filter?:DiscoveryFilter; signal?:AbortSignal;
+    // Only test harnesses inject fetch. Production uses anonymous fixed-origin
+    // transport, not Q's authenticated GitHub ingestion token.
+    fetcher?:typeof fetch;
+  }={}):Promise<Result> {
+  if(options.signal?.aborted)return {kind:'hold'};
+  if(admission.admitted!==true || admission.scope!=='public' || admission.community!=='not-applicable') {
+    // Avoid even classification when the caller has no admitted public
+    // request or a community decision might apply.
+    return {kind:'hold'};
+  }
+  const route=await selectStrategy(model,question,{communityDecision:admission.community,availableEvidence:new Set()},options.signal);
+  if(route.kind==='clarify')return {kind:'clarify'};
+  if(route.kind==='unavailable')return {kind:'unavailable'};
+  if(route.kind!=='strategy'||route.intent!=='focus')return {kind:'ordinary'};
+  if(options.signal?.aborted)return {kind:'hold'};
+  try {
+    const decision=await kernel.focusCollect('focus',admission.community,admission.scope,admission.admitted);
+    if(decision!=='collect'||options.signal?.aborted)return {kind:'hold'};
+  } catch {return {kind:'unavailable'};}
+  // Reserve the operation's limited anonymous budget for deeper evidence
+  // by bounding the first pass. This provisional scope cap must be
+  // measured; the assessment explicitly reports partial coverage.
+  const {read}=createPublicRead({maxRequests:40,deadlineMs:15000,signal:options.signal,fetcher:options.fetcher});
+  const data=await assessFocus(read,{filter:options.filter,maxRepositories:24,maxWorkPages:1,maxCandidates:4,signal:options.signal});
+  return options.signal?.aborted||data.state==='cancelled'?{kind:'hold'}:{kind:'assessment',data};
+}
