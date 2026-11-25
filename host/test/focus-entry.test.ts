@@ -83,6 +83,8 @@ test('focus entry does not treat sentence-final periods as part of a named repos
     assert.equal(matching,1);
     assert.equal(calls[1],'/repos/UOR-Foundation/q/issues');
   }
-  // A bare dot segment still names no repository and does not narrow the scope.
-  assert.equal((await run('What should I work on in UOR-Foundation/...')).matching,24);
+  // An invalid explicitly named identity must not fall back to a broad scan.
+  for(const question of ['What should I work on in UOR-Foundation/...','What should I work on in UOR-Foundation/. or UOR-Foundation/q?']){
+    assert.deepEqual(await runFocus(kernel,model,question,admission,{fetcher:async()=>assert.fail('must not fetch')}),{kind:'clarify'});
+  }
 });
