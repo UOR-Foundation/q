@@ -4,23 +4,13 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { AttachmentBuilder, ChannelType, Client, Events, GatewayIntentBits, Partials, PermissionFlagsBits, SlashCommandBuilder, type Guild, type GuildMember, type Message, type MessageReaction, type PartialMessage, type PartialMessageReaction, type PartialUser, type User } from 'discord.js';
 import type { Config } from '../config.ts';
+import { DISCORD_COMMANDS } from '../capabilities.ts';
 import type { ChannelFacts, CommandName } from '../kernel.ts';
 import type { Observed } from '../memory.ts';
 import { Aggregator } from '../aggregator.ts';
 import { payloads, type Adapter, type Handlers, type Payload } from './adapter.ts';
 
-const COMMANDS: [CommandName, string, boolean][] = [
-  ['ask', 'Ask a question about the UOR Foundation', true],
-  ['search', 'Search the indexed sources', true],
-  ['status', 'Show the kernel and the index', false],
-  ['reindex', 'Re-index the knowledge sources (admin)', false],
-  ['forget-channel', 'Forget everything indexed from this channel (admin)', false],
-  ['forget-me', 'Forget everything indexed from you, and stop indexing you', false],
-  ['improve', 'What Q is learning, and what it proposes to change (admin)', false],
-  ['feedback', 'Tell Q what to do better, or ask for a feature. Shared with the community, without your name.', false],
-  ['open', 'Open questions, promises and requests in this server (admin)', false],
-  ['build', 'Describe an app: Q builds it, proves it, and links it running in its own holospace', false],
-];
+const COMMANDS: [CommandName, string, boolean][] = (Object.keys(DISCORD_COMMANDS) as CommandName[]).map(name => [name, DISCORD_COMMANDS[name].description, DISCORD_COMMANDS[name].question]);
 
 // Discord refuses a message over 2000 characters.
 const LIMIT = 2000;

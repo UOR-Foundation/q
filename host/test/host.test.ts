@@ -5,7 +5,8 @@ import { readFile } from 'node:fs/promises';
 import { before, test } from 'node:test';
 import { isLabel, labelOf, matches } from '../src/address.ts';
 import { channelLabels, readPolicyDrift, type Decider, type DecisionApp } from '../src/community.ts';
-import { Kernel, type ChannelFacts } from '../src/kernel.ts';
+import { COMMAND, Kernel, type ChannelFacts } from '../src/kernel.ts';
+import { capabilityReport, DISCORD_COMMANDS, isCapabilityQuestion } from '../src/capabilities.ts';
 import { chunks, ingest, type Source } from '../src/knowledge.ts';
 import { Memory, type Observed } from '../src/memory.ts';
 import { Pipeline, type Incoming, type Progress, type Published, type Settings } from '../src/pipeline.ts';
@@ -2081,4 +2082,42 @@ test('Discord Focus reports clarification and unavailability without ordinary ca
   assert.match((await w.pipeline.handle(ask('What should I work on next?')))!.text,/cannot verify current work/);
   assert.equal(w.llm.calls,0);
   assert.equal((await w.store.labels('private')).length,0);
+});
+
+test('capability catalog covers every kernel command and reports actual caller eligibility',async()=>{
+  const w=await world();
+  assert.deepEqual(Object.keys(DISCORD_COMMANDS).sort(),Object.keys(COMMAND).sort());
+  const member=await capabilityReport(kernel,w.decider,w.pipeline.actions,'member');
+  assert.ok(matches(member.report,member.label));
+  assert.equal(member.report.commands.length,Object.keys(COMMAND).length);
+  for(const c of member.report.commands)assert.equal(c.eligibility,(await kernel.command(c.name,'member'))==='allowed'?'eligible':'not authorized');
+  assert.equal(member.report.commands.find(c=>c.name==='reindex')?.eligibility,'not authorized');
+  assert.equal(member.report.commands.find(c=>c.name==='build')?.wiring,'unavailable');
+  const admin=await capabilityReport(kernel,w.decider,w.pipeline.actions,'admin');
+  assert.equal(admin.report.commands.find(c=>c.name==='reindex')?.eligibility,'eligible');
+  assert.notEqual(admin.label,member.label);
+});
+test('capability question is direct and private configuration is not consulted',async()=>{
+  const w=await world();
+  w.pipeline.actions.tools=()=>assert.fail('must not discover tools');
+  w.pipeline.actions.build=async()=>assert.fail('must not execute a build');
+  const a=await w.pipeline.handle(ask('What are your capabilities?'));
+  assert.match(a!.text,/Q capability map/);
+  assert.match(a!.text,/\/reindex:.*not authorized/);
+  assert.match(a!.text,/DA-39/);
+  assert.match(a!.text,/Report blake3:/);
+  assert.equal(w.llm.calls,0);
+  assert.equal((await w.store.labels('private')).length,0);
+  assert.equal(isCapabilityQuestion('what are your capabilities for a naming decision'),false);
+});
+test('capability report remains subject to Discord access and incoming filters',async()=>{
+  const w=await world();
+  const question='What can you do?';
+  assert.equal(await w.pipeline.handle(ask(question,{channel:{...open,visibility:'restricted'}})),undefined);
+  w.pipeline.settings.access={mode:'whitelist',list:new Set()};
+  assert.equal(await w.pipeline.handle(ask(question)),undefined);
+  w.pipeline.settings.access={mode:'blacklist',list:new Set()};
+  w.pipeline.settings.filter={scope:'both',terms:['what']};
+  assert.equal((await w.pipeline.handle(ask(question)))?.decision,'interrupt');
+  assert.equal(w.llm.calls,0);
 });
