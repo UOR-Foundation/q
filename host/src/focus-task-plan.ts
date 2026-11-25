@@ -153,7 +153,7 @@ export function recommendWork(snapshot: TaskSnapshot): Result {
   const choices = [primary, alternative].filter((c): c is Candidate => c !== undefined).map((c,i): Choice => ({
     taskId: c.id, action: c.action, lane: lanes[c.lane], immediateUnlocks: c.immediate, downstream: c.downstream,
     firstSliceMinutes: Math.min(5, snapshot.capacityMinutes ?? 5, tasks.get(c.id)!.effortMinutes ?? 5),
-    defersProtectedWork: protectedUnresolved.length > 0 || (i > 0 && primary.lane < 2),
+    defersProtectedWork: (c.lane === 2 && protectedUnresolved.length > 0) || (i > 0 && primary.lane < 2),
   }));
   return {state: 'advisory', basis: 'caller-assertions-not-independent-proof', coverage: snapshot.coverage, choices,
     blocked, protectedUnresolved, unscored, needsDecomposition, needsVerification,
