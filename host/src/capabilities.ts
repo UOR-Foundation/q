@@ -11,11 +11,11 @@ export const DISCORD_COMMANDS: Readonly<Record<CommandName,Entry>> = {
   search:{description:'Search the indexed sources',question:true,summary:'Find indexed sources without answer-generation inference',policy:['DA-10','DA-22','DA-31'],source:'host/src/pipeline.ts'},
   status:{description:'Show the kernel, index and capabilities',question:false,summary:'Capability map and operational self-report',policy:['DA-39'],source:'host/src/capabilities.ts'},
   reindex:{description:'Re-index the knowledge sources (admin)',question:false,summary:'Refresh knowledge sources',policy:['DA-04','DA-10'],source:'host/src/main.ts'},
-  'forget-channel':{description:'Forget everything indexed from this channel (admin)',question:false,summary:'Request removal of indexed channel content',policy:['DA-04','DA-09'],source:'host/src/memory.ts'},
-  'forget-me':{description:'Forget everything indexed from you, and stop indexing you',question:false,summary:'Request personal forgetting and opt-out',policy:['DA-04','DA-09'],source:'host/src/memory.ts'},
+  'forget-channel':{description:'Request forgetting indexed channel content (admin)',question:false,summary:'Request removal of indexed channel content',policy:['DA-04','DA-09'],source:'host/src/memory.ts'},
+  'forget-me':{description:'Request personal forgetting and opt-out',question:false,summary:'Request personal forgetting and opt-out',policy:['DA-04','DA-09'],source:'host/src/memory.ts'},
   improve:{description:'What Q is learning, and what it proposes to change (admin)',question:false,summary:'Inspect improvement review',policy:['DA-27','DA-28','DA-29','DA-35'],source:'host/src/improve.ts',effect:'improve'},
-  feedback:{description:'Tell Q what to do better, or ask for a feature. Shared with the community, without your name.',question:false,summary:'Submit feedback; filing is conditional on consent and support',policy:['DA-30'],source:'host/src/improve.ts',effect:'feedback'},
-  build:{description:'Describe an app: Q builds it, proves it, and links it running in its own holospace',question:false,summary:'Request a small modeled app from the configured builder',policy:['DA-04','DA-05'],source:'host/src/apps.ts',effect:'build'},
+  feedback:{description:'Submit feedback or request a feature',question:false,summary:'Submit feedback; filing is conditional on consent and support',policy:['DA-30'],source:'host/src/improve.ts',effect:'feedback'},
+  build:{description:'Request a modeled app when the builder is configured',question:false,summary:'Request a small modeled app from the configured builder',policy:['DA-04','DA-05'],source:'host/src/apps.ts',effect:'build'},
   open:{description:'Open questions, promises and requests in this server (admin)',question:false,summary:'Inspect tracked work in an eligible server',policy:['DA-04','DA-36'],source:'host/src/tracker.ts',effect:'open'},
 };
 
@@ -29,14 +29,15 @@ export function isCapabilityQuestion(question:string):boolean {
 type Facts = Pick<Actions,'focus'|'improve'|'open'|'feedback'|'build'|'self'>;
 type ReportKernel = Pick<Kernel,'command'|'model'|'holo'|'commit'>;
 export async function capabilityReport(kernel:ReportKernel, community:Decider, actions:Facts, role:'member'|'admin'){
-  const commands=await Promise.all((Object.keys(COMMAND) as CommandName[]).map(async name=>{
+  const commands=[];
+  for(const name of Object.keys(COMMAND) as CommandName[]){
     const entry=DISCORD_COMMANDS[name];
     if(!entry)throw new Error('command inventory mismatch');
     const decision=await kernel.command(name,role);
-    return {name,summary:entry.summary,source:entry.source,policy:entry.policy,
-      wiring:entry.effect&&typeof actions[entry.effect]!=='function'?'unavailable':'wired',
-      eligibility:decision==='allowed'?'eligible':decision==='not authorized'?'not authorized':'unknown'};
-  }));
+    commands.push({name,summary:entry.summary,source:entry.source,policy:entry.policy,
+      wiring:decision!=='allowed'?'not disclosed':entry.effect&&typeof actions[entry.effect]!=='function'?'unavailable':'wired',
+      eligibility:decision==='allowed'?'eligible':decision==='not authorized'?'not authorized':'unknown'});
+  }
   // These are public architectural capability groups, not a listing of
   // private integrations, source contents, tool names or service endpoints.
   const groups=[
@@ -61,5 +62,5 @@ export function renderCapabilities(value:Awaited<ReturnType<typeof capabilityRep
   return ['**Q capability map**','This is an inventory of registered commands and public capability groups, not a permission grant. "Eligible" is the kernel command check for this caller; further checks apply. "Wired" is host wiring, not a live success guarantee.',
     '**Commands**',...commandLines,'**Other capability groups**',...groupLines,
     'Provenance (DA-39, measured host claim): kernel model '+r.kernel.model+', holo '+r.kernel.holo+', signed kernel commit '+(r.kernel.commit??'unverified')+'. Community pin '+r.community.commit+', holo '+r.community.holo+'. Host revision '+r.hostRevision+'. Report '+label+'.',
-    'Sources: model/ids.toml, CONFORMANCE.md, host/src/capabilities.ts and the named implementation modules. The report does not expose private configuration or independently certify effective privileges.'].join('\n');
+    'Sources: model/ids.toml, CONFORMANCE.md, host/src/capabilities.ts and the named implementation modules. The report does not expose private configuration or independently certify effective privileges. Wiring for ineligible commands is withheld.'].join('\n');
 }

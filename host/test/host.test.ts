@@ -2092,6 +2092,7 @@ test('capability catalog covers every kernel command and reports actual caller e
   assert.equal(member.report.commands.length,Object.keys(COMMAND).length);
   for(const c of member.report.commands)assert.equal(c.eligibility,(await kernel.command(c.name,'member'))==='allowed'?'eligible':'not authorized');
   assert.equal(member.report.commands.find(c=>c.name==='reindex')?.eligibility,'not authorized');
+  assert.equal(member.report.commands.find(c=>c.name==='reindex')?.wiring,'not disclosed');
   assert.equal(member.report.commands.find(c=>c.name==='build')?.wiring,'unavailable');
   const admin=await capabilityReport(kernel,w.decider,w.pipeline.actions,'admin');
   assert.equal(admin.report.commands.find(c=>c.name==='reindex')?.eligibility,'eligible');
@@ -2119,5 +2120,14 @@ test('capability report remains subject to Discord access and incoming filters',
   w.pipeline.settings.access={mode:'blacklist',list:new Set()};
   w.pipeline.settings.filter={scope:'both',terms:['what']};
   assert.equal((await w.pipeline.handle(ask(question)))?.decision,'interrupt');
+  assert.equal(w.llm.calls,0);
+});
+
+test('Discord status includes the public capability map without invoking a tool or language model',async()=>{
+  const w=await world();
+  w.pipeline.actions.tools=()=>assert.fail('must not enumerate private tools');
+  const reply=await w.pipeline.handle(ask('',{command:'status',trigger:'slash'}));
+  assert.match(reply!.text,/Kernel model/);
+  assert.match(reply!.text,/Q capability map/);
   assert.equal(w.llm.calls,0);
 });
