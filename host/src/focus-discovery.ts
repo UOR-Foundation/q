@@ -10,7 +10,9 @@ const SHA = /^[a-f0-9]{40}$/;
 const REPO = /^[A-Za-z0-9_.-]{1,100}$/;
 const FILES = [
   'README.md', 'GOVERNANCE.md', 'SECURITY.md', 'MAINTAINERS.md',
-  'ARCHITECTURE_INDEX.md', 'AGENTS.md', 'CLAUDE.md',
+  'ARCHITECTURE_INDEX.md', 'AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md',
+  'CONTRIBUTING.md', 'CODE_OF_CONDUCT.md', 'LICENSE', 'LICENSE.md', 'LICENSE-MIT', 'LICENSE-APACHE', 'docs/README.md',
+  '.qortara/config.json',
   '.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS',
   'template.lock', 'template-contract.json', 'docs/qortara-template-pin.json',
   '.qortara/.gitignore', '.qortara/ledger.jsonl', '.qortara/shadow.jsonl',
@@ -18,7 +20,7 @@ const FILES = [
   'governance/CONFORMANCE_REPORTING.md',
 ] as const;
 
-type FilePath = typeof FILES[number];
+export type FilePath = typeof FILES[number];
 type Presence = 'present' | 'absent' | 'unknown';
 type InventoryState = 'complete' | 'partial' | 'unavailable';
 type SourceFailure = 'branch-unavailable' | 'tree-unavailable' | 'tree-truncated' | 'tree-invalid';
@@ -28,6 +30,8 @@ export interface RepositoryObservation {
   commit: string | null;
   tree: InventoryState;
   files: Record<FilePath, Presence>;
+  /** Blob identity for observed regular files, never their content. */
+  blobs: Partial<Record<FilePath, string>>;
   failures: SourceFailure[];
 }
 export interface PublicInventory {
@@ -64,38 +68,49 @@ async function inspect(read: PublicRead, repo: { name: string; default_branch: s
   const repository = ORG + '/' + repo.name;
   const result: RepositoryObservation = {
     repository, defaultBranch: repo.default_branch, commit: null, tree: 'unavailable',
-    files: presence('unknown'), failures: [],
+    files: presence('unknown'), blobs: {}, failures: [],
   };
   const base = '/repos/' + ORG + '/' + encodeURIComponent(repo.name);
+  let treeSha: string;
   try {
     const commit = await read(base + '/commits/' + encodeURIComponent(repo.default_branch));
-    if (!object(commit) || typeof commit.sha !== 'string' || !SHA.test(commit.sha)) throw new Error('invalid commit');
+    if (!object(commit) || typeof commit.sha !== 'string' || !SHA.test(commit.sha) ||
+        !object(commit.commit) || !object(commit.commit.tree) || typeof commit.commit.tree.sha !== 'string' || !SHA.test(commit.commit.tree.sha)) throw new Error('invalid commit');
     result.commit = commit.sha;
+    treeSha = commit.commit.tree.sha;
   } catch {
     result.failures.push('branch-unavailable');
     return result;
   }
   let tree: unknown;
-  try { tree = await read(base + '/git/trees/' + result.commit + '?recursive=1'); }
+  try { tree = await read(base + '/git/trees/' + treeSha + '?recursive=1'); }
   catch { result.failures.push('tree-unavailable'); return result; }
-  if (!object(tree) || typeof tree.truncated !== 'boolean' || !Array.isArray(tree.tree)) {
+  if (!object(tree) || tree.sha !== treeSha || typeof tree.truncated !== 'boolean' || !Array.isArray(tree.tree)) {
     result.failures.push('tree-invalid'); return result;
   }
   // Negative evidence needs a complete and valid tree. Do not emit arbitrary
   // paths from an API response; the output is the fixed public discovery set.
   const seen = new Set<string>();
+  const ambiguous = new Set<FilePath>();
   let invalid = false;
   for (const entry of tree.tree) {
     if (!object(entry) || typeof entry.path !== 'string' || typeof entry.type !== 'string' ||
-        !['blob','tree','commit'].includes(entry.type) || seen.has(entry.path)) { invalid = true; continue; }
+        !['blob','tree','commit'].includes(entry.type)) { invalid = true; continue; }
+    if (seen.has(entry.path)) {
+      invalid = true;
+      if (FILES.includes(entry.path as FilePath)) ambiguous.add(entry.path as FilePath);
+      continue;
+    }
     seen.add(entry.path);
     if (FILES.includes(entry.path as FilePath)) {
       // Do not treat a symbolic link, directory or submodule as governance text.
-      if (entry.type === 'blob' && (entry.mode === '100644' || entry.mode === '100755')) {
+      if (entry.type === 'blob' && (entry.mode === '100644' || entry.mode === '100755') && typeof entry.sha === 'string' && SHA.test(entry.sha)) {
         result.files[entry.path as FilePath] = 'present';
+        result.blobs[entry.path as FilePath] = entry.sha;
       } else { invalid = true; }
     }
   }
+  for (const path of ambiguous) { result.files[path] = 'unknown'; delete result.blobs[path]; }
   if (tree.truncated) result.failures.push('tree-truncated');
   if (invalid) result.failures.push('tree-invalid');
   if (result.failures.length) { result.tree = 'partial'; return result; }
