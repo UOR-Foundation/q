@@ -26,7 +26,7 @@ export function capabilityDetail(question:string):'summary'|'full'|null {
   if(typeof question!=='string'||question.length>160)return null;
   const q=question.trim().toLowerCase().replace(/[?!.]+$/,'').replace(/\s+/g,' ');
   if(/^(?:what are all of your capabilities|(?:show(?: me)?|list|describe|explain) (?:your|q's|the) (?:full |complete )?capability map|(?:show(?: me)?|list) all (?:of )?(?:your |q's )?capabilities|full capability map)$/.test(q))return 'full';
-  if(/^(?:what (?:can you do(?: for me| here)?|can q do|are your capabilities|are q's capabilities)|(?:show(?: me)?|list|describe|explain|tell me about) (?:your|q's) capabilities|(?:show(?: me)?|list) (?:the )?(?:available )?capabilities)$/.test(q))return 'summary';
+  if(/^(?:what (?:can you do(?: for me| here)?|can q do|are you capable of|is q capable of|are your capabilities|are q's capabilities)|(?:show(?: me)?|list|describe|explain|tell me about) (?:your|q's) capabilities|(?:show(?: me)?|list) (?:the )?(?:available )?capabilities)$/.test(q))return 'summary';
   return null;
 }
 export function isCapabilityQuestion(question:string):boolean{return capabilityDetail(question)!==null;}

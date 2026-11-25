@@ -15,3 +15,7 @@ The inventory is a measured host claim, not a new authority source or a proof of
 ## Acceptance
 
 Use a real kernel and isolated host fixtures for member/admin eligibility, missing optional handlers, catalog completeness, provenance label recomputation, access filters, restricted channel silence and no tool/LLM invocation. Plant a catalog omission and establish that the native gate fails, restore, regenerate conformance using pinned Prism and run complete CI. Record operational Discord verification separately; no fabricated evidence.
+
+## Live acceptance example
+
+Before deployment, an ordinary Discord question, `what are you capable of?`, was observed to fall through to source retrieval and produce a low-confidence explanation of answer-writing behavior rather than a capability inventory. Retest the identical question and the full-map request after authorized deployment. The first should return the concise inventory with relevant availability and limits; the second should return the detailed inventory with provenance. Native host regression tests cover this exact phrasing, but are not live Discord evidence.

@@ -2150,7 +2150,7 @@ test('capability summary is short, scoped and changes with wiring',async()=>{
   const w=await world();
   const before=await capabilityReport(kernel,w.decider,w.pipeline.actions,'member');
   assert.equal(before.report.groups.find(g=>g.id==='web')?.wiring,'unknown');
-  const answer=await w.pipeline.handle(ask('What are your capabilities?'));
+  const answer=await w.pipeline.handle(ask('what are you capable of?'));
   assert.match(answer!.text,/What I can do/);
   assert.match(answer!.text,/not enabled here/);
   assert.match(answer!.text,/full capability map/);
@@ -2164,6 +2164,9 @@ test('capability summary is short, scoped and changes with wiring',async()=>{
   assert.ok(matches(after.report,after.label));
   assert.equal(capabilityDetail('What are all of your capabilities?'),'full');
   assert.equal(capabilityDetail('What can you do for me?'),'summary');
+  assert.equal(capabilityDetail('what are you capable of?'),'summary');
+  assert.equal(capabilityDetail('What is Q capable of?'),'summary');
+  assert.equal(capabilityDetail('what are you capable of doing with my private data?'),null);
   assert.equal(capabilityDetail('Describe your capability map.'),'full');
   assert.equal(capabilityDetail('what can you do to change the naming policy'),null);
   assert.equal(w.llm.calls,0);
