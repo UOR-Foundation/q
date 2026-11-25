@@ -1,5 +1,4 @@
-# Proposed ownership routing; not an Owner appointment or approval record.
-# Candidate GitHub admins verified on 2026-11-24: @afflom and @humuhumu33.
-# Resolve accountable ownership and review authority before merging this file.
-# CODEOWNERS alone does not enforce approving reviews or protect the default branch.
-* @afflom @humuhumu33
+# Proposed creator-based code ownership; not an organizational Owner appointment.
+# Root commit aa6793c6a59705c2fe4b9fc00e479d58b72f8702 identifies @humuhumu33 as original author.
+# Repository creation actor is not independently confirmed; verify before merging.
+* @humuhumu33
