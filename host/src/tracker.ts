@@ -33,14 +33,26 @@ export function candidate(text: string): boolean {
     || /\b(can (someone|anyone|you)|could (someone|anyone|you)|would (someone|anyone|you)|please|anyone (know|have|able)|is there (a|any) way|looking for|need (help|someone))\b/.test(t);
 }
 
-export const TRACK_PROMPT = `You read one message from a community chat and say whether it is something that needs follow-up. Reply with exactly one JSON object and nothing else:
+export const TRACK_PROMPT = `You read one message from a community chat, with the messages just before it in the same place, and say whether that one message is something that needs follow-up. Reply with exactly one JSON object and nothing else:
 {"kind":"question"|"promise"|"request"|null,"summary":"<one short line, in third person, without names>","due":"YYYY-MM-DD"|null}
 Track only what a community manager would regret missing. When in doubt, answer null.
+The earlier messages are context only: use them to tell what the message refers to and whether it is a real follow-up, never to track something said in them. A message whose object stays unclear even with them ("i will assemble it") is null.
 - question: a substantive question the writer needs answered by someone else: about the UOR Foundation, its projects, its tools, how to contribute, or help with a concrete problem. Not rhetorical, not small talk or banter ("how are you?", "isn't it?"), not a question to the bot Q, not a question that is part of a casual exchange between two people.
-- promise: the writer commits, without conditions, to deliver something concrete that others are waiting for (send, share, fix, review, write, publish, deliver), with or without a date. A personal plan nobody is waiting on, a figurative or emotional line, a vague intention ("I'll see what I can do"), an offer that depends on someone else's approval, or a warning made in a dispute ("I'll address this") is not a promise.
+- promise: the writer commits, without conditions, to deliver something concrete that others are waiting for (send, share, fix, review, write, publish, deliver), with or without a date. A personal plan nobody is waiting on, a figurative or emotional line, a vague intention or soft offer ("I'll see what I can do", "I can adapt it, stay tuned"), an offer that depends on someone else's approval, or a warning made in a dispute ("I'll address this") is not a promise.
 - request: the writer asks others to do something specific or for help with something specific.
-- null: anything else, including jokes, thanks, opinions, figurative lines, personal plans, and questions already answered in the same message. Also null: a rhetorical, sarcastic, argumentative or accusing line, or part of a dispute; a quick clarifying question inside a back-and-forth ("what do you mean?", "so you're looking for a tutorial?", "that needs X though, no?"); a poll or call for opinions (names, slogans, mascots); a jab or demand without a specific task ("make something real").
+- null: anything else, including jokes, thanks, opinions, figurative lines, personal plans, and questions already answered in the same message. Also null: a rhetorical, sarcastic, argumentative or accusing line, or part of a dispute; a quick clarifying question inside a back-and-forth ("what do you mean?", "so you're looking for a tutorial?", "that needs X though, no?"); a poll or call for opinions (names, slogans, mascots); a jab or demand without a specific task ("make something real"); restating someone's point to check it ("so saying it back…") when it asks nothing new; personal chatter (accounts, subscriptions, credits, games).
 - due: only when the message names a date or day; resolve it against today's date given below.`;
+
+/** What the model reads for one message: today's date, the few messages before it in the same place, and the message. */
+export function trackInput(today: string, earlier: readonly { author: string; text: string }[], writer: string, text: string): string {
+  const names = new Map<string, string>([[writer, 'writer']]);
+  const name = (a: string) => { if (!names.has(a)) names.set(a, String.fromCharCode(64 + names.size)); return names.get(a)!; };
+  const before = earlier.map((m) => `- ${name(m.author)}: ${m.text.replace(/\s+/g, ' ').slice(0, 300)}`).join('\n');
+  return `Today is ${today}.\n\nEarlier in the same place, oldest first:\n${before || '(none)'}\n\nMessage: ${text.slice(0, 1500)}`;
+}
+
+/** How many earlier messages a message is read with. */
+const CONTEXT = 6;
 
 export const ANSWER_PROMPT = `You read a new chat message and a short list of open questions and requests from the same conversation. Say which items the new message answers or resolves: it gives the answer, the help asked for, or a clear pointer to it. A message that only acknowledges, asks more, or changes the subject resolves nothing. Reply with exactly one JSON object: {"answers":[<item numbers>]}, an empty list when it resolves none.`;
 
@@ -60,6 +72,8 @@ const guildOf = (url: string) => /discord\.com\/channels\/(\d+)\//.exec(url)?.[1
 
 export class Tracker {
   #deps: TrackerDeps;
+  /** The last few messages Q may keep in each channel or thread, so a message is read in its conversation. */
+  #recent = new Map<string, { author: string; text: string }[]>();
   constructor(deps: TrackerDeps) { this.#deps = deps; }
 
   #open(url: string | undefined): Item | undefined {
@@ -109,6 +123,9 @@ export class Tracker {
     if (guilds && !guilds.has(guildOf(message.url))) return undefined;
     // Only what Q may read and keep: a public channel, a human who has not opted out (decision 2).
     if (decision !== 'index') return undefined;
+    const place = message.threadId ?? message.channelId;
+    const earlier = this.#recent.get(place) ?? [];
+    this.#recent.set(place, [...earlier, { author: message.authorId, text: message.text }].slice(-CONTEXT));
     const answered = this.#open(message.replyTo);
     if (answered && (await this.#close(answered, message.authorId, 'reply', message.origin === 'conversation'))) return 'closed';
     if (message.origin !== 'conversation') return undefined;
@@ -118,7 +135,7 @@ export class Tracker {
     const today = new Date(this.#deps.now()).toISOString().slice(0, 10);
     let read: { kind: Kind | null; summary?: string; due?: string | null };
     try {
-      const reply = await this.#deps.llm.complete(TRACK_PROMPT, `Today is ${today}.\n\nMessage: ${message.text.slice(0, 1500)}`);
+      const reply = await this.#deps.llm.complete(TRACK_PROMPT, trackInput(today, earlier, message.authorId, message.text));
       read = JSON.parse(reply.slice(reply.indexOf('{'), reply.lastIndexOf('}') + 1));
     } catch {
       return undefined;

@@ -1941,6 +1941,9 @@ test('the tracker reads only likely messages, and keeps questions, promises and 
   for (const text of ['How do I pin a holo to IPFS?', "I'll send the spec draft by Friday", 'Can someone review my PR for the LexLean lexer?']) {
     assert.equal(await w.tracker.observed(msg(text), 'index'), 'tracked');
   }
+  // Each message is read with the few before it in the same place, its writer named as such and no one by name.
+  assert.match(w.asked.at(-1)!, /Earlier in the same place, oldest first:\n- writer: Thanks, that worked great\n[^]*- writer: How do I pin a holo to IPFS\?\n[^]*\n\nMessage: Can someone review/);
+  assert.doesNotMatch(w.asked.at(-1)!, /u1/);
   // A message Q may not keep (a restricted channel, an opted-out author, a request to Q) is never tracked.
   assert.equal(await w.tracker.observed(msg('How do I pin a holo to IPFS? again', { authorId: 'u9' }), 'skip'), undefined);
   const open = await w.tracker.open();
