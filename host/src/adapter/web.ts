@@ -5,21 +5,24 @@
 //
 //   GET  /               how to ask, as Markdown: what an agent reads first
 //   GET  /ask?q=...      one question answered whole: Markdown, or the record when JSON is accepted
-//   POST /ask            one question; its stages as server-sent events, or whole when JSON or Markdown is accepted
+//   POST /ask            one question; its stages as server-sent events, or whole when JSON or Markdown is accepted.
+//                        With `after`, the keys of the earlier answers of a conversation, it is a follow-up to them
 //   POST /mcp            Q's MCP server (mcp-server.ts) over Streamable HTTP, one request at a time
 //   GET  /manifest       what every answer here depends on besides the question, and the suggested questions
+//                        (?register=spoken: the same for answers written to be heard)
 //   GET  /answer/<key>   the answer already computed for a question key: no question text is sent
 //   GET  /item/<label>   one public source, so a visitor can recompute the label an answer cites
 //   GET  /kernel/<label> the kernel this host runs, as bytes, when that is its label
 //
 // A browser computes the question key itself (records.ts questionKey), so a repeat costs one
-// round trip and the question never leaves the page.
+// round trip and the question never leaves the page. A page that closes the connection gives up its
+// answer: the model call is aborted and nothing is remembered.
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Server as McpServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isLabel } from '../address.ts';
-import type { Incoming, Pipeline, Progress, Published } from '../pipeline.ts';
+import type { Incoming, Pipeline, Progress, Published, Register } from '../pipeline.ts';
 import { Gate } from '../providers.ts';
 import { questionKey } from '../records.ts';
 
@@ -87,15 +90,25 @@ export function manual(base: string, mcp: boolean): string {
 /** An answer as a page an agent reads: the text, each source by address, and what the kernel decided. */
 export function answerPage({ label, answer }: Published, base: string): string {
   const count = answer.sources.length;
+  // Headed section by section: a reader that skims, or a small model summarising, must not mistake the answer for a preamble.
   return [
+    "# Q's answer", '',
     answer.text, '',
-    ...(count ? ['## Sources', '', ...answer.sources.map((s) => `${s.n}. ${s.url} (${s.source}, ${s.level}) \`${s.label}\``), ''] : []),
+    ...(count ? ['## Sources', '', ...answer.sources.map((s) => `${s.n}. ${s.url} (${s.source}, ${s.level}${s.cited ? ', cited' : ''}) \`${s.label}\``), ''] : []),
+    '## How far it is established', '',
     ...(answer.decision ? [`Community decision: ${answer.decision.app} answered ${answer.decision.answer}, at commit ${answer.decision.commit}.`, ''] : []),
-    `Claim level: ${answer.level ?? 'none'}. Grounding: ${answer.outcome}, from the ${answer.band} band and ${count} source${count === 1 ? '' : 's'}.`,
-    `Answer \`${label}\`. Read it again, with no question sent: ${base}/answer/${answer.key}`,
-    `How to check it: ${base}/`, '',
+    `Claim level: ${answer.level ?? 'none'}. Grounding: ${answer.outcome}, from the ${answer.band} band and ${count} source${count === 1 ? '' : 's'}.`, '',
+    '## Check it', '',
+    `- The record of this answer has the label \`${label}\`.`,
+    `- Read it again, with no question sent: ${base}/answer/${answer.key}`,
+    `- How to check it yourself: ${base}/`, '',
   ].join('\n');
 }
+/** The most earlier answers a follow-up may present. The kernel admits the newest three at most (decision 31); past this the request is not a conversation. */
+export const AFTER_LIMIT = 8;
+
+/** The register a request names, or undefined when it names one this host does not write. Naming none is the written one. */
+const registerOf = (value: unknown): Register | undefined => (value === undefined || value === null || value === 'written' ? 'written' : value === 'spoken' ? 'spoken' : undefined);
 
 export function webServer(pipeline: Pipeline, options: WebOptions): Server {
   const gate = new Gate(options.concurrency);
@@ -138,8 +151,10 @@ export function webServer(pipeline: Pipeline, options: WebOptions): Server {
     });
   };
 
-  async function manifest(response: ServerResponse) {
-    const { label, manifest } = await pipeline.manifest();
+  async function manifest(response: ServerResponse, named: string | null) {
+    const register = registerOf(named ?? undefined);
+    if (!register) return json(response, 400, { error: 'register is written or spoken' });
+    const { label, manifest } = await pipeline.manifest(register);
     const suggestions = options.suggestions.map((question) => ({ question, key: questionKey(question, label) }));
     const answers: Record<string, unknown> = {};
     for (const { key } of suggestions) {
@@ -160,53 +175,73 @@ export function webServer(pipeline: Pipeline, options: WebOptions): Server {
     return Buffer.concat(parts).toString('utf8');
   }
 
-  const turn = (request: IncomingMessage, question: string, stages: Pick<Incoming, 'working' | 'progress'> = {}) => pipeline.handle({
-    surface: 'web', channelId: 'web', authorId: `web:${visitor(request)}`, role: 'member', trigger: 'slash', command: 'ask', text: question, ...stages,
+  const turn = (request: IncomingMessage, question: string, more: Pick<Incoming, 'working' | 'progress' | 'register' | 'after' | 'signal'> = {}) => pipeline.handle({
+    surface: 'web', channelId: 'web', authorId: `web:${visitor(request)}`, role: 'member', trigger: 'slash', command: 'ask', text: question, ...more,
   });
 
-  /** One question: in the body of a POST, or given by a GET's `q`. */
+  /** One question: in the body of a POST, with the register and the earlier answers it follows, or given by a GET's `q`. */
   async function ask(request: IncomingMessage, response: ServerResponse, given?: string | null) {
     const as = wants(request);
     const refuse = (status: number, error: string) => (as === 'markdown' ? markdown(response, status, `${error}\n`) : json(response, status, { error }));
-    let question: unknown = given;
+    let asked: { question?: unknown; register?: unknown; after?: unknown } = { question: given };
     if (request.method === 'POST') {
       const body = await read(request);
       try {
-        question = body === undefined ? undefined : (JSON.parse(body) as { question?: unknown }).question;
+        const parsed: unknown = body === undefined ? undefined : JSON.parse(body);
+        asked = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
       } catch {
-        question = undefined;
+        asked = {};
       }
     }
+    const { question } = asked;
     if (typeof question !== 'string' || !question.trim()) return refuse(400, request.method === 'POST' ? 'send {"question": "..."} of at most 8 KB' : `ask with ?q=, as in ${base(request)}/ask?q=What+is+a+holo%3F`);
     if (question.length > QUESTION_LIMIT) return refuse(400, `a question is at most ${QUESTION_LIMIT} characters`);
+    const register = registerOf(asked.register);
+    if (!register) return refuse(400, 'register is written or spoken');
+    const after = asked.after ?? [];
+    if (!Array.isArray(after) || after.length > AFTER_LIMIT || !after.every((key): key is string => typeof key === 'string' && isLabel(key))) {
+      return refuse(400, `after is at most ${AFTER_LIMIT} question keys`);
+    }
     if (full()) return refuse(503, BUSY);
-    if (as !== 'events') return whole(request, response, question, as);
+    if (as !== 'events') return whole(request, response, question, as, { register, after });
 
     response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
     const send = (event: string, data: unknown) => { if (!response.writableEnded) response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
     const started = performance.now();
+    // A page that closes the connection before the answer is whole has stopped listening: the turn is given up,
+    // so its place and the model's are free for the next question, which may be the same visitor's follow-up.
+    const gone = new AbortController();
+    response.on('close', () => { if (!response.writableEnded) gone.abort(); });
     send('queued', { ahead: waiting });
     try {
-      const reply = await inLine(() => turn(request, question, {
-        working: () => send('decided', {}),
-        progress: (stage: Progress) => (stage.stage === 'sources' ? send('sources', { outcome: stage.outcome, sources: stage.sources }) : send('text', { delta: stage.delta })),
-      }));
+      const reply = await inLine(async () => {
+        gone.signal.throwIfAborted();
+        return turn(request, question, {
+          register, after, signal: gone.signal,
+          working: () => send('decided', {}),
+          progress: (stage: Progress) => (stage.stage === 'sources' ? send('sources', { outcome: stage.outcome, sources: stage.sources }) : send('text', { delta: stage.delta })),
+        });
+      });
       const ms = Math.round(performance.now() - started);
       if (reply?.web) send('answer', { ...reply.web, timings: reply.timings ?? {}, ms });
       // A turn the kernel stopped before retrieval: rate limited, filtered, or not answered at all.
       else send('refused', { decision: reply?.decision ?? 'silent', text: reply?.text ?? '', ms });
       options.log?.('web-reply', { decision: reply?.decision ?? 'silent', ms, timings: reply?.timings });
     } catch (error) {
-      options.log?.('web-failed', { message: String(error) });
-      send('failed', { text: 'Something went wrong while answering. Try again.' });
+      if (gone.signal.aborted) {
+        options.log?.('web-gone', { ms: Math.round(performance.now() - started) });
+      } else {
+        options.log?.('web-failed', { message: String(error) });
+        send('failed', { text: 'Something went wrong while answering. Try again.' });
+      }
     }
     response.end();
   }
 
   /** One question answered in one response, for a caller that does not read a stream. */
-  async function whole(request: IncomingMessage, response: ServerResponse, question: string, as: 'json' | 'markdown') {
+  async function whole(request: IncomingMessage, response: ServerResponse, question: string, as: 'json' | 'markdown', thread: Pick<Incoming, 'register' | 'after'> = {}) {
     const started = performance.now();
-    const reply = await inLine(() => turn(request, question));
+    const reply = await inLine(() => turn(request, question, thread));
     const decision = reply?.decision ?? 'silent';
     options.log?.('web-reply', { decision, ms: Math.round(performance.now() - started), timings: reply?.timings, as });
     if (reply?.web) return as === 'json' ? json(response, 200, reply.web) : markdown(response, 200, answerPage(reply.web, base(request)));
@@ -259,7 +294,7 @@ export function webServer(pipeline: Pipeline, options: WebOptions): Server {
       return response.end();
     }
     const route = async () => {
-      if (request.method === 'GET' && url.pathname === '/manifest') return manifest(response);
+      if (request.method === 'GET' && url.pathname === '/manifest') return manifest(response, url.searchParams.get('register'));
       if (request.method === 'GET' && url.pathname.startsWith('/answer/')) {
         const key = decodeURIComponent(url.pathname.slice('/answer/'.length));
         const known = isLabel(key) ? await pipeline.lookup(key) : undefined;

@@ -212,3 +212,45 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.privateNeverLeavesDiscord
     Then serve is answered on the website only for a public item
     And prism-code build replays a private item asked for on the website, answered withhold
+
+  @DA-32 @build @rejects
+  Scenario: A signal on an answer is recorded only from a human who has not opted out, about an answer that still exists, and keeps words only for a readable reply
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.signalOnlyFromConsentingHumans and Policy.wordsOnlyFromReadableReplies
+    Then keep is answered only for a human's reply in a readable channel, and count for any other human signal
+    And prism-code build replays a bot's signal, an opted-out member's and one about a forgotten answer, each answered drop
+
+  @DA-33 @build @rejects
+  Scenario: A member's correction is used only with its words kept, its author's disapproval and a second human, and never learned over a more trusted source
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.correctionNeedsSecondHuman, Policy.correctionNeedsKeptWords and Policy.trustedSourceOnlyDisputed
+    Then learn is answered for a confirmed correction of an answer from Discord, and dispute for one of a more trusted source
+    And prism-code build replays an unconfirmed correction, one whose words were not kept and one without a disapproval, each answered hold
+
+  @DA-34 @build @rejects
+  Scenario: An evolved genome replaces the current one only when decision 24 promotes it and it answers no question Q must refuse
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.neverLeakRefusal and Policy.safeNeverWorse
+    Then promote is answered only for a measurable gain with every refusal probe refused
+    And prism-code build replays a leaked refusal, more errors, a tie and a breach, each answered keep
+
+  @DA-35 @build @rejects
+  Scenario: A class of questions is judged weak or sound only on at least the minimum sample, and sound only within both bounds
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.routeNeedsSample and Policy.soundWithinBounds
+    Then needs knowledge is answered past the refusal bound, needs correction past the wrong-answer bound, and sound within both
+    And prism-code build replays a class under the minimum sample and a minimum of zero, each answered too few
+
+  @DA-36 @build @rejects
+  Scenario: An open question, promise or request is closed only by a human, as its kind allows
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.closeOnlyByHumans, Policy.promiseNeedsConfirmation and Policy.ownReplyNeverAnswers
+    Then close is answered for someone else's reply to a question or request, and for the right confirmation
+    And prism-code build replays a bot's reply, an asker's own reply and a reply to a promise, each answered open
+
+  @DA-37 @build @rejects
+  Scenario: On the website an earlier answer is context for a question only when the host still reads it back by its key and it is among the newest three
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.threadOnlyKnown
+    Then use is answered only for an answer the host reads back by its key, among the newest three
+    And prism-code build replays an answer no longer known, one older than the newest three and one that is both, each answered skip

@@ -1,14 +1,53 @@
-<p align="center"><img src="assets/brand/orb/q-orb-256.png" width="128" height="128" alt="Q"></p>
+<p align="center">
+  <img src="assets/brand/orb/q-orb-256.png" width="160" height="160" alt="Q's orb, the UOR Foundation Discord agent symbol">
+</p>
 
-# Q
+<h1 align="center">Q</h1>
 
-Q, the UOR Foundation's AI agent on Discord, as a Prism application: every decision written in LexLean and proved by Lean's kernel, every effect in a host that asks first.
+<p align="center"><strong>Answers for the UOR Foundation community, with decisions that can be checked.</strong></p>
 
-## Why
+<p align="center">
+  <a href="https://github.com/UOR-Foundation/q/actions/workflows/ci.yml"><img alt="Q CI workflow status" src="https://github.com/UOR-Foundation/q/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT or Apache 2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue"></a>
+</p>
+
+Q is the UOR Foundation's AI assistant for Discord. Community members need answers they can trace back to sources, rather than rules hidden inside an opaque bot. Q separates the rules for what it may do from the software that carries out those actions.
+
+**What it does:** A LexLean model defines Q's decisions, which Lean checks as proofs. A TypeScript host handles Discord messages, retrieval, language-model calls, and tools, asking that model before policy-controlled actions. The community repository supplies Q's pinned, verified community policy. Proofs cover the modeled decisions; host behavior is separately tested, not magically proved end to end.
+
+**Where to begin:** Read the [architecture](ARCHITECTURE.md), try the [kernel checks](#quick-start-check-the-kernel), or follow the [host setup](host/README.md) to run the bot. Running Q in Discord requires configuration and administrator authorization; passing a local check does not deploy a bot.
+
+**Navigation:** [Quick start](#quick-start-check-the-kernel) · [How it works](#architecture-at-a-glance) · [Evidence and limits](#what-is-established) · [Host setup](host/README.md) · [Governance](#governance-and-contributing) · [Protocol reference](#request) · [Known gaps](#known-gaps)
+
+## Quick start: check the kernel
+
+**Prerequisites:** Node.js and npm, a checkout of this repository, and access to its pinned Prism tooling. These commands validate the modeled kernel; they do **not** launch the Discord service or contact a Discord server.
+
+```bash
+git clone https://github.com/UOR-Foundation/q.git
+cd q
+npx --yes prism-code@0.11.2 check --json
+npx --yes prism-code@0.11.2 build --json
+npx --yes prism-code@0.11.2 verify --json
+```
+
+**Expected result:** Each command exits successfully. The build writes `app/.prism/build/q.holo`, and verify evaluates that build. If a command fails, do not bypass the gate or claim a verified model. These documented commands are source-inspected; this README change has not independently executed them locally.
+
+To run the actual host, start at [host/README.md](host/README.md), including environment variables, provenance verification and Discord administrator setup. Read [CONTRIBUTING.md](CONTRIBUTING.md) before modifying the model.
+
+## Governance and contributing
+
+Q is a Foundation Tier 2 implementation. [GOVERNANCE.md](GOVERNANCE.md) currently records owner, review and amendment authority as `NOT_ESTABLISHED`; [SECURITY.md](SECURITY.md) records the private vulnerability reporting channel as `NOT_ESTABLISHED`. Do not publish vulnerability details in public issues. [MAINTAINERS.md](MAINTAINERS.md) separates verified contributors from formally appointed maintainers. [CODEOWNERS proposal #2](https://github.com/UOR-Foundation/q/pull/2) is a draft, **not** an accepted appointment or active review requirement.
+
+For changes, follow [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md) where relevant, and [CONTRIBUTING.md](CONTRIBUTING.md). The authoritative model, generated outputs, security and review boundaries must be preserved. The Foundation-wide [governance tracker](https://github.com/UOR-Foundation/.github/issues/19) distinguishes written policy from enforced GitHub settings.
+
+---
+
+## Why Q exists
 
 A community assistant answers for the community. If its rules live in code beside the model, nobody can say which rule produced an answer. Here every rule is a proved decision, every answer names the evidence and the decisions behind it, and the community's own repository is the one authority Q follows.
 
-## How
+## Architecture at a glance
 
 Q has two parts, the same shape as [LangBot](https://github.com/langbot-app/LangBot): [ARCHITECTURE.md](ARCHITECTURE.md) is the map, and [docs/langbot.md](docs/langbot.md) matches each LangBot component to Q's.
 
@@ -21,15 +60,15 @@ Q's inputs and outputs are defined in [docs/context.md](docs/context.md): Q's ke
 
 | Kind | What |
 | --- | --- |
-| Proved | The 42 theorems named in [CONFORMANCE.md](CONFORMANCE.md), about the decision functions in `app/src/Policy.lex.tex` and the request length in `app/src/Contract.lex.tex` |
-| Tested | 192 acceptance vectors through the byte-level dispatcher; 80 host tests, including a real MCP server over the protocol and over HTTP, the website's adapter over HTTP, the records against their schemas, and provenance against real Sigstore bundles |
+| Proved | The 55 theorems named in [CONFORMANCE.md](CONFORMANCE.md), about the decision functions in `app/src/Policy.lex.tex` and the request length in `app/src/Contract.lex.tex` |
+| Tested | 240 acceptance vectors through the byte-level dispatcher; 102 host tests, including a real MCP server over the protocol and over HTTP, the website's adapter over HTTP, the records against their schemas, and provenance against real Sigstore bundles |
 | Measured at every start | Q's own kernel is a build this repository's `holo.yml` signed (DA-20); the community holo's signed provenance; Q's read policy against the community's `uor-discord-read`, on all 96 requests (DA-13); every vector of both holos |
 | Cited | The community Discord read policy, from `UOR-Foundation/community`. DA-01 reproduces it |
 | Open | The facts the host passes in, the similarity thresholds, the language model's reading of a question, and what [host/README.md](host/README.md) lists as not run |
 
 The theorems are about the decision functions. That the dispatcher decodes a request into the right call is tested by the vectors, not proved.
 
-## What
+## Kernel commands (technical reference)
 
 ```bash
 npx prism-code@0.11.2 check --json     # the model checks and every theorem is proved
@@ -37,7 +76,7 @@ npx prism-code@0.11.2 build --json     # write app/.prism/build/q.holo and repla
 npx prism-code@0.11.2 verify --json    # judge what was built
 ```
 
-`0.11.2` is `@latest` today, and `host/package.json` pins the same runtime: the host must read the holo the build writes. To run the agent, see [host/README.md](host/README.md).
+The commands above pin `prism-code` version `0.11.2`; they do not assume that it is the current `@latest` release. The host uses its separately pinned runtime: it must read the holo produced by the build. To run the agent, see [host/README.md](host/README.md).
 
 On every push to `main`, `.github/workflows/holo.yml` builds the holo, signs its SLSA provenance and publishes it at `https://uor-foundation.github.io/q/app.holo`. The build is reproducible, so a deployment builds the same bytes itself, and the host refuses to start on a kernel no such signature names (DA-20). To run a model you changed and have not published, set `KERNEL_PROVENANCE=off`; the host then says so in its log.
 

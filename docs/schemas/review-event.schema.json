@@ -1,0 +1,354 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/review-event.schema.json",
+  "title": "org.uorfoundation.q.review",
+  "description": "The public trace of a review, CloudEvents 1.0, one JSON line on standard output. Counts, public areas and public identities only: no member's words, and no label of a record that holds them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "specversion",
+    "type",
+    "source",
+    "id",
+    "time",
+    "datacontenttype",
+    "data"
+  ],
+  "properties": {
+    "specversion": {
+      "const": "1.0"
+    },
+    "type": {
+      "const": "org.uorfoundation.q.review"
+    },
+    "source": {
+      "const": "https://github.com/UOR-Foundation/q"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "time": {
+      "type": "string"
+    },
+    "datacontenttype": {
+      "const": "application/json"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kernel",
+        "community",
+        "genome",
+        "prompt",
+        "genes",
+        "chunks",
+        "knowledge",
+        "gaps",
+        "requests",
+        "tests",
+        "signals",
+        "corrections",
+        "competence",
+        "evaluation",
+        "proposals"
+      ],
+      "properties": {
+        "kernel": {
+          "type": "string",
+          "pattern": "^blake3:[0-9a-f]{64}$"
+        },
+        "community": {
+          "type": "string",
+          "pattern": "^blake3:[0-9a-f]{64}$"
+        },
+        "genome": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^blake3:[0-9a-f]{64}$"
+        },
+        "prompt": {
+          "type": "string",
+          "pattern": "^blake3:[0-9a-f]{64}$"
+        },
+        "genes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mediumSimilarity",
+            "highSimilarity",
+            "retrieve",
+            "style"
+          ],
+          "properties": {
+            "mediumSimilarity": {
+              "type": "number"
+            },
+            "highSimilarity": {
+              "type": "number"
+            },
+            "retrieve": {
+              "type": "integer"
+            },
+            "style": {
+              "type": "integer",
+              "description": "Index of a reviewed answer shape (host/src/pipeline.ts STYLES)."
+            }
+          }
+        },
+        "chunks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "knowledge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "community",
+            "website",
+            "github",
+            "discord"
+          ],
+          "properties": {
+            "community": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "website": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "github": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "discord": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "gaps": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "open",
+            "filled"
+          ],
+          "properties": {
+            "open": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "filled": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "requests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "open",
+            "filed"
+          ],
+          "properties": {
+            "open": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "filed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "tests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "signals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "approve",
+            "disapprove",
+            "reply",
+            "confirm"
+          ],
+          "properties": {
+            "approve": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "disapprove": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reply": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "confirm": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "corrections": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "learned",
+            "disputed"
+          ],
+          "properties": {
+            "learned": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "disputed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "competence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "area",
+              "asked",
+              "answered",
+              "refused",
+              "approved",
+              "disapproved",
+              "corrected",
+              "route"
+            ],
+            "properties": {
+              "area": {
+                "type": "string"
+              },
+              "asked": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "answered": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "refused": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "approved": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "disapproved": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "corrected": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "route": {
+                "enum": [
+                  "too few",
+                  "needs knowledge",
+                  "needs correction",
+                  "sound"
+                ]
+              }
+            }
+          }
+        },
+        "evaluation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "errorPct",
+                "p95Seconds",
+                "steady",
+                "leaked"
+              ],
+              "properties": {
+                "errorPct": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "p95Seconds": {
+                  "type": [
+                    "number",
+                    "integer"
+                  ]
+                },
+                "steady": {
+                  "enum": [
+                    "steady",
+                    "disturbed"
+                  ]
+                },
+                "leaked": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          ]
+        },
+        "proposals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request",
+            "knowledge",
+            "class",
+            "dispute",
+            "fix",
+            "regression"
+          ],
+          "properties": {
+            "request": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "knowledge": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "class": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "dispute": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fix": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "regression": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

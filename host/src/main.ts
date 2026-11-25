@@ -4,6 +4,7 @@
 //   node src/main.ts mcp        serve Q's own MCP server on stdio
 //   node src/main.ts ingest     fill the knowledge base from the sources, then exit
 //   node src/main.ts backfill   index the history of the public channels, then exit
+//   node src/main.ts verify     recompute every review in the self-model's chain from its records, then exit
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { discord } from './adapter/discord.ts';
@@ -18,6 +19,9 @@ import { Pipeline } from './pipeline.ts';
 import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm, type Transport } from './providers.ts';
 import { loadExperiments, runExperiment, ShadowStore, shadowIndex, type Verdict } from './chaos.ts';
 import { Loop } from './improve.ts';
+import { Tracker } from './tracker.ts';
+import { titleOf } from './titles.ts';
+import { verifyReview } from './self.ts';
 import { communityFiler } from './community-issues.ts';
 import { designSpec, usage } from './apps.ts';
 import { requestBuild } from './builder-service.ts';
@@ -52,6 +56,20 @@ const index = new SearchIndex(c.indexFile);
 const embedder = new OpenAiCompatibleEmbedder(c.embeddingsUrl, c.embeddingsKey, c.embeddingsModel, c.embeddingsPrefix);
 const memory = new Memory(kernel, store, index, embedder, c.retentionDays);
 log('kernel', { holo: kernel.holo, model: kernel.model, store: c.registryUrl ? 'kappa-registry' : 'folder' });
+
+// For a reviewer with the store: recompute every review in the chain from the records it names, newest first.
+if (mode === 'verify') {
+  let label = index.loopGet<{ label: string }>('review', 'latest')?.label ?? null;
+  let failures = 0;
+  while (label) {
+    const result = await verifyReview(store, label);
+    if (!result.ok) failures++;
+    console.log(JSON.stringify(result));
+    const review = await store.get('private', label);
+    label = typeof review?.previous === 'string' ? review.previous : null;
+  }
+  process.exit(failures ? 1 : 0);
+}
 
 // The community root: the newest signed community holo, and the one commit it pins.
 // Q's read policy is imported from it, so Q refuses to run where the two answer differently.
@@ -156,11 +174,15 @@ if (mode === 'ingest') {
     const loop = new Loop({
       kernel, store, index, embedder, community: () => community, shadow: (settings) => shadow(fetch, fetch, 1, settings), load: () => pipeline.load,
       settings: () => pipeline.settings, adopt: (genes) => { pipeline.settings = { ...pipeline.settings, ...genes }; log('genome', { adopted: genes }); },
+      optedOut: (member) => memory.optedOut(member), unlearn: (label) => memory.unlearn(label),
       experiments: () => [...verdicts.values()], probes, emit, now: Date.now,
-      evaluation: { size: c.loop.evaluationSize, maxErrorPct: c.loop.maxErrorPct, maxP95Seconds: c.loop.maxP95Seconds },
+      evaluation: { size: c.loop.evaluationSize, maxErrorPct: c.loop.maxErrorPct, maxP95Seconds: c.loop.maxP95Seconds, minClass: c.loop.minClass, maxRefusedPct: c.loop.maxRefusedPct, maxWrongPct: c.loop.maxWrongPct },
       requests: { threshold: c.requests.threshold, file: c.requests.token ? (r) => communityFiler({ repository: community.repository, token: c.requests.token })(r) : undefined },
     });
+    // Forgetting a member, withdrawing a message, or retention removing a record undoes what Q learned from it.
+    memory.removed = (label, item) => loop.unlearned(label, item);
     actions.improve = () => loop.summary();
+    actions.self = () => loop.introduction();
     actions.feedback = (f) => loop.feedback(f);
     // One prompt, one app: the model designs a small decision table; the builder service proves and publishes it.
     if (c.builderUrl) {
@@ -198,16 +220,36 @@ if (mode === 'ingest') {
     setInterval(sweep, 86_400_000).unref();
     const adapter = discord(c, (ids) => community.label(ids));
     actions.channelName = (id) => adapter.channelName?.(id);
+    // The tracker (tracker.ts): open questions, promises and requests, in the servers it is switched on for.
+    const tracker = c.tracker.guilds ? new Tracker({ kernel, store, index, llm, now: Date.now, guilds: c.tracker.guilds.has('*') ? null : c.tracker.guilds }) : null;
+    log('tracker', { servers: c.tracker.guilds ? [...c.tracker.guilds] : 'off', digest: c.tracker.channel || 'off' });
+    if (tracker) {
+      const title = (url: string) => titleOf(url, (id) => adapter.channelName?.(id));
+      actions.open = (guild) => tracker.summary(title, 20, guild);
+      if (c.tracker.channel && adapter.post) {
+        // The daily digest, at the hour set, to the one admin channel set.
+        const digest = async () => adapter.post!(c.tracker.channel, `**Daily digest of open items**\n${await tracker.summary(title, 10)}`);
+        const untilHour = () => { const next = new Date(); next.setUTCHours(c.tracker.hourUtc, 0, 0, 0); if (next.getTime() <= Date.now()) next.setUTCDate(next.getUTCDate() + 1); return next.getTime() - Date.now(); };
+        setTimeout(() => { digest().catch(failed); setInterval(() => digest().catch(failed), 86_400_000).unref(); }, untilHour()).unref();
+      }
+    }
     await adapter.start({
       handle: (message) => pipeline.handle(message),
       observe: async (message) => {
         const decision = await memory.observe(message);
         await loop.observed(message, decision).catch(failed);
+        if (tracker) tracker.observed(message, decision).then((t) => t && log('tracker', { result: t })).catch(failed);
         return decision;
       },
       delivered: (d) => loop.delivered(d),
-      approve: (url, emoji, human) => (emoji === '👎' ? loop.disapproved(url, human).then(() => 'skip' as const) : loop.approved(url, emoji, human)),
-      withdraw: (url, before) => memory.withdraw(url, before),
+      react: async (url, emoji, human, member) => {
+        if (tracker) await tracker.reacted(url, emoji, member, human).then((t) => t && log('tracker', { result: t })).catch(failed);
+        return loop.reacted(url, emoji, human, member);
+      },
+      withdraw: async (url, before) => {
+        await tracker?.withdraw(url).catch(failed);
+        return memory.withdraw(url, before);
+      },
       forgetChannel: (id) => memory.forget({ channel: id }),
       membership: (onRules, human, added) => kernel.membership(onRules, human, added),
     });

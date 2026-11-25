@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/genome.schema.json",
+  "title": "uor-q/genome/1",
+  "description": "Q's evolvable settings and answer shape, naming its parent. Adopted at start; undone by adopting the parent. Holds no member's words.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "spec",
+    "parent",
+    "genes",
+    "evolution",
+    "at"
+  ],
+  "properties": {
+    "type": {
+      "const": "genome"
+    },
+    "spec": {
+      "const": "uor-q/genome/1"
+    },
+    "parent": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "genes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mediumSimilarity",
+        "highSimilarity",
+        "retrieve",
+        "style"
+      ],
+      "properties": {
+        "mediumSimilarity": {
+          "type": "number"
+        },
+        "highSimilarity": {
+          "type": "number"
+        },
+        "retrieve": {
+          "type": "integer"
+        },
+        "style": {
+          "type": "integer",
+          "description": "Index of a reviewed answer shape (host/src/pipeline.ts STYLES)."
+        }
+      }
+    },
+    "evolution": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^blake3:[0-9a-f]{64}$",
+      "description": "The evolution that promoted it (decision 28)."
+    },
+    "revertedTo": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "at": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

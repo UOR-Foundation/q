@@ -18,6 +18,7 @@ const COMMANDS: [CommandName, string, boolean][] = [
   ['forget-me', 'Forget everything indexed from you, and stop indexing you', false],
   ['improve', 'What Q is learning, and what it proposes to change (admin)', false],
   ['feedback', 'Tell Q what to do better, or ask for a feature. Shared with the community, without your name.', false],
+  ['open', 'Open questions, promises and requests in this server (admin)', false],
   ['build', 'Describe an app: Q builds it, proves it, and links it running in its own holospace', false],
 ];
 
@@ -75,6 +76,7 @@ export function discord(config: Config, label: Labeler): Adapter {
       // A message to the agent is a question, not knowledge: indexed, a repeated question would ground its own answer.
       origin: message.author.bot ? 'bot' : inRequest || addressed(message) ? 'request' : 'conversation',
       replyTo: message.reference?.messageId ? `https://discord.com/channels/${message.guildId}/${message.channelId}/${message.reference.messageId}` : undefined,
+      role: role(message.member),
       url: message.url,
       createdMs: message.createdTimestamp,
       text: message.content,
@@ -106,7 +108,8 @@ export function discord(config: Config, label: Labeler): Adapter {
     };
     client.once(Events.ClientReady, async (ready) => {
       await ready.application.commands.set(
-        COMMANDS.map(([name, description, question]) => {
+        // /build is offered only where a builder is configured; elsewhere members never see it.
+        COMMANDS.filter(([name]) => name !== 'build' || Boolean(config.builderUrl)).map(([name, description, question]) => {
           const command = new SlashCommandBuilder().setName(name).setDescription(description);
           if (question) command.addStringOption((option) => option.setName('question').setDescription('What to ask').setRequired(true));
           if (name === 'build') command.addStringOption((option) => option.setName('prompt').setDescription('What the app should decide, in your words').setRequired(true).setMaxLength(1500));
@@ -217,12 +220,13 @@ export function discord(config: Config, label: Labeler): Adapter {
     // The adapter reports the facts; the kernel decides (18); the adapter obeys.
     const rules = config.membership;
     const react = async (reaction: MessageReaction | PartialMessageReaction, user: User | PartialUser, added: boolean) => {
-      // A reaction on an answer Q sent: an approval may make it a regression test (decision 22).
+      // A reaction on an answer Q sent, or on a member's reply to one: a signal for the improvement loop (decision 26).
       const on = reaction.message.partial ? await reaction.message.fetch() : reaction.message;
-      if (added && on.author?.id === client.user!.id) {
-        const human = !(user.partial ? await user.fetch() : user).bot;
-        log('approval', { decision: await handlers.approve?.(on.url, reaction.emoji.name, human) });
-        return;
+      const onAgent = on.author?.id === client.user!.id;
+      if (added && handlers.react && reaction.message.id !== rules?.message) {
+        const reactor = user.partial ? await user.fetch() : user;
+        log('signal', { decision: await handlers.react(on.url, reaction.emoji.name, !reactor.bot, reactor.id) });
+        if (onAgent) return;
       }
       if (!rules) return;
       const onRules = reaction.message.id === rules.message && reaction.emoji.name === rules.emoji;
@@ -242,11 +246,12 @@ export function discord(config: Config, label: Labeler): Adapter {
       // Forgetting is between the author and the agent; everything else is answered in the open.
       // Forgetting is between the author and the agent, and /improve can quote members' questions to an admin:
       // both are answered to the one who asked only. Everything else is answered in the open.
-      await interaction.deferReply({ ephemeral: ['forget-me', 'improve', 'feedback'].includes(interaction.commandName) });
+      await interaction.deferReply({ ephemeral: ['forget-me', 'improve', 'feedback', 'open'].includes(interaction.commandName) });
       try {
         const reply = await handlers.handle({
           channel: facts(interaction.channel as Message['channel'] | null),
           channelId: interaction.channelId,
+          guildId: interaction.guildId ?? undefined,
           authorId: interaction.user.id,
           role: role(interaction.member as GuildMember | null),
           trigger: 'slash',
@@ -340,5 +345,12 @@ export function discord(config: Config, label: Labeler): Adapter {
     return channel && 'name' in channel && channel.name ? channel.name : undefined;
   };
 
-  return { start, backfill, channelName };
+  /** Post a message Q writes on its own (the admin digest), split under Discord's limit, mentioning no one. */
+  const post = async (channelId: string, text: string) => {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel?.isTextBased() || !('send' in channel)) throw new Error(`cannot post to ${channelId}`);
+    for (const payload of payloads({ text, decision: 'allowed', citations: [], delivery: text.length > LIMIT ? 'split' : 'send' }, LIMIT)) await channel.send(send(payload));
+  };
+
+  return { start, backfill, channelName, post };
 }

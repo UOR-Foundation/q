@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/UOR-Foundation/q/docs/schemas/web-answer.schema.json",
   "title": "uor-agent/web-answer/1",
-  "description": "One answer as the website is given it. Public: it holds no question, no author, no time, and no label of a turn's records. Named by its question key, the BLAKE3 kappa label of the normalized question and the manifest label, which a browser computes itself. The record's own label (uor-addr, JCS + NFC) is sent beside it, so a browser can check what it received.",
+  "description": "One answer as the website is given it. Public: it holds no question, no author, no time, and no label of a turn's records. Named by its question key, the BLAKE3 kappa label of the normalized question, the manifest label and, for a follow-up, the keys of the earlier answers it builds on, which a browser computes itself. The record's own label (uor-addr, JCS + NFC) is sent beside it, so a browser can check what it received.",
   "type": "object",
   "additionalProperties": false,
   "required": ["type", "schema", "key", "manifest", "outcome", "band", "level", "text", "decision", "sources", "tools", "kernel", "community"],
@@ -13,7 +13,7 @@
   "properties": {
     "type": { "const": "web-answer" },
     "schema": { "const": "uor-agent/web-answer/1" },
-    "key": { "description": "The question key: the label of {type: web-question, question: <normalized question>, manifest: <manifest label>}.", "$ref": "#/$defs/label" },
+    "key": { "description": "The question key: the label of {type: web-question, question: <normalized question>, manifest: <manifest label>}, with after: [<keys>] when the answer builds on earlier ones.", "$ref": "#/$defs/label" },
     "manifest": { "description": "The label of the uor-agent/web-manifest/1 record this answer was computed under.", "$ref": "#/$defs/label" },
     "outcome": { "description": "The kernel's grounding decision (decision 6).", "enum": ["answer", "answer with notice", "not grounded"] },
     "band": { "description": "The score band the kernel was told. With the number of sources it is what decision 6 was asked.", "enum": ["low", "medium", "high"] },
@@ -50,6 +50,13 @@
     },
     "tools": { "description": "How many tool calls the answer used. An answer that used one is open at most and is never reused.", "type": "integer" },
     "kernel": { "description": "The agent's holo, by the BLAKE3 label of its bytes.", "$ref": "#/$defs/label" },
-    "community": { "description": "The community holo, by the BLAKE3 label of its bytes.", "$ref": "#/$defs/label" }
+    "community": { "description": "The community holo, by the BLAKE3 label of its bytes.", "$ref": "#/$defs/label" },
+    "after": {
+      "description": "The question keys of the earlier answers of the conversation this answer builds on, oldest first, as the kernel admitted them (decision 31): at most three, each read back by this host by its key. Absent when the answer stands alone, so such an answer has the label it always had.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/label" }
+    }
   }
 }

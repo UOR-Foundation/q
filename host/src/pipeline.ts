@@ -1,7 +1,7 @@
 // One message in, at most one reply out. Each stage asks the kernel and obeys:
 // a branch here follows an answer the kernel gave, and decides nothing of its own.
 import { isLabel, labelOf, matches, type Item } from './address.ts';
-import { titleOf } from './titles.ts';
+import { areaOf, titleOf } from './titles.ts';
 import { accepts, describe, type Decider } from './community.ts';
 import type { ChannelFacts, CommandName, Kernel, Level, SourceName, Surface } from './kernel.ts';
 import type { Memory } from './memory.ts';
@@ -15,6 +15,8 @@ export interface Incoming {
   /** The Discord channel's facts; absent on the MCP surface, which has no channel. */
   channel?: ChannelFacts;
   channelId: string;
+  /** The server the message or command came from; absent in a direct message and off Discord. */
+  guildId?: string;
   authorId: string;
   role: 'member' | 'admin';
   trigger: 'none' | 'mention' | 'replyToAgent' | 'slash';
@@ -30,7 +32,16 @@ export interface Incoming {
   options?: Record<string, string>;
   /** A line of status while a long command runs (/build): the platform shows it to the person who asked. */
   status?: (text: string) => void;
+  /** On the website: whether the answer is written to be read or to be heard. Written unless said. */
+  register?: Register;
+  /** On the website: the question keys of the earlier answers of this conversation, oldest first. The kernel admits each one or skips it (decision 31). */
+  after?: readonly string[];
+  /** Aborts when nobody is waiting for the answer any more: the model call is given up and no answer is recorded. */
+  signal?: AbortSignal;
 }
+
+/** How an answer on the website is written: to be read on the page, or to be heard. Each has its own prompt, so its own manifest and keys. */
+export type Register = 'written' | 'spoken';
 
 /** A stage of one answer that a platform may show before the answer is whole. Never anything the kernel has not admitted. */
 export type Progress =
@@ -51,6 +62,8 @@ export interface Settings {
   mediumSimilarity: number;
   highSimilarity: number;
   retrieve: number;
+  /** Which reviewed answer shape the prompt uses (STYLES): a gene the loop may evolve. Grounding never changes. */
+  style: number;
   /** LangBot's access control: the mode, and the session list (channel ids, user ids, or * for every one). */
   access: { mode: 'blacklist' | 'whitelist'; list: ReadonlySet<string> };
   /** LangBot's content filter: where it applies, and the terms it looks for. */
@@ -72,6 +85,8 @@ interface Draft {
   timings?: Record<string, number>;
   /** The label of the answer record this turn left, when it left one. */
   answer?: string;
+  /** The public area of knowledge nearest the question (titles.ts areaOf): its class for Q's competence. */
+  area?: string;
   /** On the website: the public record of this answer, named by its question key. */
   web?: Published;
 }
@@ -156,6 +171,10 @@ export interface Actions {
   tools?(): Tools | undefined;
   /** What Q is learning and what it proposes: the latest review of the improvement loop (improve.ts). */
   improve?(): Promise<string>;
+  /** The open questions, promises and requests the tracker holds (tracker.ts), for /open. */
+  open?(guild: string): Promise<string>;
+  /** Who Q is, from its latest self-model, for anyone who asks with /status (improve.ts introduction). */
+  self?(): Promise<string>;
   /** A Discord channel's or thread's name, for a cited message's title. */
   channelName?(id: string): string | undefined;
   /** A member's feedback or request (improve.ts): recorded, merged with others like it, filed to the community. */
@@ -188,7 +207,7 @@ function decisionBrief(decision: DecisionAsked | null, community: Decider): stri
     'Answer what the sources allow, then ask the reader for exactly these, in one short list.';
 }
 
-const SYSTEM = `You are Q, the UOR Foundation's assistant on its Discord server. You answer the community's questions.
+const GROUNDING = `You are Q, the UOR Foundation's assistant on its Discord server. You answer the community's questions.
 
 Grounding:
 - Use only the numbered sources. Cite each claim right after it, as [1] or [1][2].
@@ -196,10 +215,28 @@ Grounding:
 - A source marked "open" is conversation, not established fact. Say so when you rely on one.
 - Never invent or change a command, flag, number or link. Copy links exactly as the sources give them.
 
-Shape every answer like this, without naming the parts:
+`;
+
+/**
+ * The answer shapes the loop may choose between: the prompt's one evolvable part, written and reviewed by people.
+ * Q never writes a shape; it measures these on its tests and probes and keeps one only when decision 28 promotes it.
+ * The first is the original shape, so its prompt label, and every answer key made with it, is unchanged.
+ */
+export const STYLES = [
+  `Shape every answer like this, without naming the parts:
 1. Open with the direct answer in one or two sentences, including why it matters.
 2. Then explain how it works, in a few short steps.
-3. End with something concrete the reader can use: an example, a command or a link.
+3. End with something concrete the reader can use: an example, a command or a link.`,
+  `Shape every answer like this, without naming the parts:
+1. Give the direct answer in at most three sentences.
+2. End with one concrete thing the reader can use: a command, an example or a link.`,
+  `Shape every answer like this, without naming the parts:
+1. Open with the direct answer in one sentence.
+2. If the question asks how to do something, give the steps as a short list; otherwise explain how it works in a few sentences.
+3. End with something concrete the reader can use: an example, a command or a link.`,
+] as const;
+
+const READER = `
 
 Write for a reader who knows nothing about UOR or Prism:
 - Define every technical term in a few words the first time it appears, such as "a holo (a packaged app that checks itself)". Leave out a term you cannot define briefly.
@@ -213,8 +250,43 @@ Format for Discord:
 - Put commands, file names and code in \`backticks\`, and multi-line commands in a code block.
 - Leave a blank line between paragraphs and before a list.`;
 
+const styleOf = (style: number) => STYLES[Math.min(STYLES.length - 1, Math.max(0, Math.trunc(style || 0)))];
+export const systemFor = (style: number) => `${GROUNDING}${styleOf(style)}${READER}`;
+
 /** The prompts, by their BLAKE3 label: part of every answer key, so changing a prompt computes answers anew. */
-const PROMPT = labelOf({ type: 'prompt', system: SYSTEM, router: ROUTER });
+export const promptOf = (style: number) => labelOf({ type: 'prompt', system: systemFor(style), router: ROUTER });
+
+/**
+ * The same grounding, written to be heard: a visitor to the website talks with Q and hears the answer.
+ * The numbered citations stay in the text, where the page shows them; a voice does not read them out.
+ */
+const SYSTEM_SPOKEN = `You are Q, the UOR Foundation's agent, speaking aloud with a visitor on its website. Your words are heard, not read.
+
+Grounding:
+- Use only the numbered sources. Cite each claim right after it, as [1] or [1][2]. The listener sees the citations on the page and does not hear them.
+- If the sources do not answer the question, reply with exactly NO_ANSWER and nothing else.
+- A source marked "open" is conversation, not established fact. Say so when you rely on one.
+- Never invent or change a command, flag, number or link.
+
+Say it the way a person who knows the subject says it:
+- Two to four short sentences, at most 450 characters.
+- The first sentence is the direct answer, in under 20 words.
+- Plain spoken words only: no markdown, no lists, no code blocks, no backticks, no links and no URLs. Say where to look in words, such as "the Prism docs".
+- Define a technical term in a few words the first time it appears. Leave out a term you cannot define briefly.
+- A dry touch of wit is welcome when it costs no accuracy, and never in place of the answer.
+- No preamble, no closing summary, and no offer of further help.`;
+
+const PROMPT_SPOKEN = labelOf({ type: 'prompt', system: SYSTEM_SPOKEN, router: ROUTER });
+/** Each register's prompt and its label. The written one has the shape the loop currently keeps; the spoken one has one shape, which the loop does not choose. */
+const promptsOf = (style: number): Record<Register, { system: string; label: string }> => ({ written: { system: systemFor(style), label: promptOf(style) }, spoken: { system: SYSTEM_SPOKEN, label: PROMPT_SPOKEN } });
+const REGISTERS = ['written', 'spoken'] as const;
+
+/** An earlier answer of a conversation on the website, as the kernel admitted it: its key, its record's label, and its words. */
+interface Earlier { key: string; answer: string; text: string }
+/** How much of the newest earlier answer retrieval reads beside a follow-up, which alone often names nothing to look for. */
+const THREAD_QUERY = 300;
+/** How much of each earlier answer the writer is given, as on Discord. */
+const HISTORY_TEXT = 1500;
 
 const QUERY_LIMIT = 1000;
 const PROMPT_QUESTION_LIMIT = 4000;
@@ -291,6 +363,8 @@ export class Pipeline {
   }
 
   async #decide(message: Incoming): Promise<Draft | undefined> {
+    // A question given up while it waited its turn is not asked: it counts against no limit and leaves no record.
+    message.signal?.throwIfAborted();
     // The reply rule is about Discord channels; a client of Q's own MCP server is answered on that surface,
     // where the exposure decision keeps every private item out.
     const surface = message.surface ?? 'discord';
@@ -320,7 +394,8 @@ export class Pipeline {
     switch (command) {
       case 'status': {
         const counts = [...this.metrics.entries()].map(([name, count]) => `${name} ${count}`).join(', ') || 'none yet';
-        return done(`Kernel model ${this.kernel.model}.\n${this.index.count()} chunks indexed.\nDecisions since start: ${counts}.`);
+        const self = this.actions.self ? `\n\n${await this.actions.self()}` : '';
+        return done(`Kernel model ${this.kernel.model}.\n${this.index.count()} chunks indexed.\nDecisions since start: ${counts}.${self}`);
       }
       case 'reindex':
         return done(await this.actions.reindex());
@@ -330,6 +405,10 @@ export class Pipeline {
         return done(`Forgot ${await this.actions.memory.forget({ author: message.authorId })} items from you. Your messages will not be indexed from now on.`);
       case 'improve':
         return done(this.actions.improve ? await this.actions.improve() : 'The improvement loop is not running here.');
+      case 'open':
+        if (!this.actions.open) return done('Tracking is not switched on for this server.');
+        // A server's open items are its own: /open shows only those of the server it is run in.
+        return done(message.guildId ? await this.actions.open(message.guildId) : 'Run /open in a server.');
       case 'build': {
         if (!this.actions.build) return done('Building apps is not set up here.');
         if (!message.text.trim()) return done('Describe the app you want, for example: a tip advisor from how the service was and how large the party is.');
@@ -353,23 +432,40 @@ export class Pipeline {
       return { text: 'Ask me a question about the UOR Foundation, for example: how do I start a Prism app?', decision: 'empty', citations: [] };
     }
     const clock = stopwatch();
+    // The register and the conversation are the website's: elsewhere an answer is written, and history is decision 16's.
+    const register: Register = surface === 'web' && command === 'ask' && message.register === 'spoken' ? 'spoken' : 'written';
+    const thread = surface === 'web' && command === 'ask' && message.after?.length ? await this.#thread(message.after, register) : [];
+    clock.lap('thread');
+    message.signal?.throwIfAborted();
     // Retrieval reads the question's opening: past it, a longer question costs time and finds nothing more.
-    const query = message.text.slice(0, QUERY_LIMIT);
+    // A follow-up is read together with the answer it follows, since "and how do I install it?" names nothing alone.
+    const query = (thread.length ? `${thread.at(-1)!.text.slice(0, THREAD_QUERY)}\n${message.text}` : message.text).slice(0, QUERY_LIMIT);
     const [vector] = await this.embedder.embed([query], 'query');
     clock.lap('embed');
     // Retrieval looks only where the kernel serves on this surface: an item it would withhold takes no place among the hits.
-    const hits = this.index.search(query, vector, this.settings.retrieve, await this.#served(surface));
+    // The documentation and the conversation are searched apart, then joined: tens of thousands of Discord messages
+    // would otherwise take every place, and an answer about UOR would be written from chat with no documentation in
+    // view. Two thirds of the places go to the documentation when it has that many hits; the rest to the conversation.
+    const served = await this.#served(surface);
+    const retrieve = this.settings.retrieve;
+    const documented = served.includes('public') ? this.index.search(query, vector, retrieve, ['public']) : [];
+    const conversed = served.includes('private') ? this.index.search(query, vector, retrieve, ['private']) : [];
+    const fromDocs = documented.slice(0, Math.max(retrieve - conversed.length, Math.ceil((retrieve * 2) / 3)));
+    const hits = [...fromDocs, ...conversed.slice(0, retrieve - fromDocs.length)];
     clock.lap('search');
 
     // Read each hit back from the store and recompute its label; the kernel decides whether it may be cited.
     const citations: Citation[] = [];
     let best = 0;
+    // The question's class: the public area of the nearest public item, whether or not it grounds an answer.
+    let area: string | undefined;
     for (const hit of hits) {
       const item = await this.store.get(hit.namespace, hit.label);
       const verified = item !== undefined && matches(item, hit.label);
       const revoked = await isRevoked(this.store, hit.namespace, hit.label);
       if ((await this.kernel.cite(isLabel(hit.label), verified, revoked)) === 'drop') continue;
       if ((await this.kernel.expose(hit.namespace, surface)) === 'withhold') continue;
+      if (!area && hit.namespace === 'public') area = areaOf(String(item!.url));
       citations.push({ label: hit.label, url: String(item!.url), source: item!.source as SourceName, level: item!.level as Level, text: String(item!.text) });
       best = Math.max(best, hit.similarity);
     }
@@ -387,8 +483,10 @@ export class Pipeline {
     const namespace = await this.kernel.namespace('discord');
     // A reply to Q continues the conversation: the earlier turns the kernel admits are context, and part of the key.
     const history = grounded !== 'not grounded' && command === 'ask' && message.trigger === 'replyToAgent' ? await this.#history(message, namespace) : [];
+    // On the website the earlier answers are the ones the visitor presented by key and the kernel admitted (decision 31).
+    const built = [...history.map((h) => h.answer), ...thread.map((t) => t.answer)];
     const key = grounded !== 'not grounded' && command === 'ask'
-      ? labelOf({ type: 'answer-key', question: normalize(message.text), kernel: this.kernel.holo, community: community.pin.holo, evidence: ordered.map((c) => c.label), history: history.map((h) => h.answer), prompt: PROMPT, model: this.llm.model })
+      ? labelOf({ type: 'answer-key', question: normalize(message.text), kernel: this.kernel.holo, community: community.pin.holo, evidence: ordered.map((c) => c.label), history: built, prompt: promptsOf(this.settings.style)[register].label, model: this.llm.model })
       : null;
     const earlier = key ? await this.#recall(key, namespace) : undefined;
     clock.lap('memo');
@@ -401,13 +499,15 @@ export class Pipeline {
     const shown = message.progress && !withTools && command === 'ask' && (await this.#unfiltered()) ? (delta: string) => message.progress!({ stage: 'text', delta }) : undefined;
     const compose = (decided: DecisionAsked | null, onText?: (delta: string) => void): Promise<string> => {
       const sources = ordered.map((c, i) => `[${i + 1}] (${c.source}, ${c.level}, ${c.url})\n${c.text}`).join('\n\n');
-      const earlierTurns = history.length
-        ? `Earlier in this conversation (context for the question; cite only the sources):\n\n${history.map((h) => `Question: ${h.question}\nYour answer: ${h.text}`).join('\n\n')}\n\n`
-        : '';
+      // On the website only Q's own earlier answers are context, read from this host's store by their keys:
+      // never text from the request, and never the question another visitor asked under the same key.
+      const turns = [...history.map((h) => `Question: ${h.question}\nYour answer: ${h.text}`), ...thread.map((t) => `Your answer: ${t.text.slice(0, HISTORY_TEXT)}`)];
+      const earlierTurns = turns.length ? `Earlier in this conversation (context for the question; cite only the sources):\n\n${turns.join('\n\n')}\n\n` : '';
       const prompt = `${earlierTurns}Sources:\n\n${sources}${decisionBrief(decided, community)}\n\nQuestion: ${message.text.slice(0, PROMPT_QUESTION_LIMIT)}`;
+      const system = promptsOf(this.settings.style)[register].system;
       return withTools
-        ? this.llm.completeWithTools!(SYSTEM, prompt, tools!.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools!, call, message, namespace, used))
-        : this.llm.complete(SYSTEM, prompt, onText);
+        ? this.llm.completeWithTools!(system, prompt, tools!.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools!, call, message, namespace, used))
+        : this.llm.complete(system, prompt, onText, message.signal);
     };
 
     // Most questions that retrieve a decision app are not decisions. So the plain answer is written while
@@ -422,17 +522,19 @@ export class Pipeline {
         speculative = compose(null, plain.push);
         speculative.catch(() => {});
       }
-      decision = await this.#askCommunity(message.text, ordered, community);
+      decision = await this.#askCommunity(message.text, ordered, community, message.signal);
     }
     clock.lap('decision');
+    // Nobody is waiting any more: nothing of this turn is recorded.
+    message.signal?.throwIfAborted();
 
     // The input record: everything this answer is made from, named by its label before anything is said.
     const turn = context({
       kernel: { holo: this.kernel.holo, model: this.kernel.model, commit: this.kernel.commit },
       community: pinOf(community.pin),
-      request: { command, trigger: message.trigger, surface, question: message.text },
+      request: { command, trigger: message.trigger, surface, question: message.text, ...(register === 'spoken' ? { register } : {}) },
       retrieval: { band, items: hits.map((hit) => hit.label) },
-      history: history.map((h) => h.answer),
+      history: built,
       decision,
       author: message.authorId, channel: message.channelId, created: this.now(),
     });
@@ -442,9 +544,9 @@ export class Pipeline {
       const text = "I don't know: nothing I have indexed answers that well enough to cite.";
       const said = answer({ context: turnLabel, outcome: grounded, level: null, text, citations: [], tools: [], memo: null, reused: null, author: message.authorId, channel: message.channelId, created: this.now() });
       const saidLabel = await this.#said(namespace, turn, turnLabel, said, []);
-      const web = await this.#publish(message, turn, turnLabel, said, saidLabel, []);
+      const web = await this.#publish(message, turn, turnLabel, said, saidLabel, [], register, thread);
       clock.lap('record');
-      return { text, decision: grounded, citations: [], timings: clock.laps, answer: saidLabel, web };
+      return { text, decision: grounded, citations: [], timings: clock.laps, answer: saidLabel, web, area };
     }
 
     let level: Level = ordered[0].level;
@@ -464,6 +566,8 @@ export class Pipeline {
       body = await compose(decision, decided.push);
     }
     clock.lap('answer');
+    // An answer nobody waited for is not an answer of this conversation: it is not recorded, and not remembered under any key.
+    message.signal?.throwIfAborted();
 
     // The writer read the sources and found no answer in them: say so plainly, with nothing that looks
     // like evidence for a claim that was not made.
@@ -475,9 +579,9 @@ export class Pipeline {
         author: message.authorId, channel: message.channelId, created: this.now(),
       });
       const saidLabel = await this.#said(namespace, turn, turnLabel, said, []);
-      const web = await this.#publish(message, turn, turnLabel, said, saidLabel, []);
+      const web = await this.#publish(message, turn, turnLabel, said, saidLabel, [], register, thread);
       clock.lap('record');
-      return { text, decision: 'declined', citations: [], timings: clock.laps, answer: saidLabel, web };
+      return { text, decision: 'declined', citations: [], timings: clock.laps, answer: saidLabel, web, area };
     }
     // A tool's result is measured, not established: an answer that used one is open at most.
     if (used.some((u) => u.result)) level = await this.kernel.level(level, 'open');
@@ -504,9 +608,9 @@ export class Pipeline {
       author: message.authorId, channel: message.channelId, created: this.now(),
     });
     const saidLabel = await this.#said(namespace, turn, turnLabel, said, [...ordered.map((c) => c.label), ...used.flatMap((u) => (u.result ? [u.result] : []))]);
-    const web = await this.#publish(message, turn, turnLabel, said, saidLabel, ordered);
+    const web = await this.#publish(message, turn, turnLabel, said, saidLabel, ordered, register, thread);
     clock.lap('record');
-    return { text, decision: grounded, citations: ordered, timings: clock.laps, answer: saidLabel, web };
+    return { text, decision: grounded, citations: ordered, timings: clock.laps, answer: saidLabel, web, area };
   }
 
   /** The namespaces the kernel serves on a surface (decision 17). */
@@ -523,47 +627,56 @@ export class Pipeline {
     return terms.length === 0 || (await this.kernel.filter('outgoing', scope, 'masked')) === 'continue';
   }
 
-  #manifest?: { at: string; label: string; manifest: Manifest };
+  #manifests?: { at: string; by: Record<Register, { label: string; manifest: Manifest }> };
 
   /**
-   * Everything an answer on the website depends on besides the question, as one record and its label.
-   * A change to the kernel, the community pin, the served index, the prompts or the model is a new
-   * manifest, and with it a new key for every question.
+   * Everything an answer on the website depends on besides the question and the answers before it, as one
+   * record and its label. A change to the kernel, the community pin, the served index, the prompts or the
+   * model is a new manifest, and with it a new key for every question. The two registers differ in their
+   * prompt alone, so each has its own manifest and no key of one is a key of the other.
    */
-  async manifest(): Promise<{ label: string; manifest: Manifest }> {
+  async manifest(register: Register = 'written'): Promise<{ label: string; manifest: Manifest }> {
     const community = this.actions.community();
     // The count as well as the revision: another process (an ingest) can add chunks this one never saw added.
     const at = `${this.index.revision}:${this.index.count()}:${community.pin.holo}:${community.pin.commit}`;
-    if (this.#manifest?.at !== at) {
+    if (this.#manifests?.at !== at) {
       const items = (await this.#served('web')).flatMap((space) => this.index.labels(space)).sort();
-      const record = manifest({
-        kernel: { holo: this.kernel.holo, commit: this.kernel.commit },
-        community: pinOf(community.pin),
-        corpus: labelOf({ type: 'corpus', items }),
-        prompt: PROMPT,
-        model: this.llm.model,
-        retrieval: { embedder: this.embedder.model, retrieve: this.settings.retrieve, medium: String(this.settings.mediumSimilarity), high: String(this.settings.highSimilarity) },
-      });
-      this.#manifest = { at, label: labelOf(record), manifest: record };
-      this.index.questionKeep(this.#manifest.label);
+      const corpus = labelOf({ type: 'corpus', items });
+      const made = (prompt: string) => {
+        const record = manifest({
+          kernel: { holo: this.kernel.holo, commit: this.kernel.commit },
+          community: pinOf(community.pin),
+          corpus,
+          prompt,
+          model: this.llm.model,
+          retrieval: { embedder: this.embedder.model, retrieve: this.settings.retrieve, medium: String(this.settings.mediumSimilarity), high: String(this.settings.highSimilarity) },
+        });
+        return { label: labelOf(record), manifest: record };
+      };
+      const prompts = promptsOf(this.settings.style);
+      this.#manifests = { at, by: { written: made(prompts.written.label), spoken: made(prompts.spoken.label) } };
+      this.index.questionKeep(REGISTERS.map((each) => this.#manifests!.by[each].label));
     }
-    return { label: this.#manifest.label, manifest: this.#manifest.manifest };
+    return this.#manifests.by[register];
   }
 
   /**
    * A turn on the website, as its public record. An answer that called no tool is remembered under its
-   * question key, so the same question under the same manifest is read back without retrieval or the model.
+   * question key, so the same question after the same answers under the same manifest is read back
+   * without retrieval or the model. The key holds the admitted earlier answers, so an answer with
+   * history is never remembered under the key of its question alone.
    */
-  async #publish(message: Incoming, turn: Context, turnLabel: string, said: Answer, saidLabel: string, ordered: Citation[]): Promise<Published | undefined> {
+  async #publish(message: Incoming, turn: Context, turnLabel: string, said: Answer, saidLabel: string, ordered: Citation[], register: Register, thread: Earlier[]): Promise<Published | undefined> {
     if (message.surface !== 'web' || turn.request.command !== 'ask') return undefined;
-    const { label } = await this.manifest();
-    const key = questionKey(message.text, label);
-    if (said.tools.length === 0) this.index.questionSet(key, label, saidLabel, turnLabel);
-    return this.#project(key, label, said, turn, ordered);
+    const { label } = await this.manifest(register);
+    const after = thread.map((t) => t.key);
+    const key = questionKey(message.text, label, after);
+    if (said.tools.length === 0) this.index.questionSet(key, label, saidLabel, turnLabel, after);
+    return this.#project(key, label, said, turn, ordered, after);
   }
 
   /** The public record of an answer: what a visitor is shown, and nothing of who asked or what they asked. */
-  async #project(key: string, manifestLabel: string, said: Answer, turn: Context, sources: Pick<Citation, 'label' | 'url' | 'source' | 'level'>[]): Promise<Published> {
+  async #project(key: string, manifestLabel: string, said: Answer, turn: Context, sources: Pick<Citation, 'label' | 'url' | 'source' | 'level'>[], after: readonly string[]): Promise<Published> {
     // The outgoing content filter, as on every surface: the kernel decides what the filter's finding means.
     const screened = screen(said.text, this.settings.filter.terms, 'outgoing');
     const outgoing = await this.kernel.filter('outgoing', this.settings.filter.scope, screened.level);
@@ -573,7 +686,7 @@ export class Pipeline {
       key, manifest: manifestLabel, outcome: said.outcome, band: turn.retrieval.band, level: said.level, text,
       decision: turn.decision?.answer ? { app: turn.decision.app, answer: turn.decision.answer, commit: turn.community.commit } : null,
       sources: sources.map((c, i) => ({ n: i + 1, label: c.label, url: c.url, source: c.source, level: c.level, cited: cited[i] })),
-      tools: said.tools.length, kernel: turn.kernel.holo, community: turn.community.holo,
+      tools: said.tools.length, kernel: turn.kernel.holo, community: turn.community.holo, after: [...after],
     });
     return { label: labelOf(record), answer: record };
   }
@@ -582,12 +695,20 @@ export class Pipeline {
    * The answer already computed for a question key, if there is one: no retrieval, no model, and no question
    * text, since the key is all that is asked. Each source is read back and decided again by the kernel, as it
    * was when the answer was written (10, 17); if any is no longer served, the answer is no longer known.
+   * A key of either register is known: the key says which manifest it was asked under.
    */
   async lookup(key: string): Promise<Published | undefined> {
+    const known = await this.#known(key);
+    if (known) this.metrics.set('lookup', (this.metrics.get('lookup') ?? 0) + 1);
+    return known?.published;
+  }
+
+  /** The answer a key names, with the label of its private record, which is never sent. */
+  async #known(key: string): Promise<{ published: Published; answer: string } | undefined> {
     if (!isLabel(key)) return undefined;
     const row = this.index.questionGet(key);
-    const { label } = await this.manifest();
-    if (!row || row.manifest !== label) return undefined;
+    const current = await Promise.all(REGISTERS.map(async (register) => (await this.manifest(register)).label));
+    if (!row || !current.includes(row.manifest)) return undefined;
     const forget = () => { this.index.questionDelete(key); return undefined; };
     const namespace = await this.kernel.namespace('discord');
     const said = await this.store.get(namespace, row.answer);
@@ -599,8 +720,24 @@ export class Pipeline {
       if (!item) return forget();
       sources.push({ label: cited, url: String(item.url), source: item.source as SourceName, level: item.level as Level });
     }
-    this.metrics.set('lookup', (this.metrics.get('lookup') ?? 0) + 1);
-    return this.#project(key, label, said as Answer, turn as Context, sources);
+    return { published: await this.#project(key, row.manifest, said as Answer, turn as Context, sources, row.after), answer: row.answer };
+  }
+
+  /**
+   * The earlier answers a question on the website may build on, oldest first. A visitor presents their keys;
+   * the kernel decides each one (decision 31): it is context only when this host still reads it back by its
+   * key under this register's manifest, as an answer that used no tool, and it is among the newest three
+   * presented. The words come from this host's own store, never from the request.
+   */
+  async #thread(after: readonly string[], register: Register): Promise<Earlier[]> {
+    const { label } = await this.manifest(register);
+    const admitted: Earlier[] = [];
+    for (const [place, key] of [...after].reverse().entries()) {
+      const known = await this.#known(key);
+      const answered = known !== undefined && known.published.answer.manifest === label && known.published.answer.tools === 0 && known.published.answer.level !== null;
+      if ((await this.kernel.thread(answered, place < 3)) === 'use') admitted.unshift({ key, answer: known!.answer, text: known!.published.answer.text });
+    }
+    return admitted;
   }
 
   /**
@@ -714,12 +851,12 @@ export class Pipeline {
     return [...named];
   }
 
-  async #askCommunity(question: string, ordered: Citation[], community: Decider): Promise<DecisionAsked | null> {
+  async #askCommunity(question: string, ordered: Citation[], community: Decider, signal?: AbortSignal): Promise<DecisionAsked | null> {
     const named = new Set(this.#candidates(ordered, community));
     if (!named.size) return null;
     const apps = [...named].map((name) => community.apps.get(name)!);
     const catalog = apps.map((app) => `${app.name}: ${app.purpose}\n${app.fields.map((f) => `  ${describe(f)}`).join('\n')}`).join('\n\n');
-    const reply = await this.llm.complete(ROUTER, `Apps:\n\n${catalog}\n\nQuestion: ${question}`);
+    const reply = await this.llm.complete(ROUTER, `Apps:\n\n${catalog}\n\nQuestion: ${question}`, undefined, signal);
     let pick: { app?: unknown; inputs?: Record<string, unknown> };
     try {
       pick = JSON.parse(/\{[\s\S]*\}/.exec(reply)?.[0] ?? 'null') ?? {};

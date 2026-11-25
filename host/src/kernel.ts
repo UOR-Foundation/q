@@ -13,7 +13,7 @@ export const INTENT = { granted: 0, missing: 1 } as const;
 export const TRIGGER = { none: 0, mention: 1, replyToAgent: 2, slash: 3 } as const;
 // Who a message is from and to: a person talking in the channel, a bot, or a person asking the agent.
 export const ORIGIN = { conversation: 0, bot: 1, request: 2 } as const;
-export const COMMAND = { ask: 0, search: 1, status: 2, reindex: 3, 'forget-channel': 4, 'forget-me': 5, improve: 6, feedback: 7, build: 8 } as const;
+export const COMMAND = { ask: 0, search: 1, status: 2, reindex: 3, 'forget-channel': 4, 'forget-me': 5, improve: 6, feedback: 7, build: 8, open: 9 } as const;
 export const ROLE = { member: 0, admin: 1 } as const;
 export const BAND = { low: 0, medium: 1, high: 2 } as const;
 export const LEVEL = { build: 0, 'some-true': 1, open: 2 } as const;
@@ -29,6 +29,8 @@ export const STRATEGY = { split: 0, file: 1 } as const;
 /** Where a question came from: a Discord channel, a client of the agent's own MCP server, or a visitor to the website. */
 export const SURFACE = { discord: 0, mcp: 1, web: 2 } as const;
 export type Surface = keyof typeof SURFACE;
+/** What a member did about something Q said: approved or disapproved it, replied to it, or confirmed another's reply. */
+export const SIGNAL = { approve: 0, disapprove: 1, reply: 2, confirm: 3 } as const;
 
 export type Level = keyof typeof LEVEL;
 export type SourceName = keyof typeof SOURCE;
@@ -142,6 +144,10 @@ export class Kernel {
   history(sameAuthor: boolean, sameChannel: boolean, recent: boolean) {
     return this.#ask<'use' | 'skip'>(16, flag(!sameAuthor), flag(!sameChannel), flag(!recent));
   }
+  /** A conversation on the website: whether an earlier answer, presented by its key, may be context for this question. */
+  thread(known: boolean, recent: boolean) {
+    return this.#ask<'use' | 'skip'>(31, flag(!known), flag(!recent));
+  }
   /** Whether an item may be served on this surface: Discord, the agent's own MCP server, or the website. */
   expose(namespace: 'public' | 'private', surface: keyof typeof SURFACE) {
     return this.#ask<'serve' | 'withhold'>(17, namespace === 'public' ? 0 : 1, SURFACE[surface]);
@@ -168,6 +174,10 @@ export class Kernel {
     return this.#ask<'admit' | 'skip'>(22, flag(!approval), flag(!human), flag(!grounded));
   }
   /** May the daily evaluation run now? Only while no real question is in progress, and with tests to run. */
+  /** Does a reply or a check close an open question, promise or request? Only a human's, as its kind allows (decision 30). */
+  closeItem(kind: 'question' | 'promise' | 'request', event: 'reply' | 'check', byAuthor: boolean, human: boolean) {
+    return this.#ask<'close' | 'open'>(30, { question: 0, promise: 1, request: 2 }[kind], event === 'reply' ? 0 : 1, flag(!byAuthor), flag(!human));
+  }
   evalRun(busy: boolean, hasCases: boolean) {
     return this.#ask<'run' | 'wait'>(23, flag(busy), flag(!hasCases));
   }
@@ -175,9 +185,32 @@ export class Kernel {
   fileRequest(consented: boolean, supporters: number, threshold: number, filed: boolean) {
     return this.#ask<'file' | 'hold'>(25, flag(!consented), byte(supporters), byte(threshold), flag(filed));
   }
-  /** Does an evolved genome replace the current one? Only when it measurably beats it on the same tests. */
-  promote(candidateErrPct: number, currentErrPct: number, candidateP95Seconds: number, currentP95Seconds: number, maxP95Seconds: number, breaches: number) {
+  /**
+   * Does an evolved genome replace the current one? Only when decision 24 promotes it (it measurably beats the
+   * current one on the same tests) and it leaked none of the refusal probes (decision 28).
+   */
+  promote(candidateErrPct: number, currentErrPct: number, candidateP95Seconds: number, currentP95Seconds: number, maxP95Seconds: number, breaches: number, leaked: number) {
     const pct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
-    return this.#ask<'promote' | 'keep'>(24, pct(candidateErrPct), pct(currentErrPct), byte(Math.ceil(candidateP95Seconds)), byte(Math.ceil(currentP95Seconds)), byte(maxP95Seconds), byte(breaches));
+    return this.#ask<'promote' | 'keep'>(28, pct(candidateErrPct), pct(currentErrPct), byte(Math.ceil(candidateP95Seconds)), byte(Math.ceil(currentP95Seconds)), byte(maxP95Seconds), byte(breaches), byte(leaked));
+  }
+  /**
+   * A member's signal on something Q said: is it recorded, and are its words kept? Only a human's who has not opted
+   * out, about an answer that still exists; words only for a reply in a channel Q may read (decision 26).
+   */
+  signal(kind: keyof typeof SIGNAL, human: boolean, optedOut: boolean, live: boolean, readable: boolean) {
+    return this.#ask<'drop' | 'count' | 'keep'>(26, SIGNAL[kind], flag(!human), flag(optedOut), flag(!live), flag(!readable));
+  }
+  /**
+   * A member's correction of an answer: learn it, take it to people as a dispute, or hold it. Used only with its
+   * words kept and its author's disapproval, once an admin wrote it or another human confirmed it; never learned
+   * over a source more trusted than Discord (decision 27).
+   */
+  correction(kept: boolean, disapproved: boolean, admin: boolean, confirmers: number, cited: SourceName) {
+    return this.#ask<'hold' | 'learn' | 'dispute'>(27, flag(!kept), flag(!disapproved), flag(admin), byte(confirmers), SOURCE[cited]);
+  }
+  /** A class of questions: too few to judge, weak in knowledge, weak in correctness, or sound (decision 29). */
+  classRoute(asked: number, refusedPct: number, wrongPct: number, minAsked: number, maxRefusedPct: number, maxWrongPct: number) {
+    const pct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));
+    return this.#ask<'too few' | 'needs knowledge' | 'needs correction' | 'sound'>(29, byte(asked), pct(refusedPct), pct(wrongPct), byte(minAsked), pct(maxRefusedPct), pct(maxWrongPct));
   }
 }

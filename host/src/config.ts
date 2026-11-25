@@ -60,8 +60,15 @@ export function config() {
     // community repository. Without the token, requests are kept and wait.
     // The app builder service (builder-service.ts), on the internal network. Unset: /build is not offered.
     builderUrl: process.env.BUILDER_URL ?? '',
+    // The tracker (tracker.ts): the servers it is switched on for (ids, or * for all; unset: off), the admin channel
+    // its daily digest goes to (unset: no digest), and the hour, in UTC, it goes.
+    tracker: {
+      guilds: list('TRACKER_GUILDS').length ? new Set(list('TRACKER_GUILDS')) : null,
+      channel: process.env.TRACKER_CHANNEL ?? '',
+      hourUtc: number('TRACKER_DIGEST_HOUR', 9),
+    },
     requests: { threshold: number('REQUEST_THRESHOLD', 2), token: process.env.COMMUNITY_ISSUES_TOKEN ?? '' },
-    loop: { everyHours: number('LOOP_EVERY_HOURS', 24), firstMinutes: number('LOOP_FIRST_MINUTES', 20), evaluationSize: number('LOOP_EVALUATION_SIZE', 12), maxErrorPct: number('LOOP_MAX_ERROR_PCT', 10), maxP95Seconds: number('LOOP_MAX_P95_SECONDS', 60) },
+    loop: { everyHours: number('LOOP_EVERY_HOURS', 24), firstMinutes: number('LOOP_FIRST_MINUTES', 20), evaluationSize: number('LOOP_EVALUATION_SIZE', 12), maxErrorPct: number('LOOP_MAX_ERROR_PCT', 10), maxP95Seconds: number('LOOP_MAX_P95_SECONDS', 60), minClass: number('LOOP_MIN_CLASS', 10), maxRefusedPct: number('LOOP_MAX_REFUSED_PCT', 50), maxWrongPct: number('LOOP_MAX_WRONG_PCT', 20) },
     embeddingsUrl: need('EMBEDDINGS_URL'),
     embeddingsKey: process.env.EMBEDDINGS_API_KEY ?? '',
     embeddingsModel: need('EMBEDDINGS_MODEL'),
@@ -100,6 +107,8 @@ export function config() {
       mediumSimilarity: number('SIMILARITY_MEDIUM', 0.35),
       highSimilarity: number('SIMILARITY_HIGH', 0.5),
       retrieve: number('RETRIEVE', 6),
+      // The answer shape the prompt starts from (pipeline.ts STYLES); the loop may evolve it.
+      style: number('PROMPT_STYLE', 0),
       // LangBot's pipeline settings.
       access: { mode: choice('ACCESS_MODE', ['blacklist', 'whitelist'] as const, 'blacklist'), list: new Set(list('ACCESS_LIST')) },
       filter: { scope: choice('FILTER_SCOPE', ['both', 'incoming', 'outgoing'] as const, 'both'), terms: list('FILTER_TERMS') },

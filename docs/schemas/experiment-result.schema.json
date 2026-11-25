@@ -61,6 +61,10 @@
           "type": "integer",
           "description": "Answers sent without a citation. A breach is never steady."
         },
+        "leaked": {
+          "type": "integer",
+          "description": "Questions that had to be refused and were not. A genome that leaks one is never promoted (decision 28)."
+        },
         "outcomes": {
           "type": "object",
           "additionalProperties": {

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/UOR-Foundation/q/docs/schemas/delivery.schema.json",
+  "title": "uor-q/delivery/1",
+  "description": "One reply Q delivered on Discord, kept so a signal can find what it judges. Private: it holds the question. Forgotten with its asker.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "spec",
+    "answer",
+    "url",
+    "questionUrl",
+    "question",
+    "author",
+    "channel",
+    "decision",
+    "grounded",
+    "cited",
+    "citedUrl",
+    "area",
+    "ms",
+    "subjects",
+    "created"
+  ],
+  "properties": {
+    "type": {
+      "const": "delivery"
+    },
+    "spec": {
+      "const": "uor-q/delivery/1"
+    },
+    "answer": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "url": {
+      "type": "string"
+    },
+    "questionUrl": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "question": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string",
+      "description": "A Discord user id."
+    },
+    "channel": {
+      "type": "string"
+    },
+    "decision": {
+      "type": "string"
+    },
+    "grounded": {
+      "type": "boolean"
+    },
+    "cited": {
+      "oneOf": [
+        {
+          "enum": [
+            "community",
+            "website",
+            "github",
+            "discord"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The most trusted source the answer cited."
+    },
+    "citedUrl": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "That source, when it is public."
+    },
+    "area": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The class of the question: the public area of its nearest public item."
+    },
+    "ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Every member this record was made from. /forget-me for any of them removes it."
+    },
+    "created": {
+      "type": "integer",
+      "description": "Milliseconds since the epoch. Retention removes the record 180 days after it."
+    }
+  }
+}

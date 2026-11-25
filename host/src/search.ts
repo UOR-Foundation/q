@@ -33,6 +33,8 @@ export class SearchIndex {
       create table if not exists loop (kind text not null, key text not null, value text not null, primary key (kind, key));
       create table if not exists question (key text primary key, manifest text not null, answer text not null, context text not null);
     `);
+    // The keys an answer builds on came later than the table: a file made before them gains the column.
+    if (!(this.#db.prepare('pragma table_info(question)').all() as { name: string }[]).some((column) => column.name === 'after')) this.#db.exec("alter table question add column after text not null default '[]'");
   }
 
   #revision = 0;
@@ -46,18 +48,20 @@ export class SearchIndex {
    * to the answer computed for it. A key a browser can compute alone, so a repeat needs no retrieval.
    * A cache, rebuilt by use: nothing here is not also in the answer records.
    */
-  questionGet(key: string): { manifest: string; answer: string; context: string } | undefined {
-    return this.#db.prepare('select manifest, answer, context from question where key = ?').get(key) as { manifest: string; answer: string; context: string } | undefined;
+  questionGet(key: string): { manifest: string; answer: string; context: string; after: string[] } | undefined {
+    const row = this.#db.prepare('select manifest, answer, context, after from question where key = ?').get(key) as { manifest: string; answer: string; context: string; after: string } | undefined;
+    return row && { ...row, after: JSON.parse(row.after) as string[] };
   }
-  questionSet(key: string, manifest: string, answer: string, context: string) {
-    this.#db.prepare('insert or replace into question values (?, ?, ?, ?)').run(key, manifest, answer, context);
+  /** `after` is the keys of the earlier answers this one builds on: part of its key, and of its public record. */
+  questionSet(key: string, manifest: string, answer: string, context: string, after: readonly string[] = []) {
+    this.#db.prepare('insert or replace into question (key, manifest, answer, context, after) values (?, ?, ?, ?, ?)').run(key, manifest, answer, context, JSON.stringify(after));
   }
   questionDelete(key: string) {
     this.#db.prepare('delete from question where key = ?').run(key);
   }
-  /** Keys asked under any other manifest can never be asked again: the manifest is part of the key. */
-  questionKeep(manifest: string) {
-    this.#db.prepare('delete from question where manifest <> ?').run(manifest);
+  /** Keys asked under any manifest but the current ones, one for each register, can never be asked again: the manifest is part of the key. */
+  questionKeep(manifests: readonly string[]) {
+    this.#db.prepare(`delete from question where manifest not in (${manifests.map(() => '?').join(', ')})`).run(...manifests);
   }
 
   /**
@@ -164,25 +168,29 @@ export class SearchIndex {
     this.#vectors.clear();
     this.#seen = 0;
     this.#revision++;
-    const fills: { gap: string; chunk: string }[] = [];
+    // A member's answer Q learned, a filled gap's or a correction's, is searched by the question it answers.
+    const learned: { question: string; chunk: string }[] = [];
     for (const namespace of ['public', 'private'] as const) {
       for (const label of await store.labels(namespace)) {
         const item = await store.get(namespace, label);
         // Only an answer computed for its key is the key's answer; one that reused it points back to it.
         if (item?.type === 'answer' && typeof item.memo === 'string' && item.reused === null && typeof item.context === 'string') this.memoSet(item.memo, label, item.context);
         if (item) loopRecord(this, label, item);
-        if (item?.type === 'gap-fill') fills.push({ gap: String(item.gap), chunk: String(item.chunk) });
+        if ((item?.type === 'gap-fill' || item?.type === 'correction') && typeof item.question === 'string') learned.push({ question: item.question, chunk: String(item.chunk) });
+        else if (item?.type === 'gap-fill') {
+          // A fill from before the fill named its question: read it from the gap.
+          const gap = await store.get('private', String(item.gap));
+          if (gap) learned.push({ question: String(gap.question), chunk: String(item.chunk) });
+        }
         if (item?.type !== 'chunk' || typeof item.text !== 'string' || (await isRevoked(store, namespace, label))) continue;
         const [vector] = await embedder.embed([item.text]);
         this.add(label, namespace, item.text, vector);
       }
     }
-    // A filled gap's answer is searched by the question it answers.
-    for (const { gap, chunk } of fills) {
-      const [question, answer] = [await store.get('private', gap), await store.get('private', chunk)];
-      if (!question || !answer || !this.has(chunk)) continue;
-      const [vector] = await embedder.embed([`${question.question}
-${answer.text}`]);
+    for (const { question, chunk } of learned) {
+      const answer = await store.get('private', chunk);
+      if (!answer || !this.has(chunk)) continue;
+      const [vector] = await embedder.embed([`${question}\n${answer.text}`]);
       this.revector(chunk, vector);
     }
   }
@@ -198,8 +206,13 @@ export function loopRecord(index: SearchIndex, label: string, item: { type: stri
     const gap = index.loopGet<Record<string, unknown>>('gap', item.url);
     index.loopSet('gap', item.url, { ...(gap ?? {}), filled: label });
   }
-  if (item.type === 'delivery' && typeof item.url === 'string') index.loopSet('delivery', item.url, { answer: item.answer, question: item.question, grounded: item.grounded });
-  if (item.type === 'test-case') index.loopSet('test', label, { question: item.question, source: item.source, added: item.added });
+  if (item.type === 'delivery' && typeof item.url === 'string') {
+    index.loopSet('delivery', item.url, { label, answer: item.answer, question: item.question, author: item.author, decision: item.decision ?? null, grounded: item.grounded, cited: item.cited ?? null, citedUrl: item.citedUrl ?? null, area: item.area ?? null });
+  }
+  if (item.type === 'test-case') index.loopSet('test', label, { question: item.question, source: item.source, cites: item.cites ?? null, created: item.created ?? item.added });
+  if (item.type === 'signal') index.loopSet('signal', label, { kind: item.kind, about: item.about, author: item.author, words: item.words, role: item.role, on: item.on });
+  if (item.type === 'reply' && typeof item.url === 'string') index.loopSet('reply', item.url, { label, on: item.replyTo, author: item.author });
+  if (item.type === 'correction' && typeof item.reply === 'string') index.loopSet('correction', item.reply, { label, outcome: item.outcome, chunk: item.chunk });
   if (item.type === 'genome') {
     const latest = index.loopGet<{ at: number }>('genome', 'latest');
     if (!latest || Number(item.at) >= latest.at) index.loopSet('genome', 'latest', { label, at: item.at });
@@ -212,6 +225,14 @@ export function loopRecord(index: SearchIndex, label: string, item: { type: stri
   if (item.type === 'request-filed' && typeof item.request === 'string') {
     const request = index.loopGet<Record<string, unknown>>('request', item.request);
     index.loopSet('request', item.request, { ...(request ?? {}), filed: item.issue });
+  }
+  if (item.type === 'tracked' && typeof item.url === 'string') {
+    const was = index.loopGet<{ closed: string | null }>('tracked', item.url);
+    index.loopSet('tracked', item.url, { label, kind: item.kind, url: item.url, channel: item.channel, author: item.author, summary: item.summary, due: item.due, at: item.at, closed: was?.closed ?? null });
+  }
+  if (item.type === 'tracked-close' && typeof item.url === 'string') {
+    const tracked = index.loopGet<Record<string, unknown>>('tracked', item.url);
+    if (tracked) index.loopSet('tracked', item.url, { ...tracked, closed: label });
   }
   if (item.type === 'review') {
     const latest = index.loopGet<{ at: number }>('review', 'latest');
