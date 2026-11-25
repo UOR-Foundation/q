@@ -45,8 +45,9 @@ export async function runFocus(kernel: Pick<Kernel,'focusCollect'>, model: Pick<
   const {read}=createPublicRead({maxRequests:40,deadlineMs:15000,signal:options.signal,fetcher:options.fetcher});
   // Extract only explicit organization/repository identities. Never infer a
   // repository from vague prose or follow a URL supplied by a question.
+  // Trailing periods are sentence punctuation, not part of a GitHub name.
   const named = [...new Set([...question.matchAll(/\bUOR-Foundation\/([A-Za-z0-9_.-]{1,100})(?![A-Za-z0-9_.-])/gi)]
-    .map(m => ('UOR-Foundation/'+m[1]).toLowerCase()).filter(n=>!n.endsWith('/.')&&!n.endsWith('/..')))];
+    .map(m => ('UOR-Foundation/'+m[1].replace(/\.+$/,'')).toLowerCase()).filter(n=>!n.endsWith('/')&&!n.endsWith('/.')&&!n.endsWith('/..')))];
   if(named.length>1)return {kind:'clarify'};
   if(named.length===1 && options.filter?.repository && options.filter.repository.toLowerCase()!==named[0])return {kind:'clarify'};
   const filter = named.length ? {...options.filter,repository:named[0].replace(/^uor-foundation\//,'UOR-Foundation/')} : options.filter;
