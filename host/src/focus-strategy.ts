@@ -128,11 +128,11 @@ function methodStep(id: MethodId): StrategyStep {
  */
 export function validateStrategySelection(raw: string, available: ReadonlySet<EvidenceNeed>): StrategySelection {
   if (typeof raw !== 'string' || raw.length > 256) return { kind: 'unavailable', reason: 'invalid-classification' };
-  let value: unknown;
-  try { value = JSON.parse(raw); } catch { return { kind: 'unavailable', reason: 'invalid-classification' }; }
-  if (!value || typeof value !== 'object' || Array.isArray(value) ||
-      Object.keys(value).length !== 1 || !Object.hasOwn(value, 'intent')) return { kind: 'unavailable', reason: 'invalid-classification' };
-  const intent = (value as { intent?: unknown }).intent;
+  // Restrict the wire format to one literal key and one closed-vocabulary token.
+  // JSON.parse alone accepts duplicate keys with last-wins semantics.
+  const match = /^\s*\{\s*"intent"\s*:\s*"([a-z]+)"\s*\}\s*$/.exec(raw);
+  if (!match) return { kind: 'unavailable', reason: 'invalid-classification' };
+  const intent = match[1];
   if (intent === 'ordinary') return { kind: 'ordinary' };
   if (intent === 'unclear') return { kind: 'clarify' };
   if (typeof intent !== 'string' || !Object.hasOwn(ROUTES, intent)) return { kind: 'unavailable', reason: 'invalid-classification' };
@@ -168,11 +168,14 @@ export async function selectStrategy(model: Pick<Llm, 'complete'>, question: str
  * routing text or fetched instructions. Missing evidence must be collected or
  * surfaced first. The result is not a policy decision and never authorizes tools.
  */
-export function strategyBrief(selection: StrategySelection): string | null {
-  if (selection.kind !== 'strategy' || selection.inputState !== 'inputs-present') return null;
+export function strategyBrief(selection: StrategySelection, context: StrategyContext): string | null {
+  if (context.communityDecision !== 'not-applicable' || selection.kind !== 'strategy' ||
+      selection.inputState !== 'inputs-present' || !Object.hasOwn(ROUTES, selection.intent)) return null;
   // Reconstruct reviewed instructions from closed IDs rather than trusting
   // any mutable output object supplied to this function.
   const route = ROUTES[selection.intent];
-  if (!route || route.primary !== selection.primary || selection.missing.length) return null;
-  return [...route.support, route.primary].map(id => METHODS[id].instruction).join('\n');
+  if (route.primary !== selection.primary || selection.missing.length) return null;
+  const ids = [...route.support, route.primary];
+  if (ids.some(id => METHODS[id].requires.some(need => !context.availableEvidence.has(need)))) return null;
+  return ids.map(id => METHODS[id].instruction).join('\n');
 }
