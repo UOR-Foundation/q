@@ -42,7 +42,7 @@ Q is a Foundation Tier 2 implementation. [GOVERNANCE.md](GOVERNANCE.md) currentl
 For changes, follow [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md) where relevant, and [CONTRIBUTING.md](CONTRIBUTING.md). The authoritative model, generated outputs, security and review boundaries must be preserved. The Foundation-wide [governance tracker](https://github.com/UOR-Foundation/.github/issues/19) distinguishes written policy from enforced GitHub settings.
 
 ---
-  
+
 ## Why Q exists
 
 A community assistant answers for the community. If its rules live in code beside the model, nobody can say which rule produced an answer. Here every rule is a proved decision, every answer names the evidence and the decisions behind it, and the community's own repository is the one authority Q follows.
@@ -76,7 +76,7 @@ npx prism-code@0.11.2 build --json     # write app/.prism/build/q.holo and repla
 npx prism-code@0.11.2 verify --json    # judge what was built
 ```
 
-`0.11.2` is `@latest` today, and `host/package.json` pins the same runtime: the host must read the holo the build writes. To run the agent, see [host/README.md](host/README.md).
+The commands above pin `prism-code` version `0.11.2`; they do not assume that it is the current `@latest` release. The host uses its separately pinned runtime: it must read the holo produced by the build. To run the agent, see [host/README.md](host/README.md).
 
 On every push to `main`, `.github/workflows/holo.yml` builds the holo, signs its SLSA provenance and publishes it at `https://uor-foundation.github.io/q/app.holo`. The build is reproducible, so a deployment builds the same bytes itself, and the host refuses to start on a kernel no such signature names (DA-20). To run a model you changed and have not published, set `KERNEL_PROVENANCE=off`; the host then says so in its log.
 
