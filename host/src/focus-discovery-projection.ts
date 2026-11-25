@@ -39,7 +39,7 @@ export function projectDiscovery(snapshot: LiveWorkSnapshot, filter: DiscoveryFi
   let matchingRepositories = 0, unknownMetadataRepositories = 0, unknownMetadataItems = 0, unavailableRepositories = 0;
   const matches: WorkItem[] = [];
   for (const repo of snapshot.repositories) {
-    if (filter.repository !== undefined && repo.repository !== filter.repository) continue;
+    if (filter.repository !== undefined && repo.repository.toLowerCase() !== filter.repository.toLowerCase()) continue;
     if (repo.coverage !== 'complete') unavailableRepositories++;
     if (filter.topic !== undefined) {
       if (repo.topics === null) { unknownMetadataRepositories++; continue; }
@@ -56,7 +56,21 @@ export function projectDiscovery(snapshot: LiveWorkSnapshot, filter: DiscoveryFi
     }
   }
   matches.sort((a,b) => a.repository < b.repository ? -1 : a.repository > b.repository ? 1 : a.number - b.number);
-  const candidates = matches.slice(0,limit).map(i => ({
+  // Breadth before depth: one item from each observed repository before a
+  // second from any. Stable ordering is still sampling, not prioritization.
+  const groups = new Map<string,WorkItem[]>();
+  for(const item of matches) {
+    const list=groups.get(item.repository)??[];
+    list.push(item);groups.set(item.repository,list);
+  }
+  const sample:WorkItem[]=[];
+  for(let round=0;sample.length<limit&&sample.length<matches.length;round++){
+    for(const list of groups.values()){
+      if(list[round])sample.push(list[round]);
+      if(sample.length===limit)break;
+    }
+  }
+  const candidates = sample.map(i => ({
     repository: i.repository, number: i.number, kind: i.kind, url: i.url, title: i.title, updatedAt: i.updatedAt,
   }));
   return { startedAt: snapshot.startedAt, finishedAt: snapshot.finishedAt, sourceCoverage: snapshot.coverage,

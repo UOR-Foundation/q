@@ -72,6 +72,8 @@ function workItem(row: unknown, repo: string): WorkItem | null {
 export async function collectLiveWork(read: PublicRead, options: {
   maxOrgPages?: number; maxRepositories?: number; maxWorkPages?: number;
   now?: () => Date;
+  /** Prefer an explicitly named repository within the observed public scope. */
+  preferredRepository?: string;
 } = {}): Promise<LiveWorkSnapshot> {
   const maxOrg = bound(options.maxOrgPages ?? 10, 100);
   const maxRepos = bound(options.maxRepositories ?? 100, 200);
@@ -96,14 +98,16 @@ export async function collectLiveWork(read: PublicRead, options: {
       if (seen.has(key)) { invalidRecords++; continue; }
       seen.add(key);
       if (row.archived || row.fork) continue;
-      if (candidates.length >= maxRepos) { omittedRepositories++; continue; }
       candidates.push({repository: ORG + '/' + row.name, defaultBranch: row.default_branch, topics: metadata(row.topics)});
     }
     if (rows.length < 100) { orgExhausted = true; break; }
   }
   const enumeration: Coverage = !pages ? 'unavailable' : orgExhausted && !invalidRecords ? 'complete' : 'partial';
   const repositories: RepoWork[] = [];
-  for (const candidate of candidates) {
+  const preferred = options.preferredRepository?.toLowerCase();
+  if (preferred) candidates.sort((a,b) => Number(b.repository.toLowerCase() === preferred) - Number(a.repository.toLowerCase() === preferred));
+  omittedRepositories = Math.max(0, candidates.length - maxRepos);
+  for (const candidate of candidates.slice(0,maxRepos)) {
     const items: WorkItem[] = [];
     const seenNumbers = new Set<number>();
     let readPages = 0, exhausted = false, invalid = false;

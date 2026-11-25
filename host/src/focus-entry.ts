@@ -43,6 +43,13 @@ export async function runFocus(kernel: Pick<Kernel,'focusCollect'>, model: Pick<
   // by bounding the first pass. This provisional scope cap must be
   // measured; the assessment explicitly reports partial coverage.
   const {read}=createPublicRead({maxRequests:40,deadlineMs:15000,signal:options.signal,fetcher:options.fetcher});
-  const data=await assessFocus(read,{filter:options.filter,maxRepositories:24,maxWorkPages:1,maxCandidates:4,signal:options.signal});
+  // Extract only explicit organization/repository identities. Never infer a
+  // repository from vague prose or follow a URL supplied by a question.
+  const named = [...new Set([...question.matchAll(/\bUOR-Foundation\/([A-Za-z0-9_.-]{1,100})(?![A-Za-z0-9_.-])/gi)]
+    .map(m => ('UOR-Foundation/'+m[1]).toLowerCase()).filter(n=>!n.endsWith('/.')&&!n.endsWith('/..')))];
+  if(named.length>1)return {kind:'clarify'};
+  if(named.length===1 && options.filter?.repository && options.filter.repository.toLowerCase()!==named[0])return {kind:'clarify'};
+  const filter = named.length ? {...options.filter,repository:named[0].replace(/^uor-foundation\//,'UOR-Foundation/')} : options.filter;
+  const data=await assessFocus(read,{filter,maxRepositories:24,maxWorkPages:1,maxCandidates:4,signal:options.signal});
   return options.signal?.aborted||data.state==='cancelled'?{kind:'hold'}:{kind:'assessment',data};
 }

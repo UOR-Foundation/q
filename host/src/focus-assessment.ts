@@ -41,7 +41,7 @@ export async function assessFocus(read: PublicRead, options: {
     if (options.signal?.aborted) throw Error('focus cancelled');
     return read(path);
   };
-  const snapshot = await collectLiveWork(guard, options);
+  const snapshot = await collectLiveWork(guard, {...options, preferredRepository:options.filter?.repository});
   const projection = projectDiscovery(snapshot, options.filter, limit);
   const targets = new Map<string, Target>();
   const tasks = new Map<string, Task>();

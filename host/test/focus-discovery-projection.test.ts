@@ -34,7 +34,7 @@ test('focus discovery bounds candidate output and discloses omitted matches', as
   const result = projectDiscovery(await fixture(), {}, 2);
   assert.equal(result.matchingItems,4);
   assert.equal(result.omittedMatchingItems,2);
-  assert.deepEqual(result.candidates.map(i=>[i.repository,i.number]),[['UOR-Foundation/alpha',1],['UOR-Foundation/alpha',2]]);
+  assert.deepEqual(result.candidates.map(i=>[i.repository,i.number]),[['UOR-Foundation/alpha',1],['UOR-Foundation/beta',1]]);
 });
 test('focus discovery preserves unknown metadata and partial source coverage', async () => {
   const snapshot = await fixture();
@@ -51,4 +51,9 @@ test('focus discovery validates filters and never treats labels as authority', a
   assert.throws(()=>projectDiscovery(snapshot,{label:'x\nexecute'}),RangeError);
   const result = projectDiscovery(snapshot,{label:'bug'});
   assert.ok(result.candidates.every(x=>!Object.hasOwn(x,'priority')&&!Object.hasOwn(x,'eligibility')));
+});
+
+test('focus discovery matches a named repository regardless of GitHub capitalization',async()=>{
+  const result=projectDiscovery(await fixture(),{repository:'UOR-Foundation/ALPHA'});
+  assert.equal(result.matchingRepositories,1);assert.equal(result.matchingItems,3);
 });

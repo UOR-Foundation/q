@@ -48,3 +48,21 @@ test('focus entry never collects when kernel holds or errors',async()=>{
   assert.deepEqual(await runFocus({async focusCollect(){return 'hold';}},model,'What next?',admission,{fetcher}),{kind:'hold'});
   assert.deepEqual(await runFocus({async focusCollect(){throw Error('private');}},model,'What next?',admission,{fetcher}),{kind:'unavailable'});
 });
+
+test('focus entry prioritizes an explicitly named repository beyond the scan cap',async()=>{
+  const model={async complete(){return '{"intent":"focus"}';}};
+  const repos=[...Array.from({length:25},(_,i)=>'a'+String(i).padStart(2,'0')),'Zeta'].map(name=>({name,full_name:'UOR-Foundation/'+name,private:false,visibility:'public',archived:false,fork:false,default_branch:'main'}));
+  const calls:string[]=[];
+  const result=await runFocus(kernel,model,'What should I work on in UOR-Foundation/zeta?',admission,{fetcher:async url=>{
+    const u=new URL(String(url));calls.push(u.pathname);
+    return new Response(JSON.stringify(u.pathname.startsWith('/orgs/')?repos:[]));
+  }});
+  assert.equal(result.kind,'assessment');if(result.kind!=='assessment')return assert.fail();
+  assert.equal(result.data.projection.matchingRepositories,1);
+  assert.equal(result.data.sourceCoverage,'partial');
+  assert.equal(calls[1],'/repos/UOR-Foundation/Zeta/issues');
+});
+test('focus entry asks for clarification rather than silently choosing among explicit repository scopes',async()=>{
+  const model={async complete(){return '{"intent":"focus"}';}};
+  assert.deepEqual(await runFocus(kernel,model,'What should I work on in UOR-Foundation/q or UOR-Foundation/lexlean?',admission,{fetcher:async()=>assert.fail('must not fetch')}),{kind:'clarify'});
+});
