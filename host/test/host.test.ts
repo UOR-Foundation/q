@@ -20,7 +20,7 @@ import type { AddressInfo } from 'node:net';
 import { Tools } from '../src/tools.ts';
 import { payloads } from '../src/adapter/adapter.ts';
 import { Aggregator } from '../src/aggregator.ts';
-import { withoutMention } from '../src/adapter/discord.ts';
+import { deliver, withoutMention } from '../src/adapter/discord.ts';
 import { mcpServer } from '../src/mcp-server.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -656,6 +656,18 @@ test('the folder store reads its edge log incrementally, including edges another
   await appendFile(join(root, 'public', 'edges.jsonl'), JSON.stringify({ source: b, target: a, relation: 'revocation' }) + '\n');
   assert.ok(await isRevoked(store, 'public', a));
   assert.deepEqual((await store.edgesTo('public', b)), []);
+});
+
+test('a reply split over several Discord messages is delivered whole, in order', async () => {
+  const text = Array.from({ length: 60 }, (_, i) => `line ${i} ` + 'x'.repeat(80)).join('\n');
+  const parts = payloads({ text, decision: 'allowed', citations: [], delivery: 'split' }, 2000);
+  assert.ok(parts.length >= 3);
+  const sent: string[] = [];
+  const first = await deliver(parts, async (payload) => { sent.push(payload.content); return { id: sent.length }; });
+  assert.deepEqual(sent, parts.map((p) => p.content));
+  assert.equal(sent.join(''), parts.map((p) => p.content).join(''));
+  assert.deepEqual(first, { id: 1 });
+  assert.equal(await deliver([], async () => assert.fail('nothing to send')), undefined);
 });
 
 test('Q\'s mention is removed in both Discord forms, and nobody else\'s', () => {
