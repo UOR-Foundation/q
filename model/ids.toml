@@ -328,3 +328,12 @@ statement = "On the website an earlier answer is context for a question only whe
 theorems = ["Policy.threadOnlyKnown"]
 failure = "skip"
 negative = "DA-37"
+
+[[id]]
+id = "DA-38"
+level = "build"
+suite = "agent"
+statement = "Live Focus collection is permitted only for an admitted Focus request, with no applicable or unresolved community decision, in the public source scope"
+theorems = ["Policy.focusCollectOnly", "Policy.focusCollectWhen"]
+failure = "hold"
+negative = "DA-38"
