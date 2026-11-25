@@ -6,7 +6,7 @@ Project-owned evidence for the gates in `VERIFICATION.md`. Run with prism-code 0
 
 | Command | Result |
 | --- | --- |
-| `npx prism-code@0.11.2 check --json` | exit 0; 57 of 57 theorems proved; 38 IDs, 38 scenarios, 1 authority, 1 claim; no contract violation |
+| `npx prism-code@0.11.2 check --json` | exit 0; 57 of 57 theorems proved; 39 IDs, 39 scenarios, 1 authority, 1 claim; no contract violation |
 | `npx prism-code@0.11.2 build --json` | exit 0; 248 of 248 acceptance vectors replayed; holo `blake3:5a6e2386cc8e0e42b1c85d981624044ec42ec4f130debc26b882ee0157c8eda8` |
 | `npx prism-code@0.11.2 verify --json` | exit 0; identities verified; 248 of 248 vectors on fresh instances |
 | `npx prism-code@0.11.2 manifest --json` | no finding; no capability granted |
@@ -26,6 +26,9 @@ Each defect was planted in the model, the gate was run, and the model was restor
 | DA-37 registered with its scenario before `threadOnlyKnown` was stated | `check` | `contract.theorem-unstated`: DA-37 names `Policy.threadOnlyKnown`, which the model does not state; exit 1 |
 | `threadUse` admits an earlier answer the host no longer reads back (`(known =? 0)` dropped) | `check` | `contract.theorem-unproved`: DA-37, `Policy.threadOnlyKnown` not proved (54 of 55); exit 1 |
 | `focusCollect` admits an unresolved community decision (`((community =? 0) \|\| (community =? 2))` for `(community =? 0)`) | `check`, `build` | `contract.theorem-unproved`: DA-38, `Policy.focusCollectOnly` not proved (56 of 57); exit 1. `build` refuses the same way and writes no holo. Restored byte-identical; the rebuilt holo is unchanged |
+| DA-39 capability inventory omits a Discord command (`open` removed from `DISCORD_COMMANDS`) | `npm run typecheck` | TS2741: property `open` is missing in `Readonly<Record<CommandName, Entry>>`; the catalog is type-bound to the kernel's command vocabulary |
+| DA-39 capability inventory omits an adapter event (`MessageReactionRemove`) | `npm test` | `capability inventory covers public routes, adapter events and registered claims` fails against the adapter source |
+| DA-39 summary claims feedback while the feedback effect is unwired | `npm test` | `capability summary claims an effect only when it is wired` fails (the defect as first observed) |
 | Decision 31 added while a vector still asks 31 as the first unassigned decision | `build` | `build.vectors`: 1 of 240 vectors is not what the model answers; no holo written. That vector now asks 32 |
 | The dispatcher refuses surface 2 (`(field value 2) <=? 1`) while the vectors ask for it | `build` | `build.vectors`: 2 of 190 vectors are not what the model answers; no holo written |
 | The dispatcher answers `denied` where the register says `not authorized` | `build` | `build.vectors`: 2 of 80 vectors are not what the model answers; no holo written |

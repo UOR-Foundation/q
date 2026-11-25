@@ -2171,3 +2171,23 @@ test('capability summary is short, scoped and changes with wiring',async()=>{
   assert.equal(capabilityDetail('what can you do to change the naming policy'),null);
   assert.equal(w.llm.calls,0);
 });
+test('capability summary claims an effect only when it is wired',async()=>{
+  const w=await world();
+  const unwired=summarizeCapabilities(await capabilityReport(kernel,w.decider,w.pipeline.actions,'member'));
+  assert.doesNotMatch(unwired,/Receive feedback/);
+  assert.match(unwired,/Feedback is not enabled here/);
+  w.pipeline.actions.feedback=async()=>'filed';
+  const wired=summarizeCapabilities(await capabilityReport(kernel,w.decider,w.pipeline.actions,'member'));
+  assert.match(wired,/Receive feedback/);
+  assert.match(wired,/\/feedback/);
+});
+test('standalone capability phrasings route to the governed report, never to an inferred answer',async()=>{
+  for(const q of ['What are you capable of?',"What's Q capable of?",'What\u2019s Q capable of?','What are you able to do?','How can you help me?','What do you do?','WHAT ARE YOU CAPABLE OF?'])
+    assert.equal(capabilityDetail(q),'summary',q);
+  for(const q of ['How can you help me rename the repository?','What do you do with my messages?',"What's Q capable of deleting?"])
+    assert.equal(capabilityDetail(q),null,q);
+  const w=await world();
+  const reply=await w.pipeline.handle(ask('What\u2019s Q capable of?'));
+  assert.match(reply!.text,/What I can do/);
+  assert.equal(w.llm.calls,0);
+});

@@ -24,9 +24,9 @@ export const DISCORD_COMMANDS: Readonly<Record<CommandName,Entry>> = {
 // command. No retrieved text, tool metadata or model output can select it.
 export function capabilityDetail(question:string):'summary'|'full'|null {
   if(typeof question!=='string'||question.length>160)return null;
-  const q=question.trim().toLowerCase().replace(/[?!.]+$/,'').replace(/\s+/g,' ');
+  const q=question.trim().toLowerCase().replace(/[\u2018\u2019]/g,"'").replace(/[?!.]+$/,'').replace(/\s+/g,' ');
   if(/^(?:what are all of your capabilities|(?:show(?: me)?|list|describe|explain) (?:your|q's|the) (?:full |complete )?capability map|(?:show(?: me)?|list) all (?:of )?(?:your |q's )?capabilities|full capability map)$/.test(q))return 'full';
-  if(/^(?:what (?:can you do(?: for me| here)?|can q do|are you capable of|is q capable of|are your capabilities|are q's capabilities)|(?:show(?: me)?|list|describe|explain|tell me about) (?:your|q's) capabilities|(?:show(?: me)?|list) (?:the )?(?:available )?capabilities)$/.test(q))return 'summary';
+  if(/^(?:what (?:can you do(?: for me| here)?|can q do|are you capable of|is q capable of|are you able to do|is q able to do|do you do|does q do|are your capabilities|are q's capabilities)|what's q capable of|what're you capable of|how can (?:you|q) help(?: me)?|(?:show(?: me)?|list|describe|explain|tell me about) (?:your|q's) capabilities|(?:show(?: me)?|list) (?:the )?(?:available )?capabilities)$/.test(q))return 'summary';
   return null;
 }
 export function isCapabilityQuestion(question:string):boolean{return capabilityDetail(question)!==null;}
@@ -94,7 +94,7 @@ export function summarizeCapabilities(value:Awaited<ReturnType<typeof capability
     '**What I can do**',
     '- Answer Foundation questions, search sources and explain community decisions.',
     '- Help find contribution opportunities'+(status('focus')==='wired'?' using current public evidence (preview).':' when live discovery is enabled; it is not enabled here.') ,
-    '- Receive feedback and help with memory and privacy requests.',
+    status('signals')==='wired'?'- Receive feedback and help with memory and privacy requests.':'- Help with memory and privacy requests. Feedback is not enabled here.',
     '- Support community administration, work tracking and app building when configured and allowed.',
     '- Support web and agent connections, learning and approved background tasks when configured.',
     '',

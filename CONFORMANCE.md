@@ -57,6 +57,7 @@ The three honesty levels (R2):
 | `DA-36` | `build` | An open question, promise or request is closed only by a human: a question or request by someone else's reply or its author's confirmation, a promise only by a confirmation | `Policy.closeOnlyByHumans`, `Policy.promiseNeedsConfirmation`, `Policy.ownReplyNeverAnswers`, refuses with `open` |
 | `DA-37` | `build` | On the website an earlier answer is context for a question only when the host still reads it back by its key and it is among the newest three | `Policy.threadOnlyKnown`, refuses with `skip` |
 | `DA-38` | `build` | Live Focus collection is permitted only for an admitted Focus request, with no applicable or unresolved community decision, in the public source scope | `Policy.focusCollectOnly`, `Policy.focusCollectWhen`, refuses with `hold` |
+| `DA-39` | `open` | The capability report describes the registered command inventory, observed host wiring, caller command eligibility, and source identities without treating configuration as proof of operational readiness or granting authority |  |
 
 ## contract
 
