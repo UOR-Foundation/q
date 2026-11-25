@@ -6,6 +6,7 @@ import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+// Root documents are explicitly scoped; extend this list when introducing a new architecture-bearing root file.
 const rootFiles = new Set(["ARCHITECTURE.md","GOVERNANCE.md","SECURITY.md","MAINTAINERS.md","AGENTS.md","CLAUDE.md","CONTRIBUTING.md","VERIFICATION.md","CONFORMANCE.md","TEMPLATE-CONTRACT.md","TEMPLATE-VERIFICATION.md","template-contract.json","template.lock","prism.project","prism.toml","host/README.md","host/package.json","host/package-lock.json","host/tsconfig.json","host/.env.example","host/Dockerfile","host/docker-compose.yml",".github/CODEOWNERS"]);
 const scoped = (p:string) => rootFiles.has(p) ||
   /^(?:app\/|model\/|features\/suites\/|host\/(?:src|test|bench|deploy|web)\/|\.github\/workflows\/|experiments\/|prompts\/)/.test(p) ||
@@ -17,7 +18,7 @@ function inspect(front:string, register:string, files:readonly string[]):string[
   if(front.split(pointer).length!==2)errors.push('missing or duplicate canonical root pointer');
   const start='<!-- architecture-inventory:start -->', end='<!-- architecture-inventory:end -->';
   const parts=register.split(start);
-  if(parts.length!==2 || parts[1].split(end).length!==2)return [...errors,'missing or duplicate inventory boundaries'];
+  if(parts.length!==2 || register.split(end).length!==2 || !parts[1].includes(end))return [...errors,'missing, duplicate or reversed inventory boundaries'];
   const body=parts[1].split(end)[0];
   const known=new Set(files);
   const seen=new Set<string>(), ids=new Set<string>();
@@ -61,4 +62,9 @@ test('architecture inventory rejects omitted, stale, duplicate and missing-owner
   assert.notEqual(duplicate,r);
   assert.ok(inspect(f,duplicate,files).includes('duplicate registration host/src/focus-entry.ts'));
   assert.ok(inspect(f.replace('Owner register','Other register'),r,files).includes('missing or duplicate canonical root pointer'));
+  const start='<!-- architecture-inventory:start -->', end='<!-- architecture-inventory:end -->';
+  const malformedRegisters=[end+'\n'+r, r+'\n'+end, start+'\n'+r, r.replace(start,''), r.replace(end,''), r.replace(start,'__marker__').replace(end,start).replace('__marker__',end)];
+  for(const malformed of malformedRegisters) {
+    assert.ok(inspect(f,malformed,files).includes('missing, duplicate or reversed inventory boundaries'));
+  }
 });
