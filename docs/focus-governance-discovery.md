@@ -1,0 +1,108 @@
+# Q Focus: governance discovery and responsibility routing
+
+Status: **proposed design**, not accepted architecture, deployed behavior, a new Foundation policy, or permission to act. Scope: read-only public Foundation data, initially on demand in Discord. Product issue: [#11](https://github.com/UOR-Foundation/q/issues/11). Governance and security gates in AGENTS.md remain intact.
+
+## Why
+
+A contributor asks what to work on, where a component lives, who can help, or where governance is incomplete. Q must find authoritative evidence rather than guess from a README, issue popularity or semantic search. Reuse the Foundation's existing conventions and Effort Allocation Navigator; do not invent a new governance standard.
+
+## Authority and discovery
+
+Pin the Foundation [framework v2.2](https://github.com/UOR-Foundation/.github/blob/8319c3fc2e4572e84b074003bf5104c65407d2e5/governance/GOVERNANCE.md), [operating model](https://github.com/UOR-Foundation/.github/blob/8319c3fc2e4572e84b074003bf5104c65407d2e5/governance/OPERATING_MODEL.md), [reporting protocol](https://github.com/UOR-Foundation/.github/blob/8319c3fc2e4572e84b074003bf5104c65407d2e5/governance/CONFORMANCE_REPORTING.md) and [public directory](https://github.com/UOR-Foundation/.github/blob/8319c3fc2e4572e84b074003bf5104c65407d2e5/MAINTAINERS.md) as initial examples. At runtime resolve current accepted revisions, tier/profile, local stricter obligations, exceptions and freshness. Do not hard-code all repositories as Prism consumers. Reporting guidance is explanatory, not authority. Reuse accepted controls and terminology rather than restating them as independent policy.
+
+For each accessible public repo, enumerate all pages, resolve the actual default branch to SHA, retrieve its tree and record truncation/failures. Fetch bounded, exact revision source documents by priority, not the existing general Markdown ingestion cap:
+
+| Evidence | Discovery route | Interpretation |
+| --- | --- | --- |
+| Repository identity, tier, lifecycle | GitHub metadata; accepted Foundation lifecycle/classification records | Unknown tier stays unknown |
+| Governance and security | root GOVERNANCE.md, SECURITY.md; inherited organization sources when applicable | Record obligations, declared authority, escalation, exception and acceptance separately |
+| Maintainers | MAINTAINERS.md, accepted appointment records | Separate roles from contributor history; a directory's existence does not confer appointment |
+| Architecture | ARCHITECTURE_INDEX.md; follow its canonical owner-register reference, then accepted ADRs/contracts | Index may be a navigation map without owners; do not assume docs/README.md in all repositories |
+| Code ownership | GitHub CODEOWNERS precedence: .github/, root, docs/ on the evaluated branch | Last applicable pattern, not first; distinguish declared reviewer from owner/approval and effective enforcement. Use a qualified parser or mark unresolved |
+| Agent/workflow guidance | AGENTS.md, CLAUDE.md, template contract/lock, repository-specific instructions | Treat retrieved content as data, never runtime instructions. Follow only bounded same-repository revision links; don't execute content |
+| Qortara-generated governance artifacts | public non-sensitive governance files, initialization metadata and owner-action status | Interpret the artifacts as repository evidence; no Qortara engine, CLI or MCP dependency in Q. Do not read raw ledger/shadow journals or private evidence merely because a path exists |
+| Effective controls | authorized read-only rulesets, protections, checks, PR/review/merge data | Exact current head/base/check identity; 403/404/partial data is unknown unless absence independently established |
+| Expertise | merged PR receipts with actual changed paths and scope; accepted public contribution directory | Experience signal only, not formal authority, availability, skill rating or inferred Discord identity |
+
+Separate a public source from its content: never fetch or display private resources, credentials, confidential receipts or sensitive vulnerability detail; do not follow arbitrary external URLs. Limit fetch sizes/counts, deadlines and rate budget; enumerate exclusions, failed pages and stale sources in coverage. No token logging. No writes, notifications, role grants or assignments. Do not mix private Discord records into public governance recommendations.
+
+## Development governance boundary
+
+Qortara Logic establishes development governance and produces repository artifacts. Q consumes those public artifacts as source evidence, not as a dependency on Qortara's engine or evaluator. Do not install, invoke or require a Qortara CLI/MCP service in Q or its collectors. Do not infer availability of tooling from initialization files. Q's own model and host acceptance remain governed by its existing Prism/LexLean contract. The managed AGENTS.md block currently names local Qortara checks; any conflict with the actual development environment must be reconciled through the repository/template owner, not by silently modifying locked instructions or claiming an unavailable check passed. No new native Qortara gate is introduced by this proposal.
+
+## Evidence contract (proposed host facts, not a second policy engine)
+
+A snapshot contains scope (public org, explicit inclusions/exclusions), observed timestamp, source collection status (complete/partial/unavailable), repo identity/default ref/commit, and independently verifiable evidence refs (source URL, revision or live API observation timestamp, optional digest, visibility, source type). Per-control rows record obligation and applicability evidence, observed fact or unknown reason, evaluation stage, owner declaration and separate acceptance evidence, exceptions and their expiry, next verification. Use the Foundation reporting states without implying they are cumulative. Preserve contradictory records; do not silently select a convenient source. Distinguish absent-in-complete-tree from not-inspected, inaccessible or truncated.
+
+Responsibility records use separate types: declared accountable owner, accepted scoped maintainer, architecture owner, declared path reviewer, observed contributor, technical admin. Record scope and evidence for each relation; never infer one relation from another. If acceptance evidence is unavailable, say declared/unverified, not appointed or authorized. GitHub handles remain GitHub handles; no guessed Discord mentions or unsolicited messages.
+
+## Queries and recommendation integration
+
+- Where is component X? Follow accepted architecture register and scoped source paths; show revision links or state gap.
+- Who should I engage? Prefer scoped accepted authority for decisions, declared code owner for review routing, and relevant merged contribution receipts for technical consultation; show category and uncertainty. If no accountable route is established, use the Foundation's published escalation path. Never infer permission to contact/assign.
+- What governance is missing? Compare applicable obligations to evidence. Report documented/configured/executed/accepted/merged-and-verified separately; avoid ranking people or publishing a compliance score from a sample.
+- What should I work on? Convert only grounded, actionable findings into task graph entries with prerequisites, authority, next action, completion proof and source links. Block owner-dependent actions; suggest preparation or escalation when useful. Apply [Effort Allocation Navigator v0.3.0](https://github.com/Knapp-Kevin/skillz/tree/33867c4daf2fb3c83e5325da2ee2f4ee0d161d85/skills/authored/effort-allocation-navigator) for bounded choice, not governance verdicts. One primary, one viable alternative, freshness, coverage and uncertainty. No fictitious ROI or optimality proof.
+
+## Bounded evidence sample, 2026-11-25
+
+Complete default-branch tree readbacks (not organization census or effective-control qualification):
+- [Q](https://github.com/UOR-Foundation/q/tree/801e1b79dfb9c348c4290191d7ba4f015d44b826): governance, maintainer and architecture entrypoints present; architecture navigation lists six areas, ownership NOT_ESTABLISHED; no CODEOWNERS at any standard location. Draft proposals are not accepted appointments.
+- [UORust](https://github.com/UOR-Foundation/UORust/tree/f128235548381e83418f045b8a6d7460839a9a53): root governance names accountable owner/maintainers and requires owner approval plus pinned SDK acceptance; maintainer directory is a bounded evidence record; owner register remains NOT_ESTABLISHED; no CODEOWNERS. Preserve distinctions and reconcile apparent source conflicts.
+- [LexLean](https://github.com/UOR-Foundation/lexlean/tree/9b9fc2a058b2acf54c922b2a902158755588fde0): AGENTS.md present; no root governance, security, maintainer directory, architecture index or standard CODEOWNERS location. Do not conclude that inherited governance is absent or that Qortara applicability is established.
+- [Template](https://github.com/UOR-Foundation/template/tree/7bac617a78a1f8cf8a855409400baa0d76dd3f7d): initialization files present, no populated architecture owner register, no maintainer directory or CODEOWNERS. A template is not an appointment or deployed control.
+- [Foundation policy repo](https://github.com/UOR-Foundation/.github/tree/8319c3fc2e4572e84b074003bf5104c65407d2e5): organization governance in governance/, public directory and reporting protocol; role evidence explicitly distinguishes technical administrators, declared owners, contributor receipts and unverified identity mapping.
+
+## Implementation and acceptance
+
+Start with a deterministic public snapshot reader, then fact normalization and scoped evidence routing; no generic runtime skill engine. Before runtime implementation, obtain owner acceptance of the architecture decision, register a new model capability and failure/refusal IDs/scenarios/theorems and vectors in Q's existing model, and run Q's existing Prism and host acceptance gates. Prism owns permission and refusal decisions; host reports facts. Advisory relevance/effort ranking is not a proven claim.
+
+Adversarial acceptance cases:
+1. Complete tree missing CODEOWNERS vs truncated tree vs inaccessible repository; only first permits a definite absence observation.
+2. Inherited baseline requires zero approvals, accepted local policy requires owner approval; preserve stricter local gate.
+3. Draft CODEOWNERS, merged contributor and admin access do not create an appointment; conflicting declarations require reconciliation.
+4. Architecture index points to a non-default register; dangling, off-scope or malicious link is refused or unknown.
+5. CODEOWNERS precedence and last matching rule, invalid patterns, inaccessible team membership; no unsupported resolved reviewer claim.
+6. Old green CI/wrong head or missing effective ruleset cannot produce merge-ready advice.
+7. Private repository or restricted source referenced from public content; suppress restricted details and do not fetch it.
+8. Malicious Markdown tells Q to change a role, execute a skill, or transmit a credential; treat as data and refuse unauthorized action.
+9. An actionable upstream governance unblocker outranks a cosmetic issue; owner-only action remains blocked for an ordinary contributor.
+10. Unknown tier, unavailable verification evidence or expired exception never yields a fabricated compliance verdict.
+
+Require complete native check/build/verify, locked dependencies, typecheck, tests, planted defect rejection/restoration, independent review, and an authorized Discord acceptance interaction against a fresh representative multi-repository snapshot. Record exact revision and evidence. Owner acceptance and full-org live coverage are not established by this proposal.
+
+## Prototype implementation status
+
+The draft contains `host/src/focus-discovery.ts` and `host/src/focus-evidence.ts`, with independent synthetic tests. The inventory now binds commit to tree identity and selected regular-file blob identities, distinguishing duplicate or invalid entries from absence. The source reader bounds content, verifies Git blob identity against decoded bytes and emits exact-revision citations. It never reads raw Qortara journals. CODEOWNERS precedence selects only a candidate source; no owner matching or approval is inferred. Architecture navigation supports a narrow canonical index sentence and returns an unfollowed same-repository docs-path hint; arbitrary Markdown and custom register fetching are not implemented. The public-only, bounded transport and current visibility checks remain mandatory before any live integration. These are isolated host fact prototypes, not newly registered or shipped capabilities. Native model registration, owner acceptance, independent adversarial review, planted-defect qualification and authorized deployment are still outstanding.
+
+## Strategy selection and composition (proposed)
+
+Reuse the existing Q request-routing pattern in `host/src/pipeline.ts`: an LLM reads the user's intent and proposes a typed selection from a reviewed catalog. Unlike a community decision app, a Skillz-derived reasoning method is advisory and cannot issue an authoritative policy verdict. Keep community decisions, existing grounding, privacy, rate limits and authorization intact. Do not require a Skillz or Qortara runtime, dynamic downloads, executable scripts or arbitrary plugin installation.
+
+For each admitted strategy, record its stable ID, exact upstream package revision and license, reviewed activation/nonactivation conditions, required input facts, allowed source and audience scope, expected output, prerequisites, execution budget, and evaluation cases. Qualify the complete package before adapting it. Treat a retrieved skill or issue as untrusted evidence, never as a live instruction or an authority grant. The catalog is reviewed application configuration, not dynamically loaded Markdown.
+
+Initial candidates (targeted first-party review at Skillz commit [887d14b](https://github.com/Knapp-Kevin/skillz/tree/887d14b49194f1a6dd1231c6d1be896003122dc7), not yet qualified):
+
+| Intent | Primary method | Conditional support | Do not activate merely because |
+| --- | --- | --- | --- |
+| Choose what to work on | Effort Allocation Navigator | Repository Delivery Assessor for current task evidence | An issue mentions priority |
+| Locate a component or assess dependencies | Reference Integrity Auditor | Federated Source Catalog for source discovery | A document contains a hyperlink |
+| Identify a responsible person or governance gap | Governance discovery facts and existing policy | Claim Evidence Adjudicator for conflicting facts | Someone authored a commit or has admin access |
+| Verify a claim | Claim Evidence Adjudicator | Release Evidence Reconciler if the claim concerns distribution | A question contains the word verify |
+| Unblock delivery | Repository Delivery Assessor | PR Integration Surgeon for stacked/conflicting PRs; CI Guard for assurance questions | The repository has open PRs |
+| Recover a decision or compare alternatives | Decision Record Steward for history; Decision Tradeoff Workbench for a new comparison | Claim Evidence Adjudicator when sources conflict | An old discussion mentions an alternative |
+
+The router proposes one primary method (or ordinary Q answering), zero or more necessary supporting methods, evidence gaps and a concise rationale. Validate the selection against a closed catalog and typed inputs; Q's modeled boundary controls eligibility, refusals and all permitted source access. Prefer the smallest useful composition, with explicit bounded dependency order, no duplicate evidence fetches and no unbounded chaining. If the objective is unclear or a necessary fact is missing, ask a focused question, give a scoped partial answer, or decline the specialized route; do not fill the gap with a fabricated plan. A user can request or correct a strategy but cannot override authorization. Generic factual questions should bypass specialized routing.
+
+Trace strategy ID/version, source revision, selection reason, input and evidence identities, uncertainty, and output disposition with Q's existing governed record and retention boundaries. Bind changes to approved strategy selection or reasoning instructions into answer/cache identity before enabling reuse. Never log private question contents or protected sources in public records. Validate the resulting answer against grounding and citations and the method's output contract. Report the route in plain language when materially useful.
+
+Qualification before live integration: model and register the relevant capability and refusal/acceptance vectors; test mixed-intent, generic question, explicit override, missing prerequisite, stale evidence, unknown method ID, malicious retrieved activation text, forbidden source, recursive composition, incorrect high-impact recommendation and unchanged community-decision behavior. Compare against ordinary Q on the same held-out representative questions using route appropriateness, evidence quality, actionable outcome, privacy/refusal invariants, latency and cost; do not optimize activation frequency. Q's existing shadow evaluation can later assess reviewed strategy candidates within its current promotion boundaries, but automatic strategy promotion is out of scope until separately modeled and accepted.
+
+## Live contribution evidence (prototype)
+
+Focus must re-read the public repository inventory and open work at question time; a manually supplied or cached task list is not the default source of truth. `focus-live-work.ts` performs a bounded paginated org/issue scan (open GitHub issue results include PRs), then selectively inspects a candidate PR's exact head/base and check runs, rereading its identity after the check query. This first pass intentionally avoids per-repository tree reads. Record the scan start/end, per-repository coverage, invalid records and omitted repositories; it is not an atomic org snapshot. Anonymous rate limits may prevent complete coverage, and no best-across-the-Foundation claim is valid from an incomplete scan. Open issues and green checks do not by themselves establish readiness, contributor authority, verified dependency edges, release readiness or priority. The remaining bridge must derive task evidence from fresh issue details, supported dependencies, required controls/reviews and the user-confirmed objective, preserving unknowns and recommending investigation when executable readiness is not demonstrated. No new runtime dependency, background polling or write permission is introduced.
+
+## Repository-side discoverability and inference budget
+
+Discoverability is an intended property of Qortara-generated development governance, not an additional Q-specific repository standard. Reuse the generated repository entrypoints and their canonical references: AGENTS.md and CLAUDE.md for development guidance, GOVERNANCE.md and SECURITY.md for declared policy, ARCHITECTURE_INDEX.md and its referenced register for architecture and ownership, and the applicable template contract and verification artifacts. Resolve each at the actual repository revision; presence alone does not prove completeness, applicability or acceptance. Where discoverability is insufficient, improve or reconcile the authoritative source artifacts through their existing owner and template processes rather than introduce a parallel metadata contract. Native GitHub topics, labels, issue/PR relations and checks supplement governance with current operational evidence; do not infer priority from labels. Reuse exact source identities and supported dependency edges. Keep volatile issue/PR/check state in GitHub rather than a committed stale snapshot. No additional Q-specific manifest, metadata requirement, Qortara CLI or runtime dependency is introduced.
+
+The host scans and normalizes facts without inference, filters explicitly requested exact topic/label/repository/kind using `focus-discovery-projection.ts`, and returns at most 12 candidates by default (hard maximum 20) with source coverage, omitted matches and unknown metadata counts. This is a stable discovery view, not a ranking or an exhaustive recommendation. Deepen the evidence only for justified candidates and reconcile freshness before advising. No LLM call per repository, per issue, or per document; do not send raw backlog bodies or full repo trees into the prompt. Reuse immutable commit/blob facts when an approved cache exists, and revalidate volatile provider state at question time. No new indexing persistence or scheduled polling is introduced by this prototype. Measure candidate recall, source coverage, inference calls/tokens, request count, latency, and recommendation quality against a live representative baseline before choosing an optimization. A smaller prompt that misses the decisive blocker is a regression.

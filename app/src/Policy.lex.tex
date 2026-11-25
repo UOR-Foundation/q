@@ -1034,5 +1034,35 @@ theorem{
   proof: linear_arithmetic{definitions: [breaksOwnReplyNeverAnswers, closeItem]},
   axioms: [Quot.sound, propext]
 }
+
+definition{
+  name: focusCollect,
+  parameters: [intent : Nat, community : Nat, scope : Nat, admitted : Nat],
+  result: Bool,
+  body: ((intent =? 0) && ((community =? 0) && ((scope =? 0) && (admitted =? 0))))
+}
+
+definition{
+  name: breaksFocusCollectOnly,
+  parameters: [intent : Nat, community : Nat, scope : Nat, admitted : Nat],
+  result: Bool,
+  body: ((focusCollect intent community scope admitted) && ((not (intent =? 0)) || ((not (community =? 0)) || ((not (scope =? 0)) || (not (admitted =? 0))))))
+}
+
+theorem{
+  name: focusCollectOnly,
+  parameters: [intent : Nat, community : Nat, scope : Nat, admitted : Nat],
+  statement: ((breaksFocusCollectOnly intent community scope admitted) = false),
+  proof: linear_arithmetic{definitions: [breaksFocusCollectOnly, focusCollect]},
+  axioms: [Quot.sound, propext]
+}
+
+theorem{
+  name: focusCollectWhen,
+  parameters: [],
+  statement: ((focusCollect 0 0 0 0) = true),
+  proof: linear_arithmetic{definitions: [focusCollect]},
+  axioms: [Quot.sound, propext]
+}
 \end{semanticmodule}
 \end{lexlean}

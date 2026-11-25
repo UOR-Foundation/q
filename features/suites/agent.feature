@@ -254,3 +254,10 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.threadOnlyKnown
     Then use is answered only for an answer the host reads back by its key, among the newest three
     And prism-code build replays an answer no longer known, one older than the newest three and one that is both, each answered skip
+
+  @DA-38 @build @rejects
+  Scenario: Live Focus collection is permitted only for an admitted Focus request with no applicable or unresolved community decision and public source scope
+    Given the policy model in app/src/Policy.lex.tex
+    When prism-code check has Lean's kernel prove Policy.focusCollectOnly and Policy.focusCollectWhen
+    Then collect is answered for an admitted Focus request in public scope with no applicable community decision
+    And prism-code build replays a different intent, an applicable community decision, an unresolved community decision, nonpublic scope and a request not admitted, each answered hold

@@ -10,6 +10,8 @@ import { answer, context, event, manifest, normalize, pinOf, questionKey, webAns
 import type { SearchIndex } from './search.ts';
 import type { Tools } from './tools.ts';
 import { isRevoked, type Namespace, type Store } from './store.ts';
+import { possibleFocusQuestion, renderFocus } from './focus-answer.ts';
+import type { runFocus } from './focus-entry.ts';
 
 export interface Incoming {
   /** The Discord channel's facts; absent on the MCP surface, which has no channel. */
@@ -169,6 +171,8 @@ export interface Actions {
   emit(event: CloudEvent): void;
   /** The MCP tools offered to the language model, if any server is configured. */
   tools?(): Tools | undefined;
+  /** Live public read effect; production supplies it, offline shadow runs do not. */
+  focus?: typeof runFocus;
   /** What Q is learning and what it proposes: the latest review of the improvement loop (improve.ts). */
   improve?(): Promise<string>;
   /** The open questions, promises and requests the tracker holds (tracker.ts), for /open. */
@@ -478,6 +482,33 @@ export class Pipeline {
     clock.lap('ground');
     message.progress?.({ stage: 'sources', outcome: grounded, sources: ordered.map((c, i) => ({ n: i + 1, label: c.label, url: c.url, source: c.source, level: c.level })) });
 
+    // A potential live contribution question is decided before consulting a
+    // memo. The existing community reader keeps precedence. Its parse errors,
+    // unrecognized apps, and unresolved decisions are not a no-decision fact.
+    // This first Discord slice returns a direct public diagnostic report (like
+    // status), not an indexed answer or a persisted conversation turn.
+    const focusCandidate = command === 'ask' && surface === 'discord' &&
+      this.actions.focus !== undefined && possibleFocusQuestion(message.text);
+    let focusCommunity: DecisionAsked | null | undefined;
+    if (focusCandidate) {
+      let noCommunity = false;
+      focusCommunity = await this.#askCommunity(message.text, citations, community, message.signal, () => { noCommunity = true; });
+      message.signal?.throwIfAborted();
+      if (noCommunity && !focusCommunity && (await this.kernel.expose('public', surface)) === 'serve') {
+        const fresh = await this.actions.focus!(this.kernel, this.llm, message.text,
+          { admitted: true, community: 'not-applicable', scope: 'public' }, { signal: message.signal });
+        message.signal?.throwIfAborted();
+        if (fresh.kind === 'assessment') {
+          clock.lap('focus');
+          return { text: renderFocus(fresh.data), decision: 'allowed', citations: [], timings: clock.laps };
+        }
+        // A declined or unresolved live route must not masquerade as a fresh
+        // recommendation from the ordinary indexed-answer path.
+        if (fresh.kind === 'clarify') return done('Which one public UOR Foundation repository or contribution objective should I assess?');
+        if (fresh.kind === 'hold' || fresh.kind === 'unavailable') return done('Live contribution assessment is unavailable; I cannot verify current work.');
+      }
+    }
+
     // Compute once. The same question on the same evidence, kernel, community, prompt and model is the
     // same computation: its key is the BLAKE3 label of exactly those, and a computed answer is reused.
     const namespace = await this.kernel.namespace('discord');
@@ -485,7 +516,7 @@ export class Pipeline {
     const history = grounded !== 'not grounded' && command === 'ask' && message.trigger === 'replyToAgent' ? await this.#history(message, namespace) : [];
     // On the website the earlier answers are the ones the visitor presented by key and the kernel admitted (decision 31).
     const built = [...history.map((h) => h.answer), ...thread.map((t) => t.answer)];
-    const key = grounded !== 'not grounded' && command === 'ask'
+    const key = grounded !== 'not grounded' && command === 'ask' && !focusCandidate
       ? labelOf({ type: 'answer-key', question: normalize(message.text), kernel: this.kernel.holo, community: community.pin.holo, evidence: ordered.map((c) => c.label), history: built, prompt: promptsOf(this.settings.style)[register].label, model: this.llm.model })
       : null;
     const earlier = key ? await this.#recall(key, namespace) : undefined;
@@ -518,11 +549,11 @@ export class Pipeline {
     const plain = valve(shown);
     let decision: DecisionAsked | null = earlier ? earlier.decision : null;
     if (!earlier && command === 'ask') {
-      if (!withTools && this.#candidates(ordered, community).length) {
+      if (focusCommunity === undefined && !withTools && this.#candidates(ordered, community).length) {
         speculative = compose(null, plain.push);
         speculative.catch(() => {});
       }
-      decision = await this.#askCommunity(message.text, ordered, community, message.signal);
+      decision = focusCommunity === undefined ? await this.#askCommunity(message.text, ordered, community, message.signal) : focusCommunity;
     }
     clock.lap('decision');
     // Nobody is waiting any more: nothing of this turn is recorded.
@@ -851,12 +882,13 @@ export class Pipeline {
     return [...named];
   }
 
-  async #askCommunity(question: string, ordered: Citation[], community: Decider, signal?: AbortSignal): Promise<DecisionAsked | null> {
+  async #askCommunity(question: string, ordered: Citation[], community: Decider, signal?: AbortSignal, noDecision?: () => void): Promise<DecisionAsked | null> {
     const named = new Set(this.#candidates(ordered, community));
-    if (!named.size) return null;
+    if (!named.size) { noDecision?.(); return null; }
     const apps = [...named].map((name) => community.apps.get(name)!);
     const catalog = apps.map((app) => `${app.name}: ${app.purpose}\n${app.fields.map((f) => `  ${describe(f)}`).join('\n')}`).join('\n\n');
     const reply = await this.llm.complete(ROUTER, `Apps:\n\n${catalog}\n\nQuestion: ${question}`, undefined, signal);
+    if (/^\s*\{\s*"app"\s*:\s*null\s*\}\s*$/.test(reply)) noDecision?.();
     let pick: { app?: unknown; inputs?: Record<string, unknown> };
     try {
       pick = JSON.parse(/\{[\s\S]*\}/.exec(reply)?.[0] ?? 'null') ?? {};

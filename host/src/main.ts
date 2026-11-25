@@ -16,6 +16,7 @@ import { Kernel } from './kernel.ts';
 import { CommunitySource, GitHubSource, WebsiteSource, ingest } from './knowledge.ts';
 import { Memory } from './memory.ts';
 import { Pipeline } from './pipeline.ts';
+import { runFocus } from './focus-entry.ts';
 import { AnthropicLlm, OpenAiCompatibleEmbedder, OpenAiCompatibleLlm, type Transport } from './providers.ts';
 import { loadExperiments, runExperiment, ShadowStore, shadowIndex, type Verdict } from './chaos.ts';
 import { Loop } from './improve.ts';
@@ -117,7 +118,7 @@ if (mode === 'ingest') {
   // MCP servers: every tool offered to the language model, every call decided by the kernel.
   const { tools, failed } = await Tools.connect(c.mcpServers);
   log('tools', { servers: c.mcpServers.map((s) => ({ name: s.name, allow: s.allow === true })), tools: tools.list().length, failed });
-  const actions: ConstructorParameters<typeof Pipeline>[6] = { memory, reindex, community: () => community, emit, tools: () => tools };
+  const actions: ConstructorParameters<typeof Pipeline>[6] = { memory, reindex, community: () => community, emit, tools: () => tools, ...(c.focusEnabled ? {focus: runFocus} : {}) };
   const pipeline = new Pipeline(kernel, store, index, embedder, llm, c.settings, actions);
   // The website's adapter, beside Discord or alone: the same pipeline on the `web` surface.
   const serveWeb = async () => {

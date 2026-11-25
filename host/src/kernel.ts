@@ -208,6 +208,12 @@ export class Kernel {
   correction(kept: boolean, disapproved: boolean, admin: boolean, confirmers: number, cited: SourceName) {
     return this.#ask<'hold' | 'learn' | 'dispute'>(27, flag(!kept), flag(!disapproved), flag(admin), byte(confirmers), SOURCE[cited]);
   }
+  /** Decision 32: host facts only. No community decision may be overridden. */
+  focusCollect(intent: 'focus' | 'other', community: 'not-applicable' | 'applicable' | 'unknown', scope: 'public' | 'other', admitted: boolean) {
+    return this.#ask<'collect' | 'hold'>(32, intent === 'focus' ? 0 : 1,
+      { 'not-applicable': 0, applicable: 1, unknown: 2 }[community], scope === 'public' ? 0 : 1, flag(!admitted));
+  }
+
   /** A class of questions: too few to judge, weak in knowledge, weak in correctness, or sound (decision 29). */
   classRoute(asked: number, refusedPct: number, wrongPct: number, minAsked: number, maxRefusedPct: number, maxWrongPct: number) {
     const pct = (n: number) => Math.min(100, Math.max(0, Math.round(n)));

@@ -99,6 +99,8 @@ export function config() {
     },
     githubToken: process.env.GITHUB_TOKEN ?? '',
     githubRepositories: list('GITHUB_REPOSITORIES'),
+    // Focus is opt-in until an operator qualifies live Discord and API budgets.
+    focusEnabled: choice('FOCUS_ENABLED', ['true', 'false'] as const, 'false') === 'true',
     retentionDays: number('RETENTION_DAYS', 180),
     settings: {
       userLimit: number('RATE_USER_LIMIT', 5),
