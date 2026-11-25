@@ -13,8 +13,10 @@ type Coverage = 'complete' | 'partial' | 'unavailable';
 export type WorkItem = {
   repository: string; number: number; kind: 'issue' | 'pull';
   url: string; title: string; updatedAt: string; assigned: boolean;
+  /** Provider-native labels, not verified priority, readiness or authority. */
+  labels: string[] | null;
 };
-type RepoWork = { repository: string; defaultBranch: string; coverage: Coverage; items: WorkItem[] };
+type RepoWork = { repository: string; defaultBranch: string; topics: string[] | null; coverage: Coverage; items: WorkItem[] };
 export type LiveWorkSnapshot = {
   startedAt: string; finishedAt: string; coverage: Coverage;
   enumeration: Coverage; repositories: RepoWork[];
@@ -34,6 +36,20 @@ function bound(v: number, max: number): number {
 function repoName(v: unknown): v is string {
   return typeof v === 'string' && REPO.test(v) && v !== '.' && v !== '..';
 }
+// Native metadata is an optional discovery hint. Unknown differs from empty;
+// malformed or oversized input is not silently treated as absence.
+function metadata(values: unknown, labelObjects = false): string[] | null {
+  if (!Array.isArray(values) || values.length > 100) return null;
+  const names: string[] = [];
+  for (const value of values) {
+    const name = labelObjects && obj(value) ? value.name : value;
+    if (typeof name !== 'string' || !name.length || name.length > 100 ||
+        /[\x00-\x1f\x7f]/.test(name)) return null;
+    names.push(name);
+  }
+  return [...new Set(names)].sort();
+}
+
 function workItem(row: unknown, repo: string): WorkItem | null {
   if (!obj(row) || !number(row.number) || row.state !== 'open' || typeof row.title !== 'string' ||
       !timestamp(row.updated_at) || !Array.isArray(row.assignees) || !row.assignees.every(a => obj(a) && number(a.id))) return null;
@@ -44,7 +60,7 @@ function workItem(row: unknown, repo: string): WorkItem | null {
   // Issue titles are untrusted evidence, not instructions. Drop control chars,
   // cap size, and never ingest bodies or user identities in this first pass.
   return { repository: repo, number: row.number, kind: isPull ? 'pull' : 'issue', url,
-    title: row.title.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 256), updatedAt: row.updated_at, assigned: row.assignees.length > 0 };
+    title: row.title.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 256), updatedAt: row.updated_at, assigned: row.assignees.length > 0, labels: metadata(row.labels, true) };
 }
 
 /** Bounded two-stage scan: enumerate the public active repo scope, then read
@@ -62,7 +78,7 @@ export async function collectLiveWork(read: PublicRead, options: {
   const maxWork = bound(options.maxWorkPages ?? 3, 20);
   const now = options.now ?? (() => new Date());
   const startedAt = now().toISOString();
-  const candidates: { repository: string; defaultBranch: string }[] = [];
+  const candidates: { repository: string; defaultBranch: string; topics: string[] | null }[] = [];
   const seen = new Set<string>();
   let pages = 0, orgExhausted = false, invalidRecords = 0, omittedRepositories = 0;
   for (let page = 1; page <= maxOrg; page++) {
@@ -81,7 +97,7 @@ export async function collectLiveWork(read: PublicRead, options: {
       seen.add(key);
       if (row.archived || row.fork) continue;
       if (candidates.length >= maxRepos) { omittedRepositories++; continue; }
-      candidates.push({repository: ORG + '/' + row.name, defaultBranch: row.default_branch});
+      candidates.push({repository: ORG + '/' + row.name, defaultBranch: row.default_branch, topics: metadata(row.topics)});
     }
     if (rows.length < 100) { orgExhausted = true; break; }
   }
