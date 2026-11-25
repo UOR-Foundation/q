@@ -54,7 +54,8 @@ function publicRepository(row: unknown): row is { name: string; full_name: strin
       typeof row.name !== 'string' || !REPO.test(row.name) || row.name === '.' || row.name === '..' ||
       row.full_name !== ORG + '/' + row.name ||
       typeof row.default_branch !== 'string' || row.default_branch.length === 0 ||
-      row.default_branch.length > 255 || /[\x00-\x1f\x7f]/.test(row.default_branch) ||
+      row.default_branch.length > 255 || row.default_branch === '.' || row.default_branch === '..' ||
+      row.default_branch.split('/').some(part => part === '.' || part === '..' || part === '') || /[\x00-\x1f\x7f]/.test(row.default_branch) ||
       typeof row.archived !== 'boolean' || typeof row.fork !== 'boolean') return false;
   return true;
 }
@@ -88,7 +89,12 @@ async function inspect(read: PublicRead, repo: { name: string; default_branch: s
     if (!object(entry) || typeof entry.path !== 'string' || typeof entry.type !== 'string' ||
         !['blob','tree','commit'].includes(entry.type) || seen.has(entry.path)) { invalid = true; continue; }
     seen.add(entry.path);
-    if (entry.type === 'blob' && FILES.includes(entry.path as FilePath)) result.files[entry.path as FilePath] = 'present';
+    if (FILES.includes(entry.path as FilePath)) {
+      // Do not treat a symbolic link, directory or submodule as governance text.
+      if (entry.type === 'blob' && (entry.mode === '100644' || entry.mode === '100755')) {
+        result.files[entry.path as FilePath] = 'present';
+      } else { invalid = true; }
+    }
   }
   if (tree.truncated) result.failures.push('tree-truncated');
   if (invalid) result.failures.push('tree-invalid');
