@@ -9,6 +9,9 @@ import { Kernel, type ChannelFacts } from '../src/kernel.ts';
 import { chunks, ingest, type Source } from '../src/knowledge.ts';
 import { Memory, type Observed } from '../src/memory.ts';
 import { Pipeline, type Incoming, type Progress, type Published, type Settings } from '../src/pipeline.ts';
+import { runFocus } from '../src/focus-entry.ts';
+import { possibleFocusQuestion } from '../src/focus-answer.ts';
+import { STRATEGY_ROUTER } from '../src/focus-strategy.ts';
 import { ANSWER_SCHEMA, CONTEXT_SCHEMA, questionKey, type CloudEvent } from '../src/records.ts';
 import { Gate, OpenAiCompatibleLlm, retrying, visibleSoFar, withoutReasoning, type Embedder, type Llm, type RunTool, type ToolCall, type ToolSpec } from '../src/providers.ts';
 import { AFTER_LIMIT, QUESTION_LIMIT, webServer, type WebOptions } from '../src/adapter/web.ts';
@@ -2008,4 +2011,64 @@ test('/open lists what is open by kind, oldest first, with its link and how old 
   assert.match(await w.tracker.summary(() => '', 20, '1574440187105251398'), /^Nothing open/);
   assert.equal(await kernel.command('open', 'member'), 'not authorized');
   assert.equal(await kernel.command('open', 'admin'), 'allowed');
+});
+
+test('focus candidate prefilter does not tax ordinary questions or accept oversized prompts',()=>{
+  assert.equal(possibleFocusQuestion('What is Prism?'),false);
+  assert.equal(possibleFocusQuestion('What is the best thing I could work on to advance the UOR Foundation?'),true);
+  assert.equal(possibleFocusQuestion('Where can I contribute next?'),true);
+  assert.equal(possibleFocusQuestion('What should I work on?'+ 'x'.repeat(4000)),false);
+});
+test('Discord Focus runs the real entry and model against fresh provider data on repeated questions',async()=>{
+  const w=await world();
+  const original=w.llm.complete.bind(w.llm);
+  let classifications=0,reads=0,n=11;
+  w.llm.complete=async(system,user,onText)=>{
+    if(system===STRATEGY_ROUTER){classifications++;return '{"intent":"focus"}';}
+    return original(system,user,onText);
+  };
+  w.pipeline.actions.focus=(k,m,q,a,o)=>runFocus(k,m,q,a,{...o,fetcher:async url=>{
+    reads++;
+    const u=new URL(String(url));
+    const repo={name:'q',full_name:'UOR-Foundation/q',private:false,visibility:'public',archived:false,fork:false,default_branch:'main'};
+    const issue={number:n,state:'open',title:'@everyone untrusted title',updated_at:'2026-11-25T20:00:00Z',assignees:[],
+      repository_url:'https://api.github.com/repos/UOR-Foundation/q',html_url:'https://github.com/UOR-Foundation/q/issues/'+n};
+    const body=u.pathname.startsWith('/orgs/')?[repo]:u.pathname.endsWith('/dependencies/blocked_by')?[]:u.pathname.endsWith('/issues')?[issue]:issue;
+    return new Response(JSON.stringify(body));
+  }});
+  const question='What should I work on next?';
+  const a=await w.pipeline.handle(ask(question));
+  n=12;
+  const b=await w.pipeline.handle(ask(question));
+  assert.match(a!.text,/q#11/);
+  assert.match(b!.text,/q#12/);
+  assert.doesNotMatch(b!.text,/q#11|@everyone|Answered once before/);
+  assert.equal(classifications,2);assert.equal(reads,10);
+  assert.equal(w.llm.calls,0);
+  assert.equal((await w.store.labels('private')).length,0);
+});
+test('Discord Focus preserves applicable and unresolved community decisions',async()=>{
+  const w=await world();
+  w.pipeline.actions.focus=async()=>assert.fail('must not collect');
+  const question='What should I work on next about the repository naming rule: is lowercase conformant?';
+  const a=await w.pipeline.handle(ask(question));
+  assert.match(a!.text,/uor-test-naming → conformant/);
+  const original=w.llm.complete.bind(w.llm);
+  w.llm.complete=async(system,user,onText)=>{
+    if(system.startsWith('You read a question for the inputs'))return '{"app":"unrecognized"}';
+    return original(system,user,onText);
+  };
+  await w.pipeline.handle(ask(question));
+});
+test('Discord Focus respects ordinary routing, access filters, and non-Discord surfaces',async()=>{
+  const w=await world();
+  w.pipeline.actions.focus=async()=>assert.fail('must not collect');
+  await w.pipeline.handle(ask('What is Prism?'));
+  w.pipeline.settings.access={mode:'whitelist',list:new Set()};
+  assert.equal(await w.pipeline.handle(ask('What should I work on next?')),undefined);
+  w.pipeline.settings.access={mode:'blacklist',list:new Set()};
+  w.pipeline.settings.filter={scope:'both',terms:['work']};
+  assert.equal((await w.pipeline.handle(ask('What should I work on next?')))?.decision,'interrupt');
+  w.pipeline.settings.filter={scope:'both',terms:[]};
+  await w.pipeline.handle(ask('What should I work on next?',{surface:'mcp',authorId:'mcp-test'}));
 });
