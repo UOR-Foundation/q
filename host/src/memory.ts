@@ -5,7 +5,7 @@ import { labelOf } from './address.ts';
 import type { ChannelFacts, Kernel, Origin } from './kernel.ts';
 import type { Embedder } from './providers.ts';
 import type { SearchIndex } from './search.ts';
-import type { Namespace, Store } from './store.ts';
+import { isRevoked, type Namespace, type Store } from './store.ts';
 
 export interface Observed {
   channel: ChannelFacts;
@@ -58,6 +58,15 @@ export class Memory {
     this.kernel = kernel; this.store = store; this.index = index; this.embedder = embedder; this.retentionDays = retentionDays; this.now = now;
   }
 
+  // Serialize the store/index mutation phases in this Memory instance. Embedding
+  // runs outside the queue; removal callbacks may call unlearn directly.
+  #tail: Promise<unknown> = Promise.resolve();
+  #serial<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.#tail.then(work);
+    this.#tail = next.catch(() => {});
+    return next;
+  }
+
   #namespace(): Promise<Namespace> {
     return this.kernel.namespace('discord');
   }
@@ -69,20 +78,31 @@ export class Memory {
 
   /** Index one Discord message if the kernel admits it. Returns what was done. */
   async observe(message: Observed): Promise<'index' | 'skip'> {
-    const decision = await this.kernel.index(message.channel, message.origin, await this.optedOut(message.authorId));
     const text = message.text.trim();
-    // A message with no text has nothing to index, whatever the decision.
-    if (decision === 'skip' || !text) return 'skip';
-    // Past the retention limit already: the next sweep would delete it, so it is never indexed (decision 9).
-    const ageDays = Math.floor((this.now() - message.createdMs) / DAY);
-    if ((await this.kernel.retain('discord', false, ageDays, this.retentionDays)) === 'delete') return 'skip';
-    const namespace = await this.#namespace();
-    const label = await this.store.put(namespace, chunkOf(message, text));
-    if (!this.index.has(label)) {
-      const [vector] = await this.embedder.embed([text]);
-      this.index.add(label, namespace, text, vector);
-    }
-    return 'index';
+    if (!text) return 'skip';
+    const item = chunkOf(message, text);
+    const label = labelOf(item);
+    const pending = await this.#serial(async () => {
+      const decision = await this.kernel.index(message.channel, message.origin, await this.optedOut(message.authorId));
+      if (decision === 'skip') return null;
+      const ageDays = Math.floor((this.now() - message.createdMs) / DAY);
+      if ((await this.kernel.retain('discord', false, ageDays, this.retentionDays)) === 'delete') return null;
+      const namespace = await this.#namespace();
+      if (await isRevoked(this.store, namespace, label)) return null;
+      await this.store.put(namespace, item);
+      return { namespace, indexed: this.index.has(label) };
+    });
+    if (!pending) return 'skip';
+    if (pending.indexed) return 'index';
+    const [vector] = await this.embedder.embed([text]);
+    return this.#serial(async () => {
+      // An embedding may finish after removal. Its result is not admission.
+      if (!(await this.store.has(pending.namespace, label)) ||
+          await isRevoked(this.store, pending.namespace, label) ||
+          await this.optedOut(message.authorId)) return 'skip';
+      if (!this.index.has(label)) this.index.add(label, pending.namespace, text, vector);
+      return 'index';
+    });
   }
 
   async #remove(namespace: Namespace, label: string, reason: Reason, item?: { type: string; [member: string]: unknown }) {
@@ -116,12 +136,14 @@ export class Memory {
    * corrections made from them. An author who asks is also opted out from then on.
    */
   async forget(match: { author: string } | { channel: string }): Promise<number> {
-    const removed = await this.#each('author' in match ? 'forget-me' : 'forget-channel', async (_label, item, ageDays) => {
-      const named = 'author' in match ? names(item, match.author) : item.channel === match.channel || item.thread === match.channel;
-      return named && (await this.kernel.retain('discord', true, ageDays, this.retentionDays)) === 'delete';
+    return this.#serial(async () => {
+      const removed = await this.#each('author' in match ? 'forget-me' : 'forget-channel', async (_label, item, ageDays) => {
+        const named = 'author' in match ? names(item, match.author) : item.channel === match.channel || item.thread === match.channel;
+        return named && (await this.kernel.retain('discord', true, ageDays, this.retentionDays)) === 'delete';
+      });
+      if ('author' in match) await this.store.put(await this.#namespace(), { type: 'opt-out', author: match.author });
+      return removed;
     });
-    if ('author' in match) await this.store.put(await this.#namespace(), { type: 'opt-out', author: match.author });
-    return removed;
   }
 
   /**
@@ -129,6 +151,10 @@ export class Memory {
    * chunk's BLAKE3 label is recomputed from it and names the item directly; otherwise every chunk is checked by link.
    */
   async withdraw(url: string, before?: Observed): Promise<number> {
+    return this.#serial(() => this.#withdraw(url, before));
+  }
+
+  async #withdraw(url: string, before?: Observed): Promise<number> {
     const requested = async (ageDays: number) => (await this.kernel.retain('discord', true, ageDays, this.retentionDays)) === 'delete';
     const text = before?.text.trim();
     if (before && text) {
@@ -154,6 +180,6 @@ export class Memory {
 
   /** Delete what is past its age limit: every record dated by `created`, which is every record made from a member. */
   sweep(): Promise<number> {
-    return this.#each('retention', async (_label, _item, ageDays) => (await this.kernel.retain('discord', false, ageDays, this.retentionDays)) === 'delete');
+    return this.#serial(() => this.#each('retention', async (_label, _item, ageDays) => (await this.kernel.retain('discord', false, ageDays, this.retentionDays)) === 'delete'));
   }
 }
