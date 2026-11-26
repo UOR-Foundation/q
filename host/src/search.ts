@@ -26,6 +26,8 @@ export class SearchIndex {
     this.#db = new DatabaseSync(path);
     // The live bot and a backfill share the file: a writer waits its turn instead of failing with "database is locked".
     this.#db.exec('pragma busy_timeout = 30000');
+    // Overwrite deleted ordinary SQLite records on this connection.
+    this.#db.exec('pragma secure_delete = on');
     this.#db.exec(`
       create table if not exists chunk (label text primary key, namespace text not null, vector blob not null);
       create virtual table if not exists words using fts5(label unindexed, body);
@@ -35,6 +37,9 @@ export class SearchIndex {
     `);
     // The keys an answer builds on came later than the table: a file made before them gains the column.
     if (!(this.#db.prepare('pragma table_info(question)').all() as { name: string }[]).some((column) => column.name === 'after')) this.#db.exec("alter table question add column after text not null default '[]'");
+    // FTS5's own secure-delete setting applies to future deletions. It
+    // does not sanitize historical files or other storage surfaces.
+    this.#db.exec("insert into words(words, rank) values('secure-delete', 1)");
     this.#dataVersion = this.#readDataVersion();
   }
 
@@ -155,6 +160,17 @@ export class SearchIndex {
       this.#db.prepare('delete from words where label = ?').run(label);
     });
     this.#vectors.delete(label);
+    this.#revision++;
+  }
+  /** Invalidate derived lookup rows that directly refer to a removed record.
+   * These are caches, not the authoritative records or a transitive deletion policy.
+   */
+  removeDerived(label: string) {
+    this.#transaction(() => {
+      this.#db.prepare("delete from loop where key = ? or exists (select 1 from json_tree(loop.value) where type = 'text' and atom = ?)").run(label, label);
+      this.#db.prepare('delete from memo where answer = ? or context = ?').run(label, label);
+      this.#db.prepare('delete from question where answer = ? or context = ? or exists (select 1 from json_each(question.after) where value = ?)').run(label, label, label);
+    });
     this.#revision++;
   }
   labels(namespace: Namespace): string[] {

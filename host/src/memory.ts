@@ -107,10 +107,15 @@ export class Memory {
 
   async #remove(namespace: Namespace, label: string, reason: Reason, item?: { type: string; [member: string]: unknown }) {
     const was = item ?? (await this.store.get(namespace, label));
-    await this.store.delete(namespace, label);
+    // Keep the source record discoverable until projection cleanup and
+    // revocation recording succeed, so an interrupted operation can retry.
     this.index.remove(label);
-    const revocation = await this.store.put(namespace, { type: 'revocation', target: label, reason, at: this.now() });
-    await this.store.link(namespace, { source: revocation, target: label, relation: 'revocation' });
+    this.index.removeDerived(label);
+    if (!(await isRevoked(this.store, namespace, label))) {
+      const revocation = await this.store.put(namespace, { type: 'revocation', target: label, reason, at: this.now() });
+      await this.store.link(namespace, { source: revocation, target: label, relation: 'revocation' });
+    }
+    await this.store.delete(namespace, label);
     if (was && this.removed) await this.removed(label, was);
   }
 
