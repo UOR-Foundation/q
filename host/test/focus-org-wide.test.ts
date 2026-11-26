@@ -4,6 +4,9 @@ import { collectLiveWork } from '../src/focus-live-work.ts';
 import { createPublicRead } from '../src/focus-public-read.ts';
 import { assessFocus } from '../src/focus-assessment.ts';
 import { renderFocus } from '../src/focus-answer.ts';
+import { runFocus } from '../src/focus-entry.ts';
+import { Kernel } from '../src/kernel.ts';
+import { fileURLToPath } from 'node:url';
 
 const listing = '/orgs/UOR-Foundation/repos?type=public&sort=full_name&direction=asc&per_page=100&page=1';
 const search = (page: number) => '/search/issues?q=org%3AUOR-Foundation+is%3Aopen+archived%3Afalse&sort=created&order=asc&per_page=100&page=' + page;
@@ -44,7 +47,7 @@ test('org-wide search covers every listed active repository, beyond the per-repo
   assert.equal(snapshot.omittedRepositories, 0);
   assert.ok(snapshot.repositories.every(r => r.items.length === 1 && r.coverage === 'partial'));
   assert.equal(snapshot.coverage, 'partial', 'a search index is never a complete snapshot');
-  assert.deepEqual(snapshot.search, {totalCount: 33, read: 30, incomplete: false, excluded: 3});
+  assert.deepEqual(snapshot.search, {state: 'read', pages: 1, totalCount: 33, read: 30, incomplete: false, excluded: 3});
   assert.deepEqual(t.calls, [listing, search(1)], 'two requests, not thirty-one');
 });
 
@@ -55,13 +58,83 @@ test('items of archived, forked or unlisted repositories from search are exclude
   for (const name of ['archived-one', 'forked-one', 'secret']) assert.ok(!kept.includes('UOR-Foundation/' + name), name);
 });
 
-test('a refused, rate-limited or malformed search falls back to the bounded per-repository scan', async () => {
-  for (const bad of [new Response('{}', {status: 403}), {total_count: 'x', items: []}, {total_count: 1, incomplete_results: false, items: 'no'}]) {
-    const t = transport({[listing]: listed.slice(0, 3), [search(1)]: bad});
-    const snapshot = await collectLiveWork(t.read, {orgWide: true, maxRepositories: 24, maxWorkPages: 1, now});
-    assert.equal(snapshot.search, undefined);
-    if (!(bad instanceof Response)) assert.ok(t.calls.some(c => c.startsWith('/repos/UOR-Foundation/repo00/issues?')), 'fell back to per-repository reads');
+// 250 open items over three pages; repositories late00..late04 appear only on the third page.
+const lateNames = Array.from({length: 5}, (_, i) => 'late0' + i);
+const big = [...names, ...lateNames];
+const bigListing = big.map(n => repo(n));
+const bigPages = [1, 2, 3].map(page => ({ total_count: 250, incomplete_results: false,
+  items: page < 3 ? Array.from({length: 100}, (_, i) => hit(names[i % names.length], page * 1000 + i))
+                  : Array.from({length: 50}, (_, i) => hit(lateNames[i % lateNames.length], 3000 + i)) }));
+
+test('more than 100 records: later pages are read within the search budget, and the cap is reported, not hidden', async () => {
+  const data = {[listing]: bigListing, [search(1)]: bigPages[0], [search(2)]: bigPages[1], [search(3)]: bigPages[2]};
+  const whole = await collectLiveWork(transport(data).read, {orgWide: true, maxSearchPages: 3, maxWorkPages: 1, now});
+  assert.equal(whole.search?.state, 'read');
+  assert.equal(whole.search?.read, 250);
+  for (const name of lateNames) assert.ok(whole.repositories.find(r => r.repository === 'UOR-Foundation/' + name)!.items.length > 0, name);
+  const capped = transport(data);
+  const short = await collectLiveWork(capped.read, {orgWide: true, maxSearchPages: 2, maxWorkPages: 1, now});
+  assert.deepEqual(capped.calls, [listing, search(1), search(2)]);
+  assert.equal(short.search?.state, 'capped');
+  assert.equal(short.search?.read, 200);
+  // A repository with no returned hits under a capped search is unknown, never presented as covered.
+  for (const name of lateNames) {
+    const r = short.repositories.find(r => r.repository === 'UOR-Foundation/' + name)!;
+    assert.equal(r.items.length, 0); assert.equal(r.coverage, 'unavailable', name);
   }
+  const text = renderFocus(await assessFocus(transport(data).read, {orgWide: true, maxSearchPages: 2, maxWorkPages: 1, maxCandidates: 4, now}));
+  assert.match(text, /200 of 250 open items read from 2 pages; stopped at the 2-page budget/);
+  assert.match(text, /a repository with no returned items is unknown, not idle/);
+});
+
+test('a rate-limited or refused search is reported as unavailable and never claims a fallback the transport cannot make', async () => {
+  for (const status of [403, 429]) {
+    const t = transport({[listing]: listed, [search(1)]: new Response('{}', {status, headers: {'x-ratelimit-remaining': '0'}})});
+    const snapshot = await collectLiveWork(t.read, {orgWide: true, maxSearchPages: 7, maxRepositories: 24, maxWorkPages: 1, now});
+    assert.deepEqual(t.calls, [listing, search(1)], 'no per-repository request after the hard stop');
+    assert.equal(snapshot.search?.state, 'unavailable');
+    assert.equal(snapshot.coverage, 'unavailable');
+    assert.ok(snapshot.repositories.every(r => r.items.length === 0 && r.coverage === 'unavailable'));
+    const text = renderFocus(await assessFocus(transport({[listing]: listed, [search(1)]: new Response('{}', {status})}).read, {orgWide: true, maxSearchPages: 7, maxCandidates: 4, now}));
+    assert.match(text, /could not be read \(refused, rate-limited or unreachable\); no open work was read/);
+    assert.doesNotMatch(text, /read separately instead/);
+  }
+});
+
+test('a later-page failure keeps what was read, stops, and says so', async () => {
+  for (const second of [new Response('{}', {status: 403}), {total_count: 'bad', items: []}]) {
+    const t = transport({[listing]: bigListing, [search(1)]: bigPages[0], [search(2)]: second});
+    const snapshot = await collectLiveWork(t.read, {orgWide: true, maxSearchPages: 7, maxWorkPages: 1, now});
+    assert.deepEqual(t.calls, [listing, search(1), search(2)]);
+    assert.equal(snapshot.search?.state, 'interrupted');
+    assert.equal(snapshot.search?.read, 100);
+    assert.equal(snapshot.repositories.find(r => r.repository === 'UOR-Foundation/late00')!.coverage, 'unavailable');
+  }
+});
+
+test('only a malformed first page, with the transport still able to read, falls back to the per-repository scan', async () => {
+  const t = transport({[listing]: listed.slice(0, 3), [search(1)]: {total_count: 'x', items: []}});
+  const snapshot = await collectLiveWork(t.read, {orgWide: true, maxSearchPages: 7, maxRepositories: 24, maxWorkPages: 1, now});
+  assert.equal(snapshot.search?.state, 'fallback');
+  assert.ok(t.calls.includes('/repos/UOR-Foundation/repo00/issues?state=open&sort=created&direction=asc&per_page=100&page=1'), 'a real fallback request was sent');
+});
+
+test('production Focus reads seven search pages and still has request capacity for candidate details', async () => {
+  const kernel = await Kernel.open(fileURLToPath(new URL('../../app/.prism/build/q.holo', import.meta.url)));
+  const pages = Array.from({length: 7}, (_, p) => ({ total_count: 700, incomplete_results: false,
+    items: Array.from({length: 100}, (_, i) => hit(names[(p * 100 + i) % names.length], p * 100 + i + 1)) }));
+  const data: Record<string, unknown> = {[listing]: listed, ...Object.fromEntries(pages.map((page, i) => [search(i + 1), page]))};
+  const calls: string[] = [];
+  const result = await runFocus(kernel, {async complete() { return '{"intent":"focus"}'; }}, 'What should I work on next?',
+    {admitted: true, community: 'not-applicable', scope: 'public'}, {fetcher: async url => {
+      const u = new URL(String(url)); const key = u.pathname + u.search; calls.push(key);
+      return key in data ? new Response(JSON.stringify(data[key])) : new Response('{}', {status: 404});
+    }});
+  assert.equal(result.kind, 'assessment');
+  assert.deepEqual(calls.filter(c => c.startsWith('/search/')), pages.map((_, i) => search(i + 1)));
+  const after = calls.slice(calls.indexOf(search(7)) + 1);
+  assert.ok(after.length >= 1, 'candidate details were still read after the search');
+  assert.ok(calls.length <= 40);
 });
 
 test('incomplete search results are reported, and a named repository never uses search', async () => {
@@ -87,7 +160,7 @@ test('the rendered assessment says where open work came from and never claims co
   const t = transport({[listing]: listed, [search(1)]: page1});
   const data = await assessFocus(t.read, {orgWide: true, maxRepositories: 24, maxWorkPages: 1, maxCandidates: 4, now});
   const text = renderFocus(data);
-  assert.match(text, /all 30 listed repositories came from the GitHub search index: 30 of 33 open items read/);
+  assert.match(text, /the 30 listed repositories came from the GitHub search index: 30 of 33 open items read from 1 page; every reported item was read/);
   assert.match(text, /never a complete snapshot/);
   assert.match(text, /Public GitHub scan: partial/);
 });

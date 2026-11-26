@@ -34,7 +34,7 @@ export async function assessFocus(read: PublicRead, options: {
   filter?: DiscoveryFilter; maxCandidates?: number;
   maxOrgPages?: number; maxRepositories?: number; maxWorkPages?: number;
   /** Read open work for every listed repository through the organization-wide search index. */
-  orgWide?: boolean;
+  orgWide?: boolean; maxSearchPages?: number;
   now?: () => Date; signal?: AbortSignal;
 } = {}) {
   const limit = options.maxCandidates ?? 4;
