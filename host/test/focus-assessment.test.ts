@@ -64,6 +64,17 @@ test('focus assessment supplies exact-head failed-check diagnostics without merg
   assert.deepEqual(r.diagnosticChoices[0].checkIds,[42]);
   assert.equal(r.plan.state,'advisory');if(r.plan.state==='advisory')assert.equal(r.plan.choices.length,0);
 });
+test('focus assessment recommends refreshing incomplete PR evidence without inferring readiness',async()=>{
+  const head='a'.repeat(40),baseSha='b'.repeat(40);
+  const f=fixture([{...issue(7),html_url:'https://github.com/UOR-Foundation/q/pull/7',pull_request:{}}],{});
+  f.routes[base+'/pulls/7']={number:7,state:'open',html_url:'https://github.com/UOR-Foundation/q/pull/7',head:{sha:head},
+    base:{sha:baseSha,ref:'main',repo:{full_name:'UOR-Foundation/q',private:false}},draft:false,mergeable:true,updated_at:stamp};
+  f.routes[base+'/commits/'+head+'/check-runs?filter=latest&per_page=100&page=1']={total_count:1,check_runs:[{id:42,head_sha:baseSha,status:'completed',conclusion:'success'}]};
+  const r=await assessFocus(f.read,{now});
+  assert.equal(r.diagnosticChoices[0].action,'refresh-evidence');
+  assert.equal(r.diagnosticChoices[0].head,head);
+});
+
 test('focus assessment refuses cancelled operation and invalid detail budgets',async()=>{
   const ac=new AbortController();ac.abort();
   const r=await assessFocus(async()=>assert.fail('must not read'),{signal:ac.signal,now});

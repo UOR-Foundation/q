@@ -26,8 +26,9 @@ export type LiveWorkSnapshot = {
    * budget ran out first; `interrupted`: a later page failed; `unavailable`: the first page could not be read (refused,
    * rate-limited or unreachable), so nothing was read and no fallback was tried; `fallback`: the response was
    * malformed, the transport still had budget, and the per-repository scan was used instead.
+   * 'inconsistent': the reported counts, page lengths or record identities disagree.
    */
-  search?: { state: 'read' | 'capped' | 'interrupted' | 'unavailable' | 'fallback'; pages: number; totalCount: number; read: number; incomplete: boolean; excluded: number };
+  search?: { state: 'read' | 'capped' | 'interrupted' | 'unavailable' | 'fallback' | 'inconsistent'; pages: number; totalCount: number; read: number; incomplete: boolean; excluded: number };
 };
 export type PullObservation =
   | { state: 'unknown'; reason: 'not-observed' | 'unavailable' | 'changed' }
@@ -118,13 +119,12 @@ export async function collectLiveWork(read: PublicRead, options: {
   if (options.orgWide && !options.preferredRepository && candidates.length) {
     const searched = await searchWork(read, candidates, bound(options.maxSearchPages ?? 1, 10));
     if (searched.state !== 'fallback') {
-      // The search index may lag the repositories it reports on: never a complete snapshot. A repository with no
-      // returned hits is covered only if every reported item was read; otherwise nothing is known about it.
-      const whole = searched.state === 'read' && !searched.summary.incomplete;
+      // The search index can lag even after pagination ends. A repository
+      // with no retained hits remains unknown, not evidence of inactivity.
       return {startedAt, finishedAt: now().toISOString(), coverage: enumeration === 'unavailable' || searched.state === 'unavailable' ? 'unavailable' : 'partial', enumeration,
         repositories: candidates.map(c => {
           const items = searched.items.get(c.repository) ?? [];
-          return {...c, items, coverage: (items.length || whole ? 'partial' : 'unavailable') as Coverage};
+          return {...c, items, coverage: (items.length ? 'partial' : 'unavailable') as Coverage};
         }),
         omittedRepositories: 0, invalidRecords: invalidRecords + searched.invalid, search: searched.summary};
     }
@@ -167,7 +167,8 @@ async function searchWork(read: PublicRead, candidates: { repository: string }[]
   const items = new Map<string, WorkItem[]>();
   const seen = new Set<string>();
   let totalCount = 0, readCount = 0, incomplete = false, excluded = 0, invalid = 0, pages = 0;
-  let state: 'read' | 'capped' | 'interrupted' | 'unavailable' | 'fallback' = 'capped';
+  let state: 'read' | 'capped' | 'interrupted' | 'unavailable' | 'fallback' | 'inconsistent' = 'capped';
+  let inconsistent = false, received = 0;
   for (let page = 1; page <= maxPages; page++) {
     let raw: unknown;
     try { raw = await read('/search/issues?q=org%3AUOR-Foundation+is%3Aopen+archived%3Afalse&sort=created&order=asc&per_page=100&page=' + page); }
@@ -176,8 +177,10 @@ async function searchWork(read: PublicRead, candidates: { repository: string }[]
         typeof raw.incomplete_results !== 'boolean' || !Array.isArray(raw.items) || raw.items.length > 100) {
       state = pages ? 'interrupted' : 'fallback'; break;
     }
+    if (pages > 0 && totalCount !== raw.total_count) inconsistent = true;
     pages++;
     totalCount = raw.total_count;
+    received += raw.items.length;
     incomplete ||= raw.incomplete_results;
     for (const row of raw.items) {
       const repository = obj(row) && typeof row.repository_url === 'string' ? listed.get(row.repository_url.toLowerCase()) : undefined;
@@ -191,6 +194,8 @@ async function searchWork(read: PublicRead, candidates: { repository: string }[]
     }
     if (raw.items.length < 100 || page * 100 >= raw.total_count) { state = 'read'; break; }
   }
+  if (state === 'read' && (inconsistent || invalid > 0 || received !== totalCount)) state = 'inconsistent';
+  if (state === 'capped' && (inconsistent || invalid > 0)) state = 'inconsistent';
   return { state, items, invalid, summary: { state, pages, totalCount, read: readCount, incomplete, excluded } };
 }
 
