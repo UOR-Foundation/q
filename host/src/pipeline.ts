@@ -176,6 +176,8 @@ export interface Actions {
   focus?: typeof runFocus;
   /** Public-safe observations for the capability inventory. */
   capabilityRuntime?(): import('./capabilities.ts').CapabilityRuntime;
+  /** Startup package-file observation, not a Git revision or signed attestation. */
+  hostFingerprint?: string;
   /** What Q is learning and what it proposes: the latest review of the improvement loop (improve.ts). */
   improve?(): Promise<string>;
   /** The open questions, promises and requests the tracker holds (tracker.ts), for /open. */

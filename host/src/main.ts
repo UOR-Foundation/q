@@ -7,6 +7,8 @@
 //   node src/main.ts verify     recompute every review in the self-model's chain from its records, then exit
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { measureHostFiles } from './host-identity.ts';
 import { discord } from './adapter/discord.ts';
 import { webServer } from './adapter/web.ts';
 import { Community, readPolicyDrift } from './community.ts';
@@ -37,6 +39,13 @@ const mode = process.argv[2];
 // On the MCP surface stdout carries the protocol, so the log goes to stderr.
 const out = mode === 'mcp' ? console.error : console.log;
 const log = (event: string, fields: Record<string, unknown> = {}) => out(JSON.stringify({ event, ...fields }));
+
+// Measure package files once at startup, independently of the signed kernel.
+const hostIdentity = (() => {
+  try { return measureHostFiles(fileURLToPath(new URL('../../',import.meta.url))); }
+  catch { return undefined; }
+})();
+log('host-identity', hostIdentity ? {...hostIdentity, measurement:'startup package files; not signed host provenance'} : {measurement:'unavailable'});
 
 const kernel = await Kernel.open(c.holo);
 // The kernel's own provenance, checked as the community's is: these exact bytes must be a build
@@ -120,7 +129,7 @@ if (mode === 'ingest') {
   log('tools', { servers: c.mcpServers.map((s) => ({ name: s.name, allow: s.allow === true })), tools: tools.list().length, failed });
   const runtime = {web:false,membership:false,evaluation:false,experiments:false,trackerDigest:false,retention:false};
   const actions: ConstructorParameters<typeof Pipeline>[6] = { memory, reindex, community: () => community, emit, tools: () => tools,
-    capabilityRuntime: () => ({...runtime}), ...(c.focusEnabled ? {focus: runFocus} : {}) };
+    capabilityRuntime: () => ({...runtime}), hostFingerprint: hostIdentity?.fingerprint, ...(c.focusEnabled ? {focus: runFocus} : {}) };
   const pipeline = new Pipeline(kernel, store, index, embedder, llm, c.settings, actions);
   // The website's adapter, beside Discord or alone: the same pipeline on the `web` surface.
   const serveWeb = async () => {

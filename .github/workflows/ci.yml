@@ -29,3 +29,5 @@ jobs:
         working-directory: host
       - run: npm test
         working-directory: host
+      - name: Host package fingerprint
+        run: node --no-warnings --input-type=module -e "import { measureHostFiles } from './host/src/host-identity.ts'; console.log(JSON.stringify(measureHostFiles(process.cwd())))"
