@@ -337,3 +337,9 @@ statement = "Live Focus collection is permitted only for an admitted Focus reque
 theorems = ["Policy.focusCollectOnly", "Policy.focusCollectWhen"]
 failure = "hold"
 negative = "DA-38"
+
+[[id]]
+id = "DA-39"
+level = "open"
+suite = "agent"
+statement = "The capability report describes the registered command inventory, observed host wiring, caller command eligibility, and source identities without treating configuration as proof of operational readiness or granting authority"

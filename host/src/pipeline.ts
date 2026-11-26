@@ -12,6 +12,7 @@ import type { Tools } from './tools.ts';
 import { isRevoked, type Namespace, type Store } from './store.ts';
 import { possibleFocusQuestion, renderFocus } from './focus-answer.ts';
 import type { runFocus } from './focus-entry.ts';
+import { capabilityReport, capabilityDetail, renderCapabilities, summarizeCapabilities } from './capabilities.ts';
 
 export interface Incoming {
   /** The Discord channel's facts; absent on the MCP surface, which has no channel. */
@@ -173,6 +174,8 @@ export interface Actions {
   tools?(): Tools | undefined;
   /** Live public read effect; production supplies it, offline shadow runs do not. */
   focus?: typeof runFocus;
+  /** Public-safe observations for the capability inventory. */
+  capabilityRuntime?(): import('./capabilities.ts').CapabilityRuntime;
   /** What Q is learning and what it proposes: the latest review of the improvement loop (improve.ts). */
   improve?(): Promise<string>;
   /** The open questions, promises and requests the tracker holds (tracker.ts), for /open. */
@@ -382,8 +385,10 @@ export class Pipeline {
       return { text: 'Not processed: the message holds content this server filters.', decision: 'interrupt', citations: [] };
     }
 
-    const command = message.command ?? 'ask';
-    const authorized = await this.kernel.command(command, message.role);
+    const capabilityRequest = surface === 'discord' && (message.command ?? 'ask') === 'ask' ? capabilityDetail(message.text) : null;
+    const command = capabilityRequest ? 'status' : (message.command ?? 'ask');
+    const authorized = capabilityRequest && (await this.kernel.command('ask', message.role)) !== 'allowed'
+      ? 'not authorized' : await this.kernel.command(command, message.role);
     if (authorized === 'not authorized') return { text: 'Not authorized: that command needs the admin role.', decision: authorized, citations: [] };
 
     const user = this.#recent(this.#user, message.authorId);
@@ -397,9 +402,15 @@ export class Pipeline {
     const done = (text: string): Draft => ({ text, decision: 'allowed', citations: [] });
     switch (command) {
       case 'status': {
+        // Only the public report is served; ordinary status retains its
+        // existing operational self-model. Nothing is retrieved or executed.
+        const capabilities = surface === 'discord' && (await this.kernel.expose('public', surface)) === 'serve'
+          ? (capabilityRequest === 'full' ? renderCapabilities : summarizeCapabilities)(await capabilityReport(this.kernel, this.actions.community(), this.actions, message.role))
+          : '';
+        if (capabilityRequest) return capabilities ? done(capabilities) : undefined;
         const counts = [...this.metrics.entries()].map(([name, count]) => `${name} ${count}`).join(', ') || 'none yet';
         const self = this.actions.self ? `\n\n${await this.actions.self()}` : '';
-        return done(`Kernel model ${this.kernel.model}.\n${this.index.count()} chunks indexed.\nDecisions since start: ${counts}.${self}`);
+        return done(`Kernel model ${this.kernel.model}.\n${this.index.count()} chunks indexed.\nDecisions since start: ${counts}.${self}${capabilities ? '\n\n' + capabilities : ''}`);
       }
       case 'reindex':
         return done(await this.actions.reindex());

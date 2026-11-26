@@ -81,7 +81,7 @@ The bot answers mentions in any public text or forum channel. Its inputs and out
 | --- | --- | --- |
 | `/ask` | everyone | Answer with citations and a claim level, or say it does not know |
 | `/search` | everyone | List the best-matching sources without calling the language model |
-| `/status` | everyone | Kernel model, chunks indexed, decision counts |
+| `/status` | everyone | Kernel model, chunks indexed, decision counts, public capability map |
 | `/reindex` | admin | Ingest the sources again; unchanged chunks are skipped |
 | `/forget-channel` | admin | Delete everything indexed from the channel |
 | `/forget-me` | everyone | Delete your messages and the answers to your questions, and stop indexing you |
@@ -123,3 +123,7 @@ See [../docs/design.md](../docs/design.md) for the trade-offs.
 ### Q Focus (operator-enabled preview)
 
 Set `FOCUS_ENABLED=true` in a qualified Discord host to enable natural-language contribution assessment. It is off by default. Example: “What should I work on in UOR-Foundation/q?” Q reads current public GitHub evidence, reports its bounded scan, and suggests a read-only investigation. It does not assign work, determine merge readiness, or establish Foundation-wide priority. Anonymous GitHub access has a shared rate limit; each assessment is bounded to 40 requests and 15 seconds, and may return partial or unavailable evidence. No GitHub token is passed to this reader. The native tests exercise the real kernel with controlled provider responses; live deployment/Discord acceptance is separate. Turn the setting off to restore the existing answer path.
+
+### Capability map
+
+In Discord, ask “What are your capabilities?” or invoke `/status`. Q derives the registered commands from its shared command catalog, asks the current kernel for command eligibility, and reports observed wiring separately from qualification. The map uses no language-model call and grants no permissions. See [the capability map contract](../docs/capabilities.md).

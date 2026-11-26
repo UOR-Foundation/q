@@ -5,7 +5,9 @@ import { readFile } from 'node:fs/promises';
 import { before, test } from 'node:test';
 import { isLabel, labelOf, matches } from '../src/address.ts';
 import { channelLabels, readPolicyDrift, type Decider, type DecisionApp } from '../src/community.ts';
-import { Kernel, type ChannelFacts } from '../src/kernel.ts';
+import { COMMAND, Kernel, type ChannelFacts } from '../src/kernel.ts';
+import { capabilityReport, capabilityDetail, DISCORD_COMMANDS, DISCORD_EVENTS, WEB_PUBLIC_ROUTES, isCapabilityQuestion, summarizeCapabilities } from '../src/capabilities.ts';
+import { MCP_PUBLIC_TOOLS } from '../src/mcp-server.ts';
 import { chunks, ingest, type Source } from '../src/knowledge.ts';
 import { Memory, type Observed } from '../src/memory.ts';
 import { Pipeline, type Incoming, type Progress, type Published, type Settings } from '../src/pipeline.ts';
@@ -20,6 +22,7 @@ import type { AddressInfo } from 'node:net';
 import { Tools } from '../src/tools.ts';
 import { payloads } from '../src/adapter/adapter.ts';
 import { Aggregator } from '../src/aggregator.ts';
+import { deliver, withoutMention } from '../src/adapter/discord.ts';
 import { mcpServer } from '../src/mcp-server.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -655,6 +658,27 @@ test('the folder store reads its edge log incrementally, including edges another
   await appendFile(join(root, 'public', 'edges.jsonl'), JSON.stringify({ source: b, target: a, relation: 'revocation' }) + '\n');
   assert.ok(await isRevoked(store, 'public', a));
   assert.deepEqual((await store.edgesTo('public', b)), []);
+});
+
+test('a reply split over several Discord messages is delivered whole, in order', async () => {
+  const text = Array.from({ length: 60 }, (_, i) => `line ${i} ` + 'x'.repeat(80)).join('\n');
+  const parts = payloads({ text, decision: 'allowed', citations: [], delivery: 'split' }, 2000);
+  assert.ok(parts.length >= 3);
+  const sent: string[] = [];
+  const first = await deliver(parts, async (payload) => { sent.push(payload.content); return { id: sent.length }; });
+  assert.deepEqual(sent, parts.map((p) => p.content));
+  assert.equal(sent.join(''), parts.map((p) => p.content).join(''));
+  assert.deepEqual(first, { id: 1 });
+  assert.equal(await deliver([], async () => assert.fail('nothing to send')), undefined);
+});
+
+test('Q\'s mention is removed in both Discord forms, and nobody else\'s', () => {
+  assert.equal(withoutMention('<@123> What are you capable of?', '123'), 'What are you capable of?');
+  assert.equal(withoutMention('<@!123> What are you capable of?', '123'), 'What are you capable of?');
+  assert.equal(withoutMention('What do <@!123> and <@123> do?', '123'), 'What do  and  do?');
+  assert.equal(withoutMention('<@!456> <@456> hello <@123>', '123'), '<@!456> <@456> hello');
+  assert.equal(withoutMention('<@1234> hi', '123'), '<@1234> hi');
+  assert.equal(withoutMention('<@!123>', '123'), '');
 });
 
 test('an empty mention is answered at once, without retrieval or the language model', async () => {
@@ -2033,7 +2057,7 @@ test('Discord Focus runs the real entry and model against fresh provider data on
     const repo={name:'q',full_name:'UOR-Foundation/q',private:false,visibility:'public',archived:false,fork:false,default_branch:'main'};
     const issue={number:n,state:'open',title:'@everyone untrusted title',updated_at:'2026-11-25T20:00:00Z',assignees:[],
       repository_url:'https://api.github.com/repos/UOR-Foundation/q',html_url:'https://github.com/UOR-Foundation/q/issues/'+n};
-    const body=u.pathname.startsWith('/orgs/')?[repo]:u.pathname.endsWith('/dependencies/blocked_by')?[]:u.pathname.endsWith('/issues')?[issue]:issue;
+    const body=u.pathname.startsWith('/orgs/')?[repo]:u.pathname==='/search/issues'?{total_count:1,incomplete_results:false,items:[issue]}:u.pathname.endsWith('/dependencies/blocked_by')?[]:u.pathname.endsWith('/issues')?[issue]:issue;
     return new Response(JSON.stringify(body));
   }});
   const question='What should I work on next?';
@@ -2081,4 +2105,111 @@ test('Discord Focus reports clarification and unavailability without ordinary ca
   assert.match((await w.pipeline.handle(ask('What should I work on next?')))!.text,/cannot verify current work/);
   assert.equal(w.llm.calls,0);
   assert.equal((await w.store.labels('private')).length,0);
+});
+
+test('capability catalog covers every kernel command and reports actual caller eligibility',async()=>{
+  const w=await world();
+  assert.deepEqual(Object.keys(DISCORD_COMMANDS).sort(),Object.keys(COMMAND).sort());
+  const member=await capabilityReport(kernel,w.decider,w.pipeline.actions,'member');
+  assert.ok(matches(member.report,member.label));
+  assert.equal(member.report.commands.length,Object.keys(COMMAND).length);
+  for(const c of member.report.commands)assert.equal(c.eligibility,(await kernel.command(c.name,'member'))==='allowed'?'eligible':'not authorized');
+  assert.equal(member.report.commands.find(c=>c.name==='reindex')?.eligibility,'not authorized');
+  assert.equal(member.report.commands.find(c=>c.name==='reindex')?.wiring,'not disclosed');
+  assert.equal(member.report.commands.find(c=>c.name==='build')?.wiring,'unavailable');
+  const admin=await capabilityReport(kernel,w.decider,w.pipeline.actions,'admin');
+  assert.equal(admin.report.commands.find(c=>c.name==='reindex')?.eligibility,'eligible');
+  assert.notEqual(admin.label,member.label);
+});
+test('capability question is direct and private configuration is not consulted',async()=>{
+  const w=await world();
+  w.pipeline.actions.tools=()=>assert.fail('must not discover tools');
+  w.pipeline.actions.build=async()=>assert.fail('must not execute a build');
+  const a=await w.pipeline.handle(ask('Show me your full capability map'));
+  assert.match(a!.text,/Q capability map/);
+  assert.match(a!.text,/\/reindex:.*not authorized/);
+  assert.match(a!.text,/DA-39/);
+  assert.match(a!.text,/Report blake3:/);
+  assert.equal(w.llm.calls,0);
+  assert.equal((await w.store.labels('private')).length,0);
+  assert.equal(isCapabilityQuestion('what are your capabilities for a naming decision'),false);
+});
+test('capability report remains subject to Discord access and incoming filters',async()=>{
+  const w=await world();
+  const question='What can you do?';
+  assert.equal(await w.pipeline.handle(ask(question,{channel:{...open,visibility:'restricted'}})),undefined);
+  w.pipeline.settings.access={mode:'whitelist',list:new Set()};
+  assert.equal(await w.pipeline.handle(ask(question)),undefined);
+  w.pipeline.settings.access={mode:'blacklist',list:new Set()};
+  w.pipeline.settings.filter={scope:'both',terms:['what']};
+  assert.equal((await w.pipeline.handle(ask(question)))?.decision,'interrupt');
+  assert.equal(w.llm.calls,0);
+});
+
+test('Discord status includes the public capability map without invoking a tool or language model',async()=>{
+  const w=await world();
+  w.pipeline.actions.tools=()=>assert.fail('must not enumerate private tools');
+  const reply=await w.pipeline.handle(ask('',{command:'status',trigger:'slash'}));
+  assert.match(reply!.text,/Kernel model/);
+  assert.match(reply!.text,/What I can do/);
+  assert.equal(w.llm.calls,0);
+});
+
+test('capability inventory covers public routes, adapter events and registered claims',async()=>{
+  const web=await readFile(new URL('../src/adapter/web.ts',import.meta.url),'utf8');
+  const actualWeb=new Set([...web.matchAll(/url\.pathname\s*===\s*'([^']+)'|url\.pathname\.startsWith\('([^']+)'\)|url\.pathname\s*===\s*\x60([^$\x60]+)\$\{/g)].map(m=>m[1]??m[2]??m[3]));
+  assert.deepEqual([...actualWeb].sort(),[...WEB_PUBLIC_ROUTES].sort());
+  const discord=await readFile(new URL('../src/adapter/discord.ts',import.meta.url),'utf8');
+  assert.deepEqual([...discord.matchAll(/client\.(?:on|once)\(Events\.([A-Za-z]+)/g)].map(m=>m[1]).sort(),[...DISCORD_EVENTS].sort());
+  const w=await world();
+  const member=await capabilityReport(kernel,w.decider,w.pipeline.actions,'member');
+  assert.deepEqual(member.report.surfaces.mcp.tools,MCP_PUBLIC_TOOLS.map(t=>t.name));
+  const ids=await readFile(new URL('../../model/ids.toml',import.meta.url),'utf8');
+  const registered=new Set([...ids.matchAll(/^id = "(DA-\d+)"$/gm)].map(m=>m[1]));
+  assert.deepEqual([...new Set([...member.report.commands,...member.report.groups].flatMap(row=>row.policy))].sort(),[...registered].sort());
+});
+test('capability summary is short, scoped and changes with wiring',async()=>{
+  const w=await world();
+  const before=await capabilityReport(kernel,w.decider,w.pipeline.actions,'member');
+  assert.equal(before.report.groups.find(g=>g.id==='web')?.wiring,'unknown');
+  const answer=await w.pipeline.handle(ask('what are you capable of?'));
+  assert.match(answer!.text,/What I can do/);
+  assert.match(answer!.text,/not enabled here/);
+  assert.match(answer!.text,/full capability map/);
+  assert.ok(answer!.text.length<1500);
+  assert.doesNotMatch(answer!.text,/\/reindex/);
+  w.pipeline.actions.capabilityRuntime=()=>({web:true,membership:false,evaluation:true,experiments:false,trackerDigest:true,retention:true});
+  const after=await capabilityReport(kernel,w.decider,w.pipeline.actions,'member');
+  assert.equal(after.report.groups.find(g=>g.id==='web')?.wiring,'configured');
+  assert.equal(after.report.groups.find(g=>g.id==='tracker')?.wiring,'not disclosed');
+  assert.notEqual(before.label,after.label);
+  assert.ok(matches(after.report,after.label));
+  assert.equal(capabilityDetail('What are all of your capabilities?'),'full');
+  assert.equal(capabilityDetail('What can you do for me?'),'summary');
+  assert.equal(capabilityDetail('what are you capable of?'),'summary');
+  assert.equal(capabilityDetail('What is Q capable of?'),'summary');
+  assert.equal(capabilityDetail('what are you capable of doing with my private data?'),null);
+  assert.equal(capabilityDetail('Describe your capability map.'),'full');
+  assert.equal(capabilityDetail('what can you do to change the naming policy'),null);
+  assert.equal(w.llm.calls,0);
+});
+test('capability summary claims an effect only when it is wired',async()=>{
+  const w=await world();
+  const unwired=summarizeCapabilities(await capabilityReport(kernel,w.decider,w.pipeline.actions,'member'));
+  assert.doesNotMatch(unwired,/Receive feedback/);
+  assert.match(unwired,/Feedback is not enabled here/);
+  w.pipeline.actions.feedback=async()=>'filed';
+  const wired=summarizeCapabilities(await capabilityReport(kernel,w.decider,w.pipeline.actions,'member'));
+  assert.match(wired,/Receive feedback/);
+  assert.match(wired,/\/feedback/);
+});
+test('standalone capability phrasings route to the governed report, never to an inferred answer',async()=>{
+  for(const q of ['What are you capable of?',"What's Q capable of?",'What\u2019s Q capable of?','What are you able to do?','How can you help me?','What do you do?','WHAT ARE YOU CAPABLE OF?'])
+    assert.equal(capabilityDetail(q),'summary',q);
+  for(const q of ['How can you help me rename the repository?','What do you do with my messages?',"What's Q capable of deleting?"])
+    assert.equal(capabilityDetail(q),null,q);
+  const w=await world();
+  const reply=await w.pipeline.handle(ask('What\u2019s Q capable of?'));
+  assert.match(reply!.text,/What I can do/);
+  assert.equal(w.llm.calls,0);
 });

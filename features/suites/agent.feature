@@ -261,3 +261,11 @@ Feature: agent
     When prism-code check has Lean's kernel prove Policy.focusCollectOnly and Policy.focusCollectWhen
     Then collect is answered for an admitted Focus request in public scope with no applicable community decision
     And prism-code build replays a different intent, an applicable community decision, an unresolved community decision, nonpublic scope and a request not admitted, each answered hold
+
+  @DA-39 @open
+  Scenario: The capability report describes the registered command inventory, observed host wiring, caller command eligibility, and source identities without treating configuration as proof of operational readiness or granting authority
+    Given Q's registered command inventory, the current verified kernel, and observed host actions
+    When an admitted Discord caller asks for Q's capabilities or invokes status
+    Then the report enumerates the command inventory and public capability groups with the kernel's command eligibility for that caller
+    And the report distinguishes wired, unavailable and conditional behavior, names the kernel and community identities and its own content label, and makes no new authority or operational qualification claim
+    And private connector identities, configuration secrets, user identifiers and private knowledge contents are absent

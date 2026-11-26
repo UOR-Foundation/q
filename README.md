@@ -15,7 +15,7 @@ Q is the UOR Foundation's AI assistant for Discord. Community members need answe
 
 **What it does:** A LexLean model defines Q's decisions, which Lean checks as proofs. A TypeScript host handles Discord messages, retrieval, language-model calls, and tools, asking that model before policy-controlled actions. The community repository supplies Q's pinned, verified community policy. Proofs cover the modeled decisions; host behavior is separately tested, not magically proved end to end.
 
-**Where to begin:** Read the [architecture](ARCHITECTURE.md), try the [kernel checks](#quick-start-check-the-kernel), or follow the [host setup](host/README.md) to run the bot. Running Q in Discord requires configuration and administrator authorization; passing a local check does not deploy a bot.
+**Where to begin:** Read the [architecture index](ARCHITECTURE_INDEX.md) and [architecture overview](ARCHITECTURE.md), try the [kernel checks](#quick-start-check-the-kernel), or follow the [host setup](host/README.md) to run the bot. Running Q in Discord requires configuration and administrator authorization; passing a local check does not deploy a bot.
 
 **Navigation:** [Quick start](#quick-start-check-the-kernel) · [How it works](#architecture-at-a-glance) · [Evidence and limits](#what-is-established) · [Host setup](host/README.md) · [Governance](#governance-and-contributing) · [Protocol reference](#request) · [Known gaps](#known-gaps)
 
