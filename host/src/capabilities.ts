@@ -34,7 +34,7 @@ export function capabilityDetail(question:string):'summary'|'full'|null {
 export function isCapabilityQuestion(question:string):boolean{return capabilityDetail(question)!==null;}
 // Public-safe observations only. Never include identifiers or configuration values.
 export type CapabilityRuntime = Readonly<{web:boolean;membership:boolean;evaluation:boolean;experiments:boolean;trackerDigest:boolean;retention:boolean}>;
-type Facts = Pick<Actions,'focus'|'improve'|'open'|'feedback'|'build'|'self'|'capabilityRuntime'>;
+type Facts = Pick<Actions,'focus'|'improve'|'open'|'feedback'|'build'|'self'|'capabilityRuntime'|'hostFingerprint'>;
 export const WEB_PUBLIC_ROUTES = ['/', '/llms.txt', '/healthz', '/manifest', '/answer/', '/item/', '/kernel/', '/ask', '/mcp'] as const;
 export const DISCORD_EVENTS = ['ClientReady','MessageCreate','MessageDelete','MessageBulkDelete','MessageUpdate','ThreadDelete','ChannelDelete','MessageReactionAdd','MessageReactionRemove','InteractionCreate'] as const;
 type ReportKernel = Pick<Kernel,'command'|'model'|'holo'|'commit'>;
@@ -72,7 +72,8 @@ export async function capabilityReport(kernel:ReportKernel, community:Decider, a
   const surfaces={discord:{events:[...DISCORD_EVENTS]},web:{routes:[...WEB_PUBLIC_ROUTES]},mcp:{tools:MCP_PUBLIC_TOOLS.map(t=>t.name)}};
   const report={type:'uor-agent/capability-report/1',claim:'DA-39',coverage:'registered Discord commands, public interfaces, lifecycle events and declared capability groups; not an exhaustive effective-privilege audit',
     kernel:{model:kernel.model,holo:kernel.holo,commit:kernel.commit},community:{holo:community.pin.holo,commit:community.pin.commit},
-    hostRevision:'not independently established',commands,groups,surfaces,
+    hostRevision:'not independently established',
+    hostFingerprint: typeof actions.hostFingerprint==='string' && /^sha256:[a-f0-9]{64}$/.test(actions.hostFingerprint) ? actions.hostFingerprint : 'unavailable',commands,groups,surfaces,
     qualification:'Host wiring and command eligibility only; configuration, operational readiness and per-effect authority are distinct.'};
   return {report,label:labelOf(report)};
 }
@@ -83,7 +84,7 @@ export function renderCapabilities(value:Awaited<ReturnType<typeof capabilityRep
   return ['**Q capability map**','This is an inventory of registered commands and public capability groups, not a permission grant. "Eligible" is the kernel command check for this caller; further checks apply. "Wired" is host wiring, not a live success guarantee.',
     '**Discord commands**',...commandLines,'**Other capability groups**',...groupLines,
     '**Other public interfaces (deployment dependent)**','Web: '+r.surfaces.web.routes.join(', ')+'.','MCP: '+r.surfaces.mcp.tools.join(', ')+'.','Discord events: '+r.surfaces.discord.events.join(', ')+'.',
-    'Provenance (DA-39, measured host claim): kernel model '+r.kernel.model+', holo '+r.kernel.holo+', signed kernel commit '+(r.kernel.commit??'unverified')+'. Community pin '+r.community.commit+', holo '+r.community.holo+'. Host revision '+r.hostRevision+'. Report '+label+'.',
+    'Provenance (DA-39, measured host claim): kernel model '+r.kernel.model+', holo '+r.kernel.holo+', signed kernel commit '+(r.kernel.commit??'unverified')+'. Community pin '+r.community.commit+', holo '+r.community.holo+'. Host revision '+r.hostRevision+'. Startup package fingerprint '+r.hostFingerprint+' (not signed host provenance). Report '+label+'.',
     'Sources: model/ids.toml, CONFORMANCE.md, host/src/capabilities.ts and the named implementation modules. The report does not expose private configuration or independently certify effective privileges. Wiring for ineligible commands is withheld.'].join('\n');
 }
 
@@ -102,6 +103,7 @@ export function summarizeCapabilities(value:Awaited<ReturnType<typeof capability
     '',
     'For you, available commands: '+r.commands.filter(c=>eligible(c.name)).map(c=>'/'+c.name).join(', ')+'.',
     'I cannot grant myself permissions or change my own rules. Some requests may be refused. Availability is not proof of successful operation.',
+    'Startup package fingerprint: '+r.hostFingerprint+' (not signed host provenance).',
     'Ask “Show me your full capability map” for all commands, limits, and evidence. Report: '+label+'.',
   ];
   return lines.join('\n');

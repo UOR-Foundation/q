@@ -67,6 +67,16 @@ docker compose -f host/docker-compose.yml up -d --build
 docker compose -f host/docker-compose.yml run --rm agent node --no-warnings src/main.ts ingest
 ```
 
+### Verify the running host
+
+The `host-identity` startup log and Discord capability report contain a SHA-256 fingerprint of the package files copied by the Dockerfile. Compare it to the `Host package fingerprint` step in CI for the intended exact revision, or compute it from a clean checkout:
+
+```bash
+node --no-warnings --input-type=module -e "import { measureHostFiles } from './host/src/host-identity.ts'; console.log(JSON.stringify(measureHostFiles(process.cwd())))"
+```
+
+A mismatch or unavailable measurement is not deployment acceptance. The fingerprint measures source, web files, package manifests and experiments, not installed dependencies, effective configuration, in-memory code or signed host provenance. Kernel provenance remains a separate check. To redeploy, rebuild the verified kernel and recreate only the agent with `docker compose -f host/docker-compose.yml up -d --build --no-deps agent`; preserve the data volume and existing environment. Do not repeat initial environment setup, erase data, or turn off provenance. After startup compare the fingerprint, check `/status`, both capability-question phrasings and full-map delivery on Discord. Record actual acceptance separately.
+
 Before the bot can index anything on a server:
 
 1. In the Discord developer portal, enable the Message Content intent, and set `MESSAGE_CONTENT_INTENT=true`.

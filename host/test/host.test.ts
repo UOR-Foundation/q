@@ -2203,6 +2203,22 @@ test('capability summary claims an effect only when it is wired',async()=>{
   assert.match(wired,/Receive feedback/);
   assert.match(wired,/\/feedback/);
 });
+test('capability reports bind only a well-formed measured host fingerprint, never a host revision',async()=>{
+  const w=await world();
+  const initial=await capabilityReport(kernel,w.decider,w.pipeline.actions,'member');
+  assert.equal(initial.report.hostFingerprint,'unavailable');
+  w.pipeline.actions.hostFingerprint='sha256:'+'a'.repeat(64);
+  const measured=await capabilityReport(kernel,w.decider,w.pipeline.actions,'member');
+  assert.equal(measured.report.hostFingerprint,w.pipeline.actions.hostFingerprint);
+  assert.equal(measured.report.hostRevision,'not independently established');
+  assert.notEqual(initial.label,measured.label);
+  const reply=await w.pipeline.handle(ask('what are you capable of now?'));
+  assert.match(reply!.text,/Startup package fingerprint: sha256:a{64}/);
+  assert.equal(w.llm.calls,0);
+  w.pipeline.actions.hostFingerprint='not a public-safe fingerprint';
+  const invalid=await capabilityReport(kernel,w.decider,w.pipeline.actions,'member');
+  assert.equal(invalid.report.hostFingerprint,'unavailable');
+});
 test('current capability questions use the live report without broadening action routes',async()=>{
   const cases: [string, 'summary'|'full'|null][] = [["what are you capable of now?","summary"],["What can you do right now?","summary"],["What are your capabilities currently?","summary"],["How can you help me at the moment?","summary"],["Show me your full capability map now!","full"],["What can you do today?","summary"],["What are you capable of doing with my private data now?",null],["What can you do to change the naming policy today?",null],["Show me your full capability map and delete messages now",null],["What were you capable of yesterday?",null]];
   for(const [q, expected] of cases) assert.equal(capabilityDetail(q),expected,q);
