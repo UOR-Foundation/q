@@ -32,7 +32,7 @@ export type LiveWorkSnapshot = {
    */
   search?: { state: 'read' | 'capped' | 'interrupted' | 'unavailable' | 'fallback' | 'inconsistent'; pages: number; totalCount: number; read: number; incomplete: boolean; excluded: number;
     /** The time share for search ran out before every page was read. */
-    stoppedForTime?: boolean };
+    stoppedForTime?: boolean; unknownTotalKinds?: number };
 };
 export type PullObservation =
   | { state: 'unknown'; reason: 'not-observed' | 'unavailable' | 'changed' }
@@ -226,7 +226,7 @@ async function searchWork(read: PublicRead, candidates: { repository: string }[]
   const received = kinds.reduce((n, k) => n + k.received, 0);
   if (state === 'read' && (inconsistent || invalid > 0 || received !== totalCount)) state = 'inconsistent';
   if (state === 'capped' && (inconsistent || invalid > 0)) state = 'inconsistent';
-  return { state, items, invalid, summary: { state, pages, totalCount, read: readCount, incomplete, excluded, ...(timedOut ? { stoppedForTime: true } : {}) } };
+  return { state, items, invalid, summary: { state, pages, totalCount, read: readCount, incomplete, excluded, ...(timedOut ? { stoppedForTime: true } : {}), ...(kinds.some(k=>k.total<0) ? {unknownTotalKinds:kinds.filter(k=>k.total<0).length} : {}) } };
 }
 
 function pullIdentity(raw: unknown, repo: string, n: number) {

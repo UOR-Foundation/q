@@ -222,6 +222,14 @@ test('a tight page budget alternates kinds instead of silently dropping pull req
   assert.ok(snapshot.repositories.some(r => r.items.some(i => i.kind === 'pull')));
 });
 
+test('a one-kind sample cannot claim a combined search total', async () => {
+  const t=transport({[listing]:listed,[search(1)]:page1});
+  const data=await assessFocus(t.read,{orgWide:true,maxSearchPages:1,now});
+  assert.equal(data.search?.unknownTotalKinds,1);
+  assert.match(renderFocus(data),/combined total unknown/);
+  assert.doesNotMatch(renderFocus(data),/30 of 33 open items/);
+});
+
 test('the search stops starting pages when its time share is used, and says so', async () => {
   const issuePages = [1, 2, 3].map(p => ({total_count: 300, incomplete_results: false, items: Array.from({length: 100}, (_, i) => hit(names[i % 30], p * 1000 + i))}));
   const data: Record<string, unknown> = {[listing]: listed, [search(1)]: issuePages[0], [search(2)]: issuePages[1], [search(3)]: issuePages[2]};
@@ -253,7 +261,8 @@ test('explicit native blockers are inspected first and explicitly blocked items 
   const items = [
     ...names.map((n, i) => hit(n, i + 1)),                      // thirty repositories with no dependency evidence
     hit('repo29', 500, dep(3, 0)),                                // the alphabetically last repository blocks three items
-    hit('repo00', 600, dep(0, 2)),                                // explicitly blocked: not ready
+    hit('repo00', 600, dep(0, 2)),
+    hit('repo01', 601, dep(10, 1)),                                // explicitly blocked: not ready
   ];
   const t = transport({[listing]: listed, [search(1)]: {total_count: items.length, incomplete_results: false, items}});
   const data = await assessFocus(t.read, {orgWide: true, maxSearchPages: 2, maxCandidates: 4, now});
@@ -261,7 +270,9 @@ test('explicit native blockers are inspected first and explicitly blocked items 
   assert.equal(picked[0], 'repo29#500', 'the explicit blocker leads, whatever its name');
   assert.ok(!picked.includes('repo00#600'), 'a blocked item is never preferred over ready ones');
   assert.equal(data.projection.explicitBlocking, 1);
-  assert.equal(data.projection.explicitlyBlocked, 1);
+  assert.equal(data.projection.explicitlyBlocked, 2);
+  assert.ok(!picked.includes('repo01#601'), 'a blocker that is itself blocked stays in the blocked tier');
+  assert.ok(data.projection.unknownDependencyCounts>0);
   assert.match(renderFocus(data), /1 items GitHub reports as blocking other work come first/);
   const snapshot = await collectLiveWork(transport({[listing]: listed, [search(1)]: {total_count: 1, incomplete_results: false, items: [hit('repo01', 1)]}}).read, {orgWide: true, now});
   const item = snapshot.repositories.find(r => r.repository === 'UOR-Foundation/repo01')!.items[0];
@@ -280,5 +291,5 @@ test('without dependency evidence the sample rotates across repositories by hour
   }
   assert.ok(firsts.size >= 5, 'successive hours start at different repositories: ' + [...firsts].join(', '));
   const text = renderFocus(await assessFocus(transport({[listing]: mixed, [search(1)]: {total_count: items.length, incomplete_results: false, items}}).read, {orgWide: true, maxSearchPages: 2, maxCandidates: 4, now}));
-  assert.match(text, /GitHub reports no item here as blocking other work, so the rest is a sample, one per repository, starting at a repository that changes each hour\. Not a ranking by importance\./);
+  assert.match(text, /No unblocked blocker was reported in the observed sample; the rest is a sample, one per repository, starting at a repository that changes each hour\. Not a ranking by importance\./);
 });

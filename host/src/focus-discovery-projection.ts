@@ -22,7 +22,7 @@ export type DiscoveryProjection = {
   omittedMatchingItems: number;
   selection: 'bounded-discovery-not-priority-ranking';
   /** Items GitHub reports as blocking or blocked by others, among the matches: explicit native evidence only. */
-  explicitBlocking: number; explicitlyBlocked: number;
+  explicitBlocking: number; explicitlyBlocked: number; unknownDependencyCounts: number;
   candidates: { repository: string; number: number; kind: WorkItem['kind']; url: string; title: string; updatedAt: string }[];
 };
 const text = (s: unknown): s is string => typeof s === 'string' && s.length > 0 && s.length <= 100 && !/[\x00-\x1f\x7f]/.test(s);
@@ -59,7 +59,7 @@ export function projectDiscovery(snapshot: LiveWorkSnapshot, filter: DiscoveryFi
   }
   // Explicit native evidence first: GitHub's own counts of items this blocks (downstream unlocks) lead, explicitly
   // blocked items (not ready) come last, and everything else is between. No recency, popularity or label is a priority.
-  const tier = (i: WorkItem) => (i.blocking ?? 0) > 0 ? 0 : (i.blockedBy ?? 0) > 0 ? 2 : 1;
+  const tier = (i: WorkItem) => (i.blockedBy ?? 0) > 0 ? 2 : (i.blocking ?? 0) > 0 ? 0 : 1;
   const repoKey = (r: string) => r.toLowerCase();
   matches.sort((a,b) => tier(a) - tier(b) || (b.blocking ?? 0) - (a.blocking ?? 0) ||
     (repoKey(a.repository) < repoKey(b.repository) ? -1 : repoKey(a.repository) > repoKey(b.repository) ? 1 : a.number - b.number));
@@ -87,5 +87,5 @@ export function projectDiscovery(snapshot: LiveWorkSnapshot, filter: DiscoveryFi
     matchingRepositories, matchingItems: matches.length, unknownMetadataRepositories, unknownMetadataItems,
     unavailableRepositories, omittedRepositories: snapshot.omittedRepositories, omittedMatchingItems: matches.length - candidates.length,
     selection: 'bounded-discovery-not-priority-ranking', candidates,
-    explicitBlocking: matches.filter(i => (i.blocking ?? 0) > 0).length, explicitlyBlocked: matches.filter(i => (i.blockedBy ?? 0) > 0).length };
+    explicitBlocking: matches.filter(i => tier(i) === 0).length, explicitlyBlocked: matches.filter(i => tier(i) === 2).length, unknownDependencyCounts: matches.filter(i => i.blocking == null || i.blockedBy == null).length };
 }
