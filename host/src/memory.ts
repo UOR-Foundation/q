@@ -44,6 +44,23 @@ export type Reason = 'forget-me' | 'forget-channel' | 'withdrawn' | 'retention' 
 const names = (item: { [member: string]: unknown }, member: string) =>
   item.author === member || (Array.isArray(item.subjects) && item.subjects.includes(member));
 
+/** Records that make forgetting hold: never refused, never forgotten. */
+const EXEMPT = new Set(['opt-out', 'revocation']);
+
+/**
+ * The attribution a torn record still carries: JSON.stringify keeps the order a record was built in, and member records
+ * name author, channel, thread and creation time before their text. Absent fields stay unknown.
+ */
+export function attributionOf(bytes: string): { author?: string; channel?: string; thread?: string; created?: number } {
+  const field = (name: string) => {
+    const match = new RegExp(`"${name}":("(?:[^"\\\\]|\\\\.)*")`).exec(bytes);
+    if (!match) return undefined;
+    try { return JSON.parse(match[1]) as string; } catch { return undefined; }
+  };
+  const created = /"created":(\d+)/.exec(bytes);
+  return { author: field('author'), channel: field('channel'), thread: field('thread'), created: created ? Number(created[1]) : undefined };
+}
+
 export class Memory {
   kernel: Kernel;
   store: Store;
@@ -107,8 +124,11 @@ export class Memory {
 
   async #remove(namespace: Namespace, label: string, reason: Reason, item?: { type: string; [member: string]: unknown }) {
     const was = item ?? (await this.store.get(namespace, label));
-    await this.store.delete(namespace, label);
+    // Projections first, then the record they derive from: an interruption leaves the record, which the next walk
+    // finds again, rather than index rows no walk over the store can reach.
     this.index.remove(label);
+    this.index.removeDerived([label]);
+    await this.store.delete(namespace, label);
     const revocation = await this.store.put(namespace, { type: 'revocation', target: label, reason, at: this.now() });
     await this.store.link(namespace, { source: revocation, target: label, relation: 'revocation' });
     if (was && this.removed) await this.removed(label, was);
@@ -127,6 +147,29 @@ export class Memory {
         removed++;
       }
     }
+    // A record a crash tore no longer parses, so the walk above cannot see it, but it may still hold content. Q writes
+    // a member record's author, channel and creation time before its text, so a torn record that holds any text still
+    // names them; what it does not name is left, never guessed.
+    if (this.store.inspect) {
+      for (const label of await this.store.labels(namespace)) {
+        const found = await this.store.inspect(namespace, label);
+        if (found.state !== 'torn') continue;
+        const torn = { type: 'torn', ...attributionOf(found.bytes) };
+        const ageDays = Math.floor((this.now() - Number(torn.created ?? this.now())) / DAY);
+        if (!(await visit(label, torn, ageDays))) continue;
+        this.index.remove(label);
+        this.index.removeDerived([label]);
+        await this.store.delete(namespace, label);
+        const revocation = await this.store.put(namespace, { type: 'revocation', target: label, reason, at: this.now() });
+        await this.store.link(namespace, { source: revocation, target: label, relation: 'revocation' });
+        removed++;
+      }
+    }
+    // Index rows of a revoked record whose bytes are already gone: what an interrupted removal left behind.
+    const stored = new Set(await this.store.labels(namespace));
+    for (const label of this.index.labels(namespace)) {
+      if (!stored.has(label) && (await isRevoked(this.store, namespace, label))) { this.index.remove(label); this.index.removeDerived([label]); }
+    }
     return removed;
   }
 
@@ -137,12 +180,23 @@ export class Memory {
    */
   async forget(match: { author: string } | { channel: string }): Promise<number> {
     return this.#serial(async () => {
-      const removed = await this.#each('author' in match ? 'forget-me' : 'forget-channel', async (_label, item, ageDays) => {
-        const named = 'author' in match ? names(item, match.author) : item.channel === match.channel || item.thread === match.channel;
-        return named && (await this.kernel.retain('discord', true, ageDays, this.retentionDays)) === 'delete';
-      });
+      const named = (item: { [member: string]: unknown }) =>
+        'author' in match ? names(item, match.author) : item.channel === match.channel || item.thread === match.channel;
+      // The opt-out first, so no observation of this author is admitted while the walk runs.
       if ('author' in match) await this.store.put(await this.#namespace(), { type: 'opt-out', author: match.author });
-      return removed;
+      // While this forget runs, this store refuses any record it names, from any writer sharing the instance; a
+      // record written just before is caught by the second walk.
+      const previous = this.store.admits;
+      this.store.admits = (namespace, item) => (EXEMPT.has(String(item.type)) || !named(item)) && (previous?.(namespace, item) ?? true);
+      try {
+        const walk = () => this.#each('author' in match ? 'forget-me' : 'forget-channel', async (_label, item, ageDays) =>
+          named(item) && (await this.kernel.retain('discord', true, ageDays, this.retentionDays)) === 'delete');
+        const removed = (await walk()) + (await walk());
+        if ('author' in match) this.index.removeDerived([], match.author);
+        return removed;
+      } finally {
+        this.store.admits = previous;
+      }
     });
   }
 
