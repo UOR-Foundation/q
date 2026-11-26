@@ -87,6 +87,8 @@ The bot answers mentions in any public text or forum channel. Its inputs and out
 
 The tool-enabled model loop enforces its configured round limit before dispatch, refuses malformed argument payloads rather than replacing them with an empty object, and stops starting new calls after cancellation. Cancellation is not rollback of an effect already dispatched. These transport checks do not establish tool authorization or argument scope.
 
+The derived SQLite search index updates vector rows and keyword postings in one transaction for additions/removals. Local vector cache updates do not depend on monotonically increasing rowids; external database commits invalidate cached vectors and derived revisions. This is database-level index coherence, not a transaction spanning the separate store of record and search index, or a complete concurrent-rebuild guarantee.
+
 Within one Memory instance, observation and removal serialize their store/index mutation phases. Embedding is outside the mutation queue; publication rechecks record existence, revocation and author opt-out. Exact revoked observations are not re-admitted. This is a process-local lifecycle consistency check, not a cross-process transaction or a complete guarantee over other writers or external storage.
 
 MCP connector discovery publishes complete, unique catalogs. Registration failures are omitted from the active catalog and reported without raw provider errors. Each invocation uses the registered entry; kernel authorization remains required. This consistency check is not independent verification of a provider's tool behavior or effective permissions.

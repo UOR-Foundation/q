@@ -35,11 +35,42 @@ export class SearchIndex {
     `);
     // The keys an answer builds on came later than the table: a file made before them gains the column.
     if (!(this.#db.prepare('pragma table_info(question)').all() as { name: string }[]).some((column) => column.name === 'after')) this.#db.exec("alter table question add column after text not null default '[]'");
+    this.#dataVersion = this.#readDataVersion();
+  }
+
+  close(): void { this.#db.close(); }
+
+  #dataVersion: number;
+  #readDataVersion(): number {
+    return (this.#db.prepare('pragma data_version').get() as { data_version: number }).data_version;
+  }
+  #refreshExternalChanges(): void {
+    const version = this.#readDataVersion();
+    if (version !== this.#dataVersion) {
+      // External commits can delete, replace or revector existing rowids.
+      this.#vectors.clear();
+      this.#seen = 0;
+      this.#dataVersion = version;
+      this.#revision++;
+    }
+  }
+
+  #transaction<T>(work: () => T): T {
+    this.#db.exec('begin immediate');
+    try {
+      const value = work();
+      this.#db.exec('commit');
+      return value;
+    } catch (error) {
+      this.#db.exec('rollback');
+      throw error;
+    }
   }
 
   #revision = 0;
-  /** Counts every change to the indexed chunks since this process opened the index, so what is derived from them can be cached. */
+  /** Local chunk changes and observed external database commits invalidate derived caches. */
   get revision(): number {
+    this.#refreshExternalChanges();
     return this.#revision;
   }
 
@@ -97,24 +128,33 @@ export class SearchIndex {
   }
   /** Search a chunk by another vector: a member's answer is found by the question it answers. */
   revector(label: string, vector: number[]) {
-    this.#db.prepare('update chunk set vector = ? where label = ?').run(new Uint8Array(new Float32Array(vector).buffer), label);
+    const result = this.#db.prepare('update chunk set vector = ? where label = ?').run(new Uint8Array(new Float32Array(vector).buffer), label);
     const known = this.#vectors.get(label);
     if (known) known.unit = unit(new Float32Array(vector));
+    if (Number(result.changes) > 0) this.#revision++;
   }
 
   has(label: string): boolean {
     return this.#db.prepare('select 1 from chunk where label = ?').get(label) !== undefined;
   }
   add(label: string, namespace: Namespace, text: string, vector: number[]) {
-    if (this.has(label)) return;
-    this.#db.prepare('insert into chunk values (?, ?, ?)').run(label, namespace, new Uint8Array(new Float32Array(vector).buffer));
-    this.#db.prepare('insert into words values (?, ?)').run(label, text);
+    const added = this.#transaction(() => {
+      if (this.has(label)) return false;
+      this.#db.prepare('insert into chunk values (?, ?, ?)').run(label, namespace, new Uint8Array(new Float32Array(vector).buffer));
+      this.#db.prepare('insert into words values (?, ?)').run(label, text);
+      return true;
+    });
+    if (!added) return;
+    // SQLite may reuse a deleted rowid; do not depend on rowid growth for local additions.
+    this.#vectors.set(label, { namespace, unit: unit(new Float32Array(vector)) });
     this.#revision++;
   }
   remove(label: string) {
+    this.#transaction(() => {
+      this.#db.prepare('delete from chunk where label = ?').run(label);
+      this.#db.prepare('delete from words where label = ?').run(label);
+    });
     this.#vectors.delete(label);
-    this.#db.prepare('delete from chunk where label = ?').run(label);
-    this.#db.prepare('delete from words where label = ?').run(label);
     this.#revision++;
   }
   labels(namespace: Namespace): string[] {
@@ -132,6 +172,7 @@ export class SearchIndex {
   #vectors = new Map<string, { namespace: Namespace; unit: Float32Array }>();
   #seen = 0;
   #catchUp() {
+    this.#refreshExternalChanges();
     const rows = this.#db.prepare('select rowid, label, namespace, vector from chunk where rowid > ? order by rowid').all(this.#seen) as { rowid: number; label: string; namespace: Namespace; vector: Uint8Array }[];
     for (const row of rows) {
       this.#vectors.set(row.label, { namespace: row.namespace, unit: unit(new Float32Array(row.vector.buffer.slice(row.vector.byteOffset, row.vector.byteOffset + row.vector.byteLength))) });
@@ -164,7 +205,7 @@ export class SearchIndex {
 
   /** Fill the index from the store: every chunk the store holds and has not revoked, and nothing else. */
   async rebuild(store: Store, embedder: Embedder) {
-    this.#db.exec('delete from chunk; delete from words; delete from memo; delete from loop; delete from question;');
+    this.#transaction(() => this.#db.exec('delete from chunk; delete from words; delete from memo; delete from loop; delete from question;'));
     this.#vectors.clear();
     this.#seen = 0;
     this.#revision++;

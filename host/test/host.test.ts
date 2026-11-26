@@ -190,6 +190,74 @@ test('the index rebuilt from the store finds the same items', async () => {
   assert.deepEqual(rebuilt.search(question, vector, 4).map((hit) => hit.label), before);
 });
 
+test('search observes local row replacement and vector revision without reopening', () => {
+  const index = new SearchIndex();
+  try {
+    index.add('old', 'private', 'old words', [1, 0]);
+    assert.deepEqual(index.search('', [1, 0], 5).map(h => h.label), ['old']);
+    index.remove('old');
+    index.add('new', 'private', 'new words', [0, 1]);
+    assert.deepEqual(index.search('', [0, 1], 5).map(h => h.label), ['new']);
+    const revision = index.revision;
+    index.revector('new', [1, 0]);
+    assert.ok(index.revision > revision);
+    assert.equal(index.search('', [1, 0], 5)[0].similarity, 1);
+  } finally { index.close(); }
+});
+
+test('shared search index observes external deletion, row reuse and vector updates', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'q-search-'));
+  const reader = new SearchIndex(join(root, 'index.sqlite'));
+  const writer = new SearchIndex(join(root, 'index.sqlite'));
+  try {
+    writer.add('old', 'private', 'old words', [1, 0]);
+    assert.deepEqual(reader.search('', [1, 0], 5).map(h => h.label), ['old']);
+    let revision = reader.revision;
+    writer.remove('old');
+    assert.ok(reader.revision > revision);
+    assert.deepEqual(reader.search('', [1, 0], 5), []);
+    writer.add('new', 'public', 'new words', [0, 1]);
+    assert.deepEqual(reader.search('new', [0, 1], 5, ['public']).map(h => h.label), ['new']);
+    assert.deepEqual(reader.search('old', [1, 0], 5, ['private']), []);
+    revision = reader.revision;
+    writer.revector('new', [1, 0]);
+    assert.ok(reader.revision > revision);
+    assert.equal(reader.search('', [1, 0], 5)[0].similarity, 1);
+  } finally {
+    writer.close();
+    reader.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('search index rolls back vector and keyword mutations together on write failure', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { DatabaseSync } = await import('node:sqlite');
+  const root = await mkdtemp(join(tmpdir(), 'q-search-rollback-'));
+  const path = join(root, 'index.sqlite');
+  const index = new SearchIndex(path);
+  const db = new DatabaseSync(path);
+  try {
+    db.exec('drop table words');
+    assert.throws(() => index.add('first', 'private', 'first', [1, 0]));
+    assert.equal(index.has('first'), false);
+    db.exec('create virtual table words using fts5(label unindexed, body)');
+    index.add('second', 'private', 'second', [1, 0]);
+    db.exec('drop table words');
+    assert.throws(() => index.remove('second'));
+    assert.equal(index.has('second'), true);
+  } finally {
+    db.close();
+    index.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('a grounded question is answered with citations, a claim level and a stored answer', async () => {
   const { pipeline, store, llm } = await world();
   const reply = await pipeline.handle(ask('How are Prism applications built from a LexLean model?'));
