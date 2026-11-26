@@ -759,7 +759,7 @@ test('MCP catalog discovery refuses incomplete, repeated and oversized pages wit
       if(mode==='failure')throw Error('synthetic failure');
       return {tools:[tool(mode==='duplicate'?'first':mode==='collision'?'a_b':'second')],...(mode==='cycle'?{nextCursor:'next'}:{})};
     },close:async()=>{}} as unknown as Client;
-    await assert.rejects(registry.add({name:'paged'},client),undefined,mode);
+    await assert.rejects(registry.add({name:'paged'},client),/MCP registration refused|synthetic failure/,mode);
     assert.deepEqual(registry.list(),[],mode);
     if(mode==='page-cap')assert.equal(pages,32);
     await registry.close();
