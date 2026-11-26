@@ -2212,7 +2212,7 @@ test('current capability questions use the live report without broadening action
     for(const mention of ['<@123>','<@!123>']){
       const reply=await w.pipeline.handle(ask(withoutMention(mention+' what are you capable of now?','123'),{role}));
       assert.match(reply!.text,/What I can do/);
-      assert.match(reply!.text,/Report blake3:/);
+      assert.match(reply!.text,/Report: blake3:[a-f0-9]{64}\./);
     }
     assert.equal(w.llm.calls,0);
   }
