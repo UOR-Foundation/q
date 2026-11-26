@@ -135,6 +135,11 @@ test('production Focus reads seven search pages and still has request capacity f
   const after = calls.slice(calls.indexOf(search(7)) + 1);
   assert.ok(after.length >= 1, 'candidate details were still read after the search');
   assert.ok(calls.length <= 40);
+  if(result.kind!=='assessment')return assert.fail();
+  assert.equal(result.data.transport?.requests,calls.length);
+  assert.ok((result.data.transport?.bytes??0)>0);
+  assert.ok((result.data.transport?.elapsedMs??-1)>=0);
+  assert.match(renderFocus(result.data),/Public collection: \d+ requests; \d+ response bytes; \d+ ms/);
 });
 
 test('incomplete search results are reported, and a named repository never uses search', async () => {
@@ -143,6 +148,26 @@ test('incomplete search results are reported, and a named repository never uses 
   const named = transport({[listing]: listed});
   await collectLiveWork(named.read, {orgWide: true, preferredRepository: 'UOR-Foundation/repo05', maxRepositories: 1, now});
   assert.ok(!named.calls.some(c => c.startsWith('/search/')));
+});
+
+test('search totals, duplicate rows and no-hit repositories cannot overstate coverage', async () => {
+  const listed = [repo('alpha'), repo('beta')];
+  for (const rows of [
+    {total_count: 3, incomplete_results: false, items: [hit('alpha',1)]},
+    {total_count: 2, incomplete_results: false, items: [hit('alpha',1),hit('alpha',1)]},
+  ]) {
+    const data = {[listing]:listed,[search(1)]:rows};
+    const r = await collectLiveWork(transport(data).read,{orgWide:true,now});
+    assert.equal(r.search?.state,'inconsistent');
+    assert.equal(r.repositories[1].coverage,'unavailable');
+    assert.equal(r.coverage,'partial');
+    const text = renderFocus(await assessFocus(transport(data).read,{orgWide:true,now}));
+    assert.match(text,/coverage is uncertain/);
+    assert.doesNotMatch(text,/pagination ended at the reported total/);
+  }
+  const complete = await collectLiveWork(transport({[listing]:listed,[search(1)]:{total_count:1,incomplete_results:false,items:[hit('alpha',1)]}}).read,{orgWide:true,now});
+  assert.equal(complete.search?.state,'read');
+  assert.equal(complete.repositories[1].coverage,'unavailable');
 });
 
 test('the transport admits exactly the one organization-wide query', async () => {
@@ -160,7 +185,7 @@ test('the rendered assessment says where open work came from and never claims co
   const t = transport({[listing]: listed, [search(1)]: page1});
   const data = await assessFocus(t.read, {orgWide: true, maxRepositories: 24, maxWorkPages: 1, maxCandidates: 4, now});
   const text = renderFocus(data);
-  assert.match(text, /the 30 listed repositories came from the GitHub search index: 30 of 33 open items read from 1 page; every reported item was read/);
+  assert.match(text, /the 30 listed repositories came from the GitHub search index: 30 of 33 open items read from 1 page; pagination ended at the reported total; 3 rows excluded from scope/);
   assert.match(text, /never a complete snapshot/);
   assert.match(text, /Public GitHub scan: partial/);
 });

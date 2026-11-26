@@ -36,6 +36,7 @@ export async function assessFocus(read: PublicRead, options: {
   /** Read open work for every listed repository through the organization-wide search index. */
   orgWide?: boolean; maxSearchPages?: number;
   now?: () => Date; signal?: AbortSignal;
+  transportStats?: () => { requests: number; bytes: number; exhausted: boolean; elapsedMs: number };
 } = {}) {
   const limit = options.maxCandidates ?? 4;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 6) throw RangeError('invalid focus detail budget');
@@ -121,6 +122,7 @@ export async function assessFocus(read: PublicRead, options: {
     const failed=o.checks.runs.filter(r=>r.status==='completed'&&r.conclusion!==null&&FAIL.has(r.conclusion));
     if(o.mergeable===false) diagnostics.push({...ref(target),action:'inspect-conflict',head:o.head,observedDependents:0});
     else if(failed.length) diagnostics.push({...ref(target),action:'inspect-failed-check',head:o.head,checkIds:failed.map(r=>r.id),observedDependents:0});
+    else if(o.checks.coverage!=='complete') diagnostics.push({...ref(target),action:'refresh-evidence',head:o.head,observedDependents:0});
     else diagnostics.push({...ref(target),action:'confirm-contribution-readiness',head:o.head,observedDependents:0});
   }
   const order: Record<Diagnostic['action'],number>={'inspect-conflict':0,'inspect-failed-check':0,'verify-prerequisite':1,
@@ -138,6 +140,8 @@ export async function assessFocus(read: PublicRead, options: {
     sourceCoverage:snapshot.coverage,projection,issues,pulls,targets:[...targets.values()],
     repositoryCoverage:snapshot.repositories.map(r=>({repository:r.repository,coverage:r.coverage})),
     search:snapshot.search,
+    invalidRecords:snapshot.invalidRecords,
+    transport:options.transportStats?.(),
     omittedDependencies,plan,
     diagnosticChoices:options.signal?.aborted||plan.state==='invalid'?[]:choices,
     recommendationBasis:'observed-blockers-and-read-only-investigation-not-execution-readiness' as const};

@@ -42,7 +42,8 @@ export async function runFocus(kernel: Pick<Kernel,'focusCollect'>, model: Pick<
   // Reserve the operation's limited anonymous budget for deeper evidence
   // by bounding the first pass. This provisional scope cap must be
   // measured; the assessment explicitly reports partial coverage.
-  const {read}=createPublicRead({maxRequests:40,deadlineMs:15000,signal:options.signal,fetcher:options.fetcher});
+  const started=performance.now();
+  const {read,stats}=createPublicRead({maxRequests:40,deadlineMs:15000,signal:options.signal,fetcher:options.fetcher});
   // Extract only explicit organization/repository identities. Never infer a
   // repository from vague prose or follow a URL supplied by a question.
   // Trailing periods are sentence punctuation, not part of a GitHub name.
@@ -57,6 +58,7 @@ export async function runFocus(kernel: Pick<Kernel,'focusCollect'>, model: Pick<
   // Without a named repository, open work is read for every listed repository through one organization-wide search
   // page; the per-repository scan (24 repositories) remains the fallback and the path for a named repository.
   // Seven search pages (700 items) and one listing page leave at least 32 of the 40 requests for candidate details.
-  const data=await assessFocus(read,{filter,maxRepositories:24,maxWorkPages:1,maxSearchPages:7,maxCandidates:4,orgWide:!filter?.repository,signal:options.signal});
+  const data=await assessFocus(read,{filter,maxRepositories:24,maxWorkPages:1,maxSearchPages:7,maxCandidates:4,orgWide:!filter?.repository,signal:options.signal,
+    transportStats:()=>({...stats(),elapsedMs:Math.round(performance.now()-started)})});
   return options.signal?.aborted||data.state==='cancelled'?{kind:'hold'}:{kind:'assessment',data};
 }
