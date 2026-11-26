@@ -1,14 +1,16 @@
 // MCP tools, as LangBot offers them to its runner: every tool of every configured server is
 // offered to the language model, and every call it asks for is put to the kernel first
 // (decision 15). The host only reports facts: whether the server is on the allowlist,
-// and whether the tool writes. A tool writes unless its server marks it read-only.
+// and whether the tool writes. Proposed admission requires an explicit operator grant;
+// provider annotations cannot independently establish a read-only effect.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 /** One server, from MCP_SERVERS: a Streamable HTTP url or a command to run, and whether it is allowlisted. */
-export interface ServerConfig { name: string; url?: string; command?: string; args?: string[]; allow?: boolean }
+export interface ToolGrant { name: string; effect: 'read' | 'write' }
+export interface ServerConfig { name: string; url?: string; command?: string; args?: string[]; allow?: boolean; toolGrants?: ToolGrant[] }
 
 export interface Tool {
   server: string;
@@ -19,6 +21,7 @@ export interface Tool {
   inputSchema: Record<string, unknown>;
   writes: boolean;
   allowlisted: boolean;
+  approved: boolean;
 }
 
 const qualify = (server: string, tool: string) => `${server}__${tool}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
@@ -55,6 +58,13 @@ export class Tools {
     const name = server.name;
     const allowlisted = server.allow === true;
     if (this.#closed || typeof name !== 'string' || !name.trim() || this.#clients.has(name)) throw Error('MCP registration refused');
+    const grants = new Map<string, ToolGrant['effect']>();
+    if (server.toolGrants !== undefined && !Array.isArray(server.toolGrants)) throw Error('MCP registration refused');
+    for (const grant of server.toolGrants ?? []) {
+      if (!grant || typeof grant.name !== 'string' || !grant.name.trim() ||
+          (grant.effect !== 'read' && grant.effect !== 'write') || grants.has(grant.name)) throw Error('MCP registration refused');
+      grants.set(grant.name, grant.effect);
+    }
     const { tools } = await client.listTools();
     const pending = new Map<string, Tool>();
     for (const tool of tools) {
@@ -63,7 +73,9 @@ export class Tools {
       pending.set(qualified, Object.freeze({
         server: name, name: tool.name, qualified,
         description: tool.description ?? tool.name, inputSchema: tool.inputSchema as Record<string, unknown>,
-        writes: tool.annotations?.readOnlyHint !== true, allowlisted,
+        writes: grants.get(tool.name) !== 'read' || tool.annotations?.readOnlyHint !== true,
+        approved: grants.get(tool.name) === 'write' || (grants.get(tool.name) === 'read' && tool.annotations?.readOnlyHint === true),
+        allowlisted,
       }));
     }
     // Discovery awaited I/O. Recheck against the current registry before committing
@@ -84,7 +96,7 @@ export class Tools {
   /** Run the registered entry the kernel allowed, never a reconstructed descriptor. */
   async call(tool: Tool, args: Record<string, unknown>): Promise<string> {
     const client = this.#clients.get(tool.server);
-    if (this.#closed || !client || this.#tools.get(tool.qualified) !== tool) throw Error('MCP call refused: unregistered tool');
+    if (this.#closed || !client || !tool.approved || !tool.allowlisted || this.#tools.get(tool.qualified) !== tool) throw Error('MCP call refused: unregistered tool');
     const result = await client.callTool({ name: tool.name, arguments: args });
     const content = (result.content ?? []) as { type: string; text?: string }[];
     const text = content.flatMap((part) => (part.type === 'text' && part.text ? [part.text] : [])).join('\n');

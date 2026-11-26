@@ -87,6 +87,8 @@ The bot answers mentions in any public text or forum channel. Its inputs and out
 
 MCP connector discovery publishes complete, unique catalogs. Registration failures are omitted from the active catalog and reported without raw provider errors. Each invocation uses the registered entry; kernel authorization remains required. This consistency check is not independent verification of a provider's tool behavior or effective permissions.
 
+Proposed policy (requires owner acceptance before adoption): configure explicit `toolGrants` per server, with exact tool names and `read` or `write` effect. A missing grant or conflicting read classification denies invocation; a write grant remains subject to the kernel's admin-role check. Existing configurations with no grants cannot invoke tools under this proposal. No production grants are supplied here. This does not validate arguments, destination scope, consent, provider behavior or the caller's authority for a particular write.
+
 ## Commands
 
 | Command | Who | Does |

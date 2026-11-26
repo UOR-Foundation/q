@@ -566,7 +566,7 @@ test('the query pool works on no more questions at once than its limit', async (
 });
 
 /** An MCP server over the SDK's in-memory transport: one read-only tool, one that writes. */
-async function mcp(allow: boolean): Promise<Tools> {
+async function mcp(allow: boolean, toolGrants: import('../src/tools.ts').ToolGrant[] = [{name:'lookup',effect:'read'},{name:'publish',effect:'write'}]): Promise<Tools> {
   const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
@@ -580,7 +580,7 @@ async function mcp(allow: boolean): Promise<Tools> {
   const client = new Client({ name: 'test-client', version: '1.0.0' });
   await client.connect(clientSide);
   const tools = new Tools();
-  await tools.add({ name: 'uor', allow }, client);
+  await tools.add({ name: 'uor', allow, toolGrants }, client);
   return tools;
 }
 
@@ -592,7 +592,7 @@ test('MCP registry publishes only complete unique catalogs and keeps exact regis
     callTool:async()=>{calls++;return {content:[{type:'text',text:'synthetic result'}]};},
     close:async()=>{closes++;},
   }) as unknown as Client;
-  await registry.add({name:'alpha',allow:true},make(['lookup']));
+  await registry.add({name:'alpha',allow:true,toolGrants:[{name:'lookup',effect:'read'}]},make(['lookup']));
   const original=registry.find('alpha__lookup')!;
   await assert.rejects(registry.add({name:'alpha',allow:true},make(['other'])));
   await assert.rejects(registry.add({name:'beta',allow:true},make(['same','same'])));
@@ -649,6 +649,34 @@ test('MCP tools: the kernel lets a member read and refuses a member writing, and
   unlisted.llm.wants = [{ name: 'uor__lookup', arguments: {} }];
   await unlisted.pipeline.handle(ask('How are Prism applications built from a LexLean model?', { role: 'admin' }));
   assert.deepEqual(unlisted.llm.results, ['Refused: this tool is not allowed here.']);
+});
+
+test('MCP grants require explicit operator classification and never elevate a provider hint',async()=>{
+  for(const role of ['member','admin'] as const){
+    const tools=await mcp(true,[]);
+    const w=await world({},tools);
+    assert.equal(tools.find('uor__lookup')?.approved,false);
+    w.llm.wants=[{name:'uor__lookup',arguments:{}},{name:'uor__publish',arguments:{}}];
+    await w.pipeline.handle(ask('How are Prism applications built from a LexLean model?',{role}));
+    assert.deepEqual(w.llm.results,['Refused: this tool is not allowed here.','Refused: this tool is not allowed here.']);
+    await tools.close();
+  }
+  const classified=await mcp(true,[{name:'lookup',effect:'write'},{name:'publish',effect:'read'}]);
+  assert.equal(classified.find('uor__lookup')?.writes,true);
+  assert.equal(classified.find('uor__lookup')?.approved,true);
+  assert.equal(classified.find('uor__publish')?.approved,false);
+  const member=await world({},classified);
+  member.llm.wants=[{name:'uor__lookup',arguments:{}},{name:'uor__publish',arguments:{}}];
+  await member.pipeline.handle(ask('How are Prism applications built from a LexLean model?'));
+  assert.deepEqual(member.llm.results,['Refused: this tool is not allowed here.','Refused: this tool is not allowed here.']);
+  await classified.close();
+});
+test('MCP grant validation refuses ambiguous or malformed local classification',async()=>{
+  const registry=new Tools();
+  const client={listTools:async()=>assert.fail('invalid grants must not reach discovery')} as unknown as Client;
+  await assert.rejects(registry.add({name:'one',toolGrants:[{name:'lookup',effect:'read'},{name:'lookup',effect:'write'}]},client));
+  await assert.rejects(registry.add({name:'two',toolGrants:[{name:'lookup',effect:'unknown'} as never]},client));
+  assert.deepEqual(registry.list(),[]);
 });
 
 test('compute once: the same question on the same evidence is answered once, and forgetting its author forgets the reuse', async () => {

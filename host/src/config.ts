@@ -47,7 +47,7 @@ export function config() {
       : provider === 'ollama'
         ? { provider: 'openai-compatible' as const, url: process.env.LLM_URL ?? 'http://localhost:11434/v1', key: '', model: need('LLM_MODEL'), thinking: process.env.LLM_THINKING !== 'false' }
         : { provider: 'openai-compatible' as const, url: need('LLM_URL'), key: process.env.LLM_API_KEY ?? '', model: need('LLM_MODEL'), thinking: process.env.LLM_THINKING !== 'false' },
-    // MCP servers, as JSON: [{"name": "lexlean", "url": "https://...", "allow": true}] or {"command": ..., "args": [...]}.
+    // MCP servers, as JSON; proposed toolGrants classify individual admitted tools.
     mcpServers: JSON.parse(process.env.MCP_SERVERS || '[]') as ServerConfig[],
     // Model calls at once. A provider's plan caps concurrent requests; past the cap it refuses them.
     llmConcurrency: number('LLM_CONCURRENCY', 2),

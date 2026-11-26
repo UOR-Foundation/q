@@ -866,7 +866,8 @@ export class Pipeline {
   async #runTool(tools: Tools, call: ToolCall, message: Incoming, namespace: Namespace, used: ToolUse[]): Promise<string> {
     const tool = tools.find(call.name);
     if (!tool) return 'There is no tool by that name.';
-    const decision = await this.kernel.tool(tool.allowlisted, tool.writes, message.role);
+    // Proposed host admission is a prerequisite, never an additional permit around DA-19.
+    const decision = tool.approved ? await this.kernel.tool(tool.allowlisted, tool.writes, message.role) : 'refuse';
     if (decision === 'refuse') {
       used.push({ server: tool.server, tool: tool.name, decision, result: null });
       return 'Refused: this tool is not allowed here.';
