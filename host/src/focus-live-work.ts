@@ -21,6 +21,13 @@ export type LiveWorkSnapshot = {
   startedAt: string; finishedAt: string; coverage: Coverage;
   enumeration: Coverage; repositories: RepoWork[];
   omittedRepositories: number; invalidRecords: number;
+  /**
+   * Set when the organization-wide search index was tried. `read`: every reported item was read; `capped`: the page
+   * budget ran out first; `interrupted`: a later page failed; `unavailable`: the first page could not be read (refused,
+   * rate-limited or unreachable), so nothing was read and no fallback was tried; `fallback`: the response was
+   * malformed, the transport still had budget, and the per-repository scan was used instead.
+   */
+  search?: { state: 'read' | 'capped' | 'interrupted' | 'unavailable' | 'fallback'; pages: number; totalCount: number; read: number; incomplete: boolean; excluded: number };
 };
 export type PullObservation =
   | { state: 'unknown'; reason: 'not-observed' | 'unavailable' | 'changed' }
@@ -74,6 +81,10 @@ export async function collectLiveWork(read: PublicRead, options: {
   now?: () => Date;
   /** Prefer an explicitly named repository within the observed public scope. */
   preferredRepository?: string;
+  /** Read open work for every listed repository through one organization-wide search, instead of per repository. */
+  orgWide?: boolean;
+  /** Pages of that search (100 items each, at most 10), budgeted apart from the per-repository fallback. */
+  maxSearchPages?: number;
 } = {}): Promise<LiveWorkSnapshot> {
   const maxOrg = bound(options.maxOrgPages ?? 10, 100);
   const maxRepos = bound(options.maxRepositories ?? 100, 200);
@@ -103,6 +114,23 @@ export async function collectLiveWork(read: PublicRead, options: {
     if (rows.length < 100) { orgExhausted = true; break; }
   }
   const enumeration: Coverage = !pages ? 'unavailable' : orgExhausted && !invalidRecords ? 'complete' : 'partial';
+  let fellBack: LiveWorkSnapshot['search'];
+  if (options.orgWide && !options.preferredRepository && candidates.length) {
+    const searched = await searchWork(read, candidates, bound(options.maxSearchPages ?? 1, 10));
+    if (searched.state !== 'fallback') {
+      // The search index may lag the repositories it reports on: never a complete snapshot. A repository with no
+      // returned hits is covered only if every reported item was read; otherwise nothing is known about it.
+      const whole = searched.state === 'read' && !searched.summary.incomplete;
+      return {startedAt, finishedAt: now().toISOString(), coverage: enumeration === 'unavailable' || searched.state === 'unavailable' ? 'unavailable' : 'partial', enumeration,
+        repositories: candidates.map(c => {
+          const items = searched.items.get(c.repository) ?? [];
+          return {...c, items, coverage: (items.length || whole ? 'partial' : 'unavailable') as Coverage};
+        }),
+        omittedRepositories: 0, invalidRecords: invalidRecords + searched.invalid, search: searched.summary};
+    }
+    // Malformed but delivered: the transport still has budget, so the bounded per-repository scan below is used.
+    fellBack = searched.summary;
+  }
   const repositories: RepoWork[] = [];
   const preferred = options.preferredRepository?.toLowerCase();
   if (preferred) candidates.sort((a,b) => Number(b.repository.toLowerCase() === preferred) - Number(a.repository.toLowerCase() === preferred));
@@ -129,7 +157,41 @@ export async function collectLiveWork(read: PublicRead, options: {
   }
   const coverage: Coverage = enumeration === 'unavailable' ? 'unavailable' :
     enumeration === 'complete' && !omittedRepositories && repositories.every(r => r.coverage === 'complete') ? 'complete' : 'partial';
-  return {startedAt, finishedAt: now().toISOString(), coverage, enumeration, repositories, omittedRepositories, invalidRecords};
+  return {startedAt, finishedAt: now().toISOString(), coverage, enumeration, repositories, omittedRepositories, invalidRecords, ...(fellBack ? {search: fellBack} : {})};
+}
+
+/** Open work of the listed public, active repositories from the organization-wide search index. Items of any other
+ * repository (private, archived, forked, unlisted) are excluded and counted, never kept. */
+async function searchWork(read: PublicRead, candidates: { repository: string }[], maxPages: number) {
+  const listed = new Map(candidates.map(c => [('https://api.github.com/repos/' + c.repository).toLowerCase(), c.repository]));
+  const items = new Map<string, WorkItem[]>();
+  const seen = new Set<string>();
+  let totalCount = 0, readCount = 0, incomplete = false, excluded = 0, invalid = 0, pages = 0;
+  let state: 'read' | 'capped' | 'interrupted' | 'unavailable' | 'fallback' = 'capped';
+  for (let page = 1; page <= maxPages; page++) {
+    let raw: unknown;
+    try { raw = await read('/search/issues?q=org%3AUOR-Foundation+is%3Aopen+archived%3Afalse&sort=created&order=asc&per_page=100&page=' + page); }
+    catch { state = pages ? 'interrupted' : 'unavailable'; break; }
+    if (!obj(raw) || typeof raw.total_count !== 'number' || !Number.isSafeInteger(raw.total_count) || raw.total_count < 0 ||
+        typeof raw.incomplete_results !== 'boolean' || !Array.isArray(raw.items) || raw.items.length > 100) {
+      state = pages ? 'interrupted' : 'fallback'; break;
+    }
+    pages++;
+    totalCount = raw.total_count;
+    incomplete ||= raw.incomplete_results;
+    for (const row of raw.items) {
+      const repository = obj(row) && typeof row.repository_url === 'string' ? listed.get(row.repository_url.toLowerCase()) : undefined;
+      if (!repository) { excluded++; continue; }
+      const item = workItem(row, repository);
+      const key = repository + '#' + (obj(row) ? String(row.number) : '');
+      if (!item || seen.has(key)) { invalid++; continue; }
+      seen.add(key);
+      readCount++;
+      (items.get(repository) ?? items.set(repository, []).get(repository)!).push(item);
+    }
+    if (raw.items.length < 100 || page * 100 >= raw.total_count) { state = 'read'; break; }
+  }
+  return { state, items, invalid, summary: { state, pages, totalCount, read: readCount, incomplete, excluded } };
 }
 
 function pullIdentity(raw: unknown, repo: string, n: number) {

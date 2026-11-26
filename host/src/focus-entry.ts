@@ -54,6 +54,9 @@ export async function runFocus(kernel: Pick<Kernel,'focusCollect'>, model: Pick<
   if(named.length>1)return {kind:'clarify'};
   if(named.length===1 && options.filter?.repository && options.filter.repository.toLowerCase()!==named[0])return {kind:'clarify'};
   const filter = named.length ? {...options.filter,repository:named[0].replace(/^uor-foundation\//,'UOR-Foundation/')} : options.filter;
-  const data=await assessFocus(read,{filter,maxRepositories:24,maxWorkPages:1,maxCandidates:4,signal:options.signal});
+  // Without a named repository, open work is read for every listed repository through one organization-wide search
+  // page; the per-repository scan (24 repositories) remains the fallback and the path for a named repository.
+  // Seven search pages (700 items) and one listing page leave at least 32 of the 40 requests for candidate details.
+  const data=await assessFocus(read,{filter,maxRepositories:24,maxWorkPages:1,maxSearchPages:7,maxCandidates:4,orgWide:!filter?.repository,signal:options.signal});
   return options.signal?.aborted||data.state==='cancelled'?{kind:'hold'}:{kind:'assessment',data};
 }

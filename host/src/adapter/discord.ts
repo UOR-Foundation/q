@@ -12,6 +12,26 @@ import { payloads, type Adapter, type Handlers, type Payload } from './adapter.t
 
 const COMMANDS: [CommandName, string, boolean][] = (Object.keys(DISCORD_COMMANDS) as CommandName[]).map(name => [name, DISCORD_COMMANDS[name].description, DISCORD_COMMANDS[name].question]);
 
+/**
+ * A message's text without Q's own mention. Discord writes a user mention as `<@id>`, and as `<@!id>` when it was
+ * made through a nickname: both are the same mention. Mentions of anyone else are left as written.
+ */
+export const withoutMention = (content: string, me: string): string =>
+  content.replace(new RegExp(`<@!?${me.replace(/\D/g, '')}>`, 'g'), '').trim();
+
+/**
+ * Send every payload of a reply, in order, and return the first message sent: a reply split over several messages
+ * arrives whole. (A `first ??= await send(...)` loop stops evaluating the send once the first message exists.)
+ */
+export async function deliver<T>(parts: readonly Payload[], sendOne: (payload: Payload) => Promise<T>): Promise<T | undefined> {
+  let first: T | undefined;
+  for (const payload of parts) {
+    const sent = await sendOne(payload);
+    first ??= sent;
+  }
+  return first;
+}
+
 // Discord refuses a message over 2000 characters.
 const LIMIT = 2000;
 const send = (payload: Payload) => ({
@@ -130,7 +150,7 @@ export function discord(config: Config, label: Labeler): Adapter {
           const triggers = batch.map(triggerOf);
           const trigger = triggers.includes('replyToAgent') ? 'replyToAgent' : triggers.includes('mention') ? 'mention' : 'none';
           // One sentence typed in pieces reads as one sentence: joined with spaces, not line breaks.
-          const text = batch.map((m) => m.content.replaceAll(`<@${me}>`, '').trim()).filter(Boolean).join(' ');
+          const text = batch.map((m) => withoutMention(m.content, me)).filter(Boolean).join(' ');
           // "Q is typing" from the moment the kernel decides to answer until the reply is sent; Discord
           // shows it for ten seconds, so it is renewed.
           let working = false;
@@ -150,8 +170,7 @@ export function discord(config: Config, label: Labeler): Adapter {
             });
             clearInterval(typing);
             if (reply) {
-              let first: Message | undefined;
-              for (const payload of payloads(reply, LIMIT)) first ??= await message.reply(send(payload));
+              const first = await deliver(payloads(reply, LIMIT), (payload) => message.reply(send(payload)));
               // The improvement loop: a refusal becomes a gap; every delivery is kept for an approval to find.
               if (first) handlers.delivered?.({ questionUrl: message.url, sentUrl: first.url, question: text, channelId: message.channelId, authorId: message.author.id, reply }).catch(failed);
               log('reply', { decision: reply.decision, citations: reply.citations.length, delivery: reply.delivery, ms: reply.timings });

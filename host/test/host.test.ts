@@ -22,6 +22,7 @@ import type { AddressInfo } from 'node:net';
 import { Tools } from '../src/tools.ts';
 import { payloads } from '../src/adapter/adapter.ts';
 import { Aggregator } from '../src/aggregator.ts';
+import { deliver, withoutMention } from '../src/adapter/discord.ts';
 import { mcpServer } from '../src/mcp-server.ts';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -657,6 +658,27 @@ test('the folder store reads its edge log incrementally, including edges another
   await appendFile(join(root, 'public', 'edges.jsonl'), JSON.stringify({ source: b, target: a, relation: 'revocation' }) + '\n');
   assert.ok(await isRevoked(store, 'public', a));
   assert.deepEqual((await store.edgesTo('public', b)), []);
+});
+
+test('a reply split over several Discord messages is delivered whole, in order', async () => {
+  const text = Array.from({ length: 60 }, (_, i) => `line ${i} ` + 'x'.repeat(80)).join('\n');
+  const parts = payloads({ text, decision: 'allowed', citations: [], delivery: 'split' }, 2000);
+  assert.ok(parts.length >= 3);
+  const sent: string[] = [];
+  const first = await deliver(parts, async (payload) => { sent.push(payload.content); return { id: sent.length }; });
+  assert.deepEqual(sent, parts.map((p) => p.content));
+  assert.equal(sent.join(''), parts.map((p) => p.content).join(''));
+  assert.deepEqual(first, { id: 1 });
+  assert.equal(await deliver([], async () => assert.fail('nothing to send')), undefined);
+});
+
+test('Q\'s mention is removed in both Discord forms, and nobody else\'s', () => {
+  assert.equal(withoutMention('<@123> What are you capable of?', '123'), 'What are you capable of?');
+  assert.equal(withoutMention('<@!123> What are you capable of?', '123'), 'What are you capable of?');
+  assert.equal(withoutMention('What do <@!123> and <@123> do?', '123'), 'What do  and  do?');
+  assert.equal(withoutMention('<@!456> <@456> hello <@123>', '123'), '<@!456> <@456> hello');
+  assert.equal(withoutMention('<@1234> hi', '123'), '<@1234> hi');
+  assert.equal(withoutMention('<@!123>', '123'), '');
 });
 
 test('an empty mention is answered at once, without retrieval or the language model', async () => {
@@ -2035,7 +2057,7 @@ test('Discord Focus runs the real entry and model against fresh provider data on
     const repo={name:'q',full_name:'UOR-Foundation/q',private:false,visibility:'public',archived:false,fork:false,default_branch:'main'};
     const issue={number:n,state:'open',title:'@everyone untrusted title',updated_at:'2026-11-25T20:00:00Z',assignees:[],
       repository_url:'https://api.github.com/repos/UOR-Foundation/q',html_url:'https://github.com/UOR-Foundation/q/issues/'+n};
-    const body=u.pathname.startsWith('/orgs/')?[repo]:u.pathname.endsWith('/dependencies/blocked_by')?[]:u.pathname.endsWith('/issues')?[issue]:issue;
+    const body=u.pathname.startsWith('/orgs/')?[repo]:u.pathname==='/search/issues'?{total_count:1,incomplete_results:false,items:[issue]}:u.pathname.endsWith('/dependencies/blocked_by')?[]:u.pathname.endsWith('/issues')?[issue]:issue;
     return new Response(JSON.stringify(body));
   }});
   const question='What should I work on next?';

@@ -26,6 +26,13 @@ export function renderFocus(data: Assessment): string {
   if(data.state==='cancelled')return 'Live contribution assessment was cancelled.';
   const p=data.projection;
   lines.push('Public GitHub scan: '+data.sourceCoverage+'; '+p.matchingRepositories+' repositories matched, '+p.matchingItems+' work items matched.');
+  if(data.search){
+    const s=data.search;
+    const outcome={read:'every reported item was read',capped:'stopped at the '+s.pages+'-page budget',interrupted:'a later page failed after '+s.pages,
+      unavailable:'the search could not be read (refused, rate-limited or unreachable); no open work was read',fallback:'the search response was malformed, so each repository was read separately instead'}[s.state];
+    if(s.state==='unavailable'||s.state==='fallback')lines.push('GitHub search index: '+outcome+'.');
+    else lines.push('Open work for the '+data.repositoryCoverage.length+' listed repositories came from the GitHub search index: '+s.read+' of '+s.totalCount+' open items read from '+s.pages+' page'+(s.pages===1?'':'s')+'; '+outcome+(s.incomplete?'; GitHub marked the search incomplete':'')+'. The index can lag the repositories, so this is never a complete snapshot, and a repository with no returned items is unknown, not idle.');
+  }
   lines.push('Inspected '+(data.issues.length+data.pulls.length)+' candidates; '+p.omittedMatchingItems+' matching items and '+p.omittedRepositories+' known repositories omitted; '+p.unavailableRepositories+' matching-scope repositories incomplete or unavailable. This is not a Foundation-wide optimum.');
   const scoped = data.repositoryCoverage.filter(r=>/^UOR-Foundation\/[A-Za-z0-9_.-]{1,100}$/.test(r.repository)).slice(0,24);
   const names = scoped.map(r=>r.repository.slice('UOR-Foundation/'.length)+' ('+r.coverage+')').join(', ');
