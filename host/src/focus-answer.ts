@@ -28,12 +28,16 @@ export function renderFocus(data: Assessment): string {
   lines.push('Public GitHub scan: '+data.sourceCoverage+'; '+p.matchingRepositories+' repositories matched, '+p.matchingItems+' work items matched.');
   if(data.search){
     const s=data.search;
-    const outcome={read:'pagination ended at the reported total',capped:'stopped at the '+s.pages+'-page budget',interrupted:'a later page failed after '+s.pages,
+    const outcome={read:'pagination ended at the reported total',capped:s.stoppedForTime?'stopped at its time share after '+s.pages+' pages':'stopped at the '+s.pages+'-page budget',interrupted:'a later page failed after '+s.pages,
       unavailable:'the search could not be read (refused, rate-limited or unreachable); no open work was read',fallback:'the search response was malformed, so each repository was read separately instead',
       inconsistent:'returned records or reported counts disagreed; coverage is uncertain'}[s.state];
     if(s.state==='unavailable'||s.state==='fallback')lines.push('GitHub search index: '+outcome+'.');
-    else lines.push('Open work for the '+data.repositoryCoverage.length+' listed repositories came from the GitHub search index: '+s.read+' of '+s.totalCount+' open items read from '+s.pages+' page'+(s.pages===1?'':'s')+'; '+outcome+(s.incomplete?'; GitHub marked the search incomplete':'')+'; '+s.excluded+' rows excluded from scope. The index can lag the repositories, so this is never a complete snapshot, and a repository with no returned items is unknown, not idle.');
+    else lines.push('Open work for the '+data.repositoryCoverage.length+' listed repositories came from the GitHub search index: '+(s.unknownTotalKinds ? s.read+' open items read (combined total unknown)' : s.read+' of '+s.totalCount+' open items read')+' from '+s.pages+' page'+(s.pages===1?'':'s')+'; '+outcome+(s.incomplete?'; GitHub marked the search incomplete':'')+'; '+s.excluded+' rows excluded from scope. The index can lag the repositories, so this is never a complete snapshot, and a repository with no returned items is unknown, not idle.');
   }
+  lines.push('Candidates: '+(p.explicitBlocking?p.explicitBlocking+' items GitHub reports as blocking other work come first; ':'No unblocked blocker was reported in the observed sample; ')+
+    'the rest is a sample, one per repository, starting at a repository that changes each hour'+(p.explicitlyBlocked?'; '+p.explicitlyBlocked+' explicitly blocked items come last':'')+'. Not a ranking by importance.');
+  if(p.unknownDependencyCounts)lines.push('Dependency counts are missing for '+p.unknownDependencyCounts+' matching items; absence of counts does not establish absence of blockers.');
+  if(data.search?.stoppedForTime)lines.push('The search stopped starting new pages to keep time for checking candidates.');
   lines.push('Inspected '+(data.issues.length+data.pulls.length)+' candidates; '+p.omittedMatchingItems+' matching items and '+p.omittedRepositories+' known repositories omitted; '+p.unavailableRepositories+' matching-scope repositories incomplete or unavailable. This is not a Foundation-wide optimum.');
   if(data.invalidRecords || data.omittedDependencies)lines.push('Evidence limits: '+data.invalidRecords+' invalid or duplicate records; '+data.omittedDependencies+' dependencies omitted by the graph cap.');
   if(data.transport)lines.push('Public collection: '+data.transport.requests+' requests; '+data.transport.bytes+' response bytes; '+data.transport.elapsedMs+' ms'+(data.transport.exhausted?'; transport budget exhausted or refused':'')+'.');
