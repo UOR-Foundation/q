@@ -24,7 +24,9 @@ export const DISCORD_COMMANDS: Readonly<Record<CommandName,Entry>> = {
 // command. No retrieved text, tool metadata or model output can select it.
 export function capabilityDetail(question:string):'summary'|'full'|null {
   if(typeof question!=='string'||question.length>160)return null;
-  const q=question.trim().toLowerCase().replace(/[\u2018\u2019]/g,"'").replace(/[?!.]+$/,'').replace(/\s+/g,' ');
+  const q=question.trim().toLowerCase().replace(/[\u2018\u2019]/g,"'").replace(/[?!.]+$/,'').replace(/\s+/g,' ')
+    // Time qualifiers ask about the same present capability inventory, not a new action.
+    .replace(/ (?:right now|now|currently|at the moment|today)$/,'');
   if(/^(?:what are all of your capabilities|(?:show(?: me)?|list|describe|explain) (?:your|q's|the) (?:full |complete )?capability map|(?:show(?: me)?|list) all (?:of )?(?:your |q's )?capabilities|full capability map)$/.test(q))return 'full';
   if(/^(?:what (?:can you do(?: for me| here)?|can q do|are you capable of|is q capable of|are you able to do|is q able to do|do you do|does q do|are your capabilities|are q's capabilities)|what's q capable of|what're you capable of|how can (?:you|q) help(?: me)?|(?:show(?: me)?|list|describe|explain|tell me about) (?:your|q's) capabilities|(?:show(?: me)?|list) (?:the )?(?:available )?capabilities)$/.test(q))return 'summary';
   return null;

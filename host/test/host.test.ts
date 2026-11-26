@@ -2203,6 +2203,20 @@ test('capability summary claims an effect only when it is wired',async()=>{
   assert.match(wired,/Receive feedback/);
   assert.match(wired,/\/feedback/);
 });
+test('current capability questions use the live report without broadening action routes',async()=>{
+  const cases: [string, 'summary'|'full'|null][] = [["what are you capable of now?","summary"],["What can you do right now?","summary"],["What are your capabilities currently?","summary"],["How can you help me at the moment?","summary"],["Show me your full capability map now!","full"],["What can you do today?","summary"],["What are you capable of doing with my private data now?",null],["What can you do to change the naming policy today?",null],["Show me your full capability map and delete messages now",null],["What were you capable of yesterday?",null]];
+  for(const [q, expected] of cases) assert.equal(capabilityDetail(q),expected,q);
+  for(const role of ['member','admin'] as const){
+    const w=await world();
+    w.pipeline.actions.tools=()=>assert.fail('must not enumerate private tools');
+    for(const mention of ['<@123>','<@!123>']){
+      const reply=await w.pipeline.handle(ask(withoutMention(mention+' what are you capable of now?','123'),{role}));
+      assert.match(reply!.text,/What I can do/);
+      assert.match(reply!.text,/Report: blake3:[a-f0-9]{64}\./);
+    }
+    assert.equal(w.llm.calls,0);
+  }
+});
 test('standalone capability phrasings route to the governed report, never to an inferred answer',async()=>{
   for(const q of ['What are you capable of?',"What's Q capable of?",'What\u2019s Q capable of?','What are you able to do?','How can you help me?','What do you do?','WHAT ARE YOU CAPABLE OF?'])
     assert.equal(capabilityDetail(q),'summary',q);
