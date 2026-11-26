@@ -15,17 +15,30 @@ export interface Llm {
    */
   complete(system: string, user: string, onText?: (delta: string) => void, signal?: AbortSignal): Promise<string>;
   /** The same, with tools the model may ask for; each call goes through `run`. At most `rounds` rounds of calls. */
-  completeWithTools?(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds?: number): Promise<string>;
+  completeWithTools?(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds?: number, signal?: AbortSignal): Promise<string>;
 }
 
-const parseArguments = (text: string): Record<string, unknown> => {
-  try {
-    const value = JSON.parse(text || '{}');
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  } catch {
-    return {};
-  }
+const toolArguments = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+
+const parseArguments = (text: unknown): Record<string, unknown> | null => {
+  if (typeof text !== 'string') return null;
+  try { return toolArguments(JSON.parse(text)); }
+  catch { return null; }
 };
+
+const runParsedTool = async (run: RunTool, name: string, args: Record<string, unknown> | null, signal?: AbortSignal): Promise<string> => {
+  signal?.throwIfAborted();
+  if (args === null) return 'Refused: this tool is not allowed here.';
+  return run({ name, arguments: args });
+};
+
+function checkToolRounds(rounds: number): void {
+  if (!Number.isSafeInteger(rounds) || rounds < 0) throw Error('invalid tool round limit');
+}
+function checkToolRound(round: number, rounds: number): void {
+  if (round >= rounds) throw Error('model returned tool calls after tool rounds were exhausted');
+}
 export interface Embedder {
   readonly model: string;
   /** A question is embedded as a query, everything stored as a document: some models are trained to tell them apart. */
@@ -53,17 +66,23 @@ export class AnthropicLlm implements Llm {
     });
     return message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('');
   }
-  async completeWithTools(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds = 3) {
+  async completeWithTools(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds = 3, signal?: AbortSignal) {
+    checkToolRounds(rounds);
     type Block = Anthropic.Messages.ContentBlockParam;
     const messages: Anthropic.Messages.MessageParam[] = [{ role: 'user', content: user }];
     const specs = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters as Anthropic.Messages.Tool.InputSchema }));
     for (let round = 0; ; round++) {
-      const message = await this.#gate.run(() => this.#client.messages.create({ model: this.model, max_tokens: this.maxTokens, system, messages, ...(round < rounds ? { tools: specs } : {}) }));
+      const message = await this.#gate.run(() => {
+        signal?.throwIfAborted();
+        return this.#client.messages.create({ model: this.model, max_tokens: this.maxTokens, system, messages, ...(round < rounds ? { tools: specs } : {}) }, { signal });
+      });
+      signal?.throwIfAborted();
       const calls = message.content.filter((block) => block.type === 'tool_use');
       if (!calls.length) return message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('');
+      checkToolRound(round, rounds);
       messages.push({ role: 'assistant', content: message.content as Block[] });
       const results: Block[] = [];
-      for (const call of calls) results.push({ type: 'tool_result', tool_use_id: call.id, content: await run({ name: call.name, arguments: (call.input ?? {}) as Record<string, unknown> }) });
+      for (const call of calls) results.push({ type: 'tool_result', tool_use_id: call.id, content: await runParsedTool(run, call.name, toolArguments(call.input), signal) });
       messages.push({ role: 'user', content: results });
     }
   }
@@ -205,7 +224,8 @@ export class OpenAiCompatibleLlm implements Llm {
       return withoutReasoning(full);
     }, signal);
   }
-  async completeWithTools(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds = 3) {
+  async completeWithTools(system: string, user: string, tools: ToolSpec[], run: RunTool, rounds = 3, signal?: AbortSignal) {
+    checkToolRounds(rounds);
     type Call = { id: string; type: 'function'; function: { name: string; arguments: string } };
     type Message = { role: string; content: string | null; tool_calls?: Call[]; tool_call_id?: string };
     const messages: Message[] = [{ role: 'system', content: system }, { role: 'user', content: user }];
@@ -215,12 +235,14 @@ export class OpenAiCompatibleLlm implements Llm {
         model: this.model, max_tokens: this.maxTokens, messages,
         ...(round < rounds ? { tools: specs } : {}),
         ...(this.thinking ? {} : { chat_template_kwargs: { enable_thinking: false } }),
-      }, (response) => response.json() as Promise<{ choices: { message: Message }[] }>);
+      }, (response) => response.json() as Promise<{ choices: { message: Message }[] }>, signal);
+      signal?.throwIfAborted();
       const reply = choices[0]?.message;
       if (!reply?.tool_calls?.length) return withoutReasoning(reply?.content ?? '');
+      checkToolRound(round, rounds);
       messages.push({ role: 'assistant', content: reply.content ?? null, tool_calls: reply.tool_calls });
       for (const call of reply.tool_calls) {
-        messages.push({ role: 'tool', tool_call_id: call.id, content: await run({ name: call.function.name, arguments: parseArguments(call.function.arguments) }) });
+        messages.push({ role: 'tool', tool_call_id: call.id, content: await runParsedTool(run, call.function.name, parseArguments(call.function.arguments), signal) });
       }
     }
   }

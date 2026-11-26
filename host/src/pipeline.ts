@@ -550,7 +550,7 @@ export class Pipeline {
       const prompt = `${earlierTurns}Sources:\n\n${sources}${decisionBrief(decided, community)}\n\nQuestion: ${message.text.slice(0, PROMPT_QUESTION_LIMIT)}`;
       const system = promptsOf(this.settings.style)[register].system;
       return withTools
-        ? this.llm.completeWithTools!(system, prompt, tools!.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools!, call, message, namespace, used))
+        ? this.llm.completeWithTools!(system, prompt, tools!.list().map((t) => ({ name: t.qualified, description: `${t.description} (MCP server ${t.server})`, parameters: t.inputSchema })), (call) => this.#runTool(tools!, call, message, namespace, used), undefined, message.signal)
         : this.llm.complete(system, prompt, onText, message.signal);
     };
 
@@ -871,6 +871,7 @@ export class Pipeline {
       used.push({ server: tool.server, tool: tool.name, decision, result: null });
       return 'Refused: this tool is not allowed here.';
     }
+    message.signal?.throwIfAborted();
     const content = await tools.call(tool, call.arguments);
     const result = await this.store.put(namespace, {
       type: 'tool-result', server: tool.server, tool: tool.name, arguments: JSON.stringify(call.arguments), content,

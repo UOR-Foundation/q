@@ -1772,6 +1772,60 @@ test('a question given up is not answered: the model call is aborted, nothing is
   assert.deepEqual(await pipeline.lookup(again.answer.key), again);
 });
 
+test('tool-enabled provider honors its round limit even when the final response still requests a tool', async () => {
+  const requests: Record<string, unknown>[] = [];
+  const transport = (async (_url: string | URL | Request, init?: RequestInit) => {
+    requests.push(JSON.parse(String(init?.body)));
+    return Response.json({ choices: [{ message: { content: null, tool_calls: [{ id: 'call-' + requests.length, type: 'function', function: { name: 'lookup', arguments: '{}' } }] } }] });
+  }) as typeof fetch;
+  const llm = new OpenAiCompatibleLlm('http://model.test/v1', 'key', 'model', false, 64, 1, transport);
+  let calls = 0;
+  const run = async () => { calls++; return 'result'; };
+  const specs = [{ name: 'lookup', description: 'lookup', parameters: { type: 'object' } }];
+  await assert.rejects(llm.completeWithTools('system', 'user', specs, run, 1), /tool rounds were exhausted/);
+  assert.equal(calls, 1);
+  assert.equal(requests.length, 2);
+  assert.ok(requests[0].tools);
+  assert.equal(requests[1].tools, undefined);
+  await assert.rejects(llm.completeWithTools('system', 'user', specs, run, 0), /tool rounds were exhausted/);
+  assert.equal(calls, 1);
+  assert.equal(requests.length, 3);
+  await assert.rejects(llm.completeWithTools('system', 'user', specs, run, -1), /invalid tool round limit/);
+  assert.equal(requests.length, 3);
+});
+
+test('tool-enabled provider does not dispatch malformed argument payloads', async () => {
+  const requests: Record<string, unknown>[] = [];
+  const malformed = ['', '{', 'null', '[]', '1', '"text"'];
+  const transport = (async (_url: string | URL | Request, init?: RequestInit) => {
+    requests.push(JSON.parse(String(init?.body)));
+    const message = requests.length === 1 ? { content: null, tool_calls: [...malformed, '{}'].map((argumentsText, i) => ({ id: 'call-' + i, type: 'function', function: { name: 'lookup', arguments: argumentsText } })) } : { content: 'answer' };
+    return Response.json({ choices: [{ message }] });
+  }) as typeof fetch;
+  const llm = new OpenAiCompatibleLlm('http://model.test/v1', 'key', 'model', false, 64, 1, transport);
+  const calls: ToolCall[] = [];
+  const answer = await llm.completeWithTools('system', 'user', [{ name: 'lookup', description: 'lookup', parameters: { type: 'object' } }], async call => { calls.push(call); return 'result'; });
+  assert.equal(answer, 'answer');
+  assert.deepEqual(calls, [{ name: 'lookup', arguments: {} }]);
+  const messages = requests[1].messages as { role: string; content: string }[];
+  assert.deepEqual(messages.filter(m => m.role === 'tool').map(m => m.content), [...malformed.map(() => 'Refused: this tool is not allowed here.'), 'result']);
+});
+
+test('tool-enabled provider stops dispatching further calls after cancellation', async () => {
+  const gone = new AbortController();
+  let requests = 0;
+  const transport = (async (_url: string | URL | Request, init?: RequestInit) => {
+    requests++;
+    assert.equal(init?.signal, gone.signal);
+    return Response.json({ choices: [{ message: { content: null, tool_calls: ['one', 'two'].map(id => ({ id, type: 'function', function: { name: 'lookup', arguments: '{}' } })) } }] });
+  }) as typeof fetch;
+  const llm = new OpenAiCompatibleLlm('http://model.test/v1', 'key', 'model', false, 64, 1, transport);
+  let calls = 0;
+  await assert.rejects(llm.completeWithTools('system', 'user', [{ name: 'lookup', description: 'lookup', parameters: { type: 'object' } }], async () => { calls++; gone.abort(); return 'result'; }, 3, gone.signal), { name: 'AbortError' });
+  assert.equal(calls, 1);
+  assert.equal(requests, 1);
+});
+
 test('a provider call that is aborted stops reading, fails, and gives its place to the next call', async () => {
   let reached = 0;
   const transport = ((_url: string | URL | Request, init?: RequestInit) => {
