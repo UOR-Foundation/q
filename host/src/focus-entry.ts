@@ -58,7 +58,10 @@ export async function runFocus(kernel: Pick<Kernel,'focusCollect'>, model: Pick<
   // Without a named repository, open work is read for every listed repository through one organization-wide search
   // page; the per-repository scan (24 repositories) remains the fallback and the path for a named repository.
   // Seven search pages (700 items) and one listing page leave at least 32 of the 40 requests for candidate details.
-  const data=await assessFocus(read,{filter,maxRepositories:24,maxWorkPages:1,maxSearchPages:7,maxCandidates:4,orgWide:!filter?.repository,signal:options.signal,
+  // Issues and pull requests are searched separately (GitHub requires the type); nine pages in all cover today's
+  // ~640 open items. No new search page starts after 9 of the 15 seconds, and 1 + 9 + at most 12 detail reads stays
+  // within the 40 requests, so candidate details keep both time and requests.
+  const data=await assessFocus(read,{filter,maxRepositories:24,maxWorkPages:1,maxSearchPages:9,searchTimeMs:9000,maxCandidates:4,orgWide:!filter?.repository,signal:options.signal,
     transportStats:()=>({...stats(),elapsedMs:Math.round(performance.now()-started)})});
   return options.signal?.aborted||data.state==='cancelled'?{kind:'hold'}:{kind:'assessment',data};
 }

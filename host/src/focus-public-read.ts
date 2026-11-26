@@ -17,7 +17,8 @@ const checks = new RegExp('^' + ROOT + '(' + REPO + ')/commits/' + SHA + '/check
 
 // One organization-wide query, exactly: open issues and PRs of active repositories, oldest first. GitHub search
 // returns at most 1000 results, so ten pages.
-const search = /^\/search\/issues\?q=org%3AUOR-Foundation\+is%3Aopen\+archived%3Afalse&sort=created&order=asc&per_page=100&page=([1-9][0-9]?)$/;
+// GitHub requires an explicit type qualifier: issues and pull requests are two queries, each admitted exactly.
+const search = /^\/search\/issues\?q=org%3AUOR-Foundation\+is%3Aopen\+is%3A(?:issue|pull-request)\+archived%3Afalse&sort=created&order=asc&per_page=100&page=([1-9][0-9]?)$/;
 const issueDetail = new RegExp('^' + ROOT + '(' + REPO + ')/issues/([1-9][0-9]{0,14})$');
 const blockedBy = new RegExp('^' + ROOT + '(' + REPO + ')/issues/([1-9][0-9]{0,14})/dependencies/blocked_by\\?per_page=100&page=([1-9][0-9]{0,2})$');
 

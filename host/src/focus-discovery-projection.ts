@@ -21,6 +21,8 @@ export type DiscoveryProjection = {
   omittedRepositories: number;
   omittedMatchingItems: number;
   selection: 'bounded-discovery-not-priority-ranking';
+  /** Items GitHub reports as blocking or blocked by others, among the matches: explicit native evidence only. */
+  explicitBlocking: number; explicitlyBlocked: number;
   candidates: { repository: string; number: number; kind: WorkItem['kind']; url: string; title: string; updatedAt: string }[];
 };
 const text = (s: unknown): s is string => typeof s === 'string' && s.length > 0 && s.length <= 100 && !/[\x00-\x1f\x7f]/.test(s);
@@ -55,20 +57,28 @@ export function projectDiscovery(snapshot: LiveWorkSnapshot, filter: DiscoveryFi
       matches.push(item);
     }
   }
-  matches.sort((a,b) => a.repository < b.repository ? -1 : a.repository > b.repository ? 1 : a.number - b.number);
-  // Breadth before depth: one item from each observed repository before a
-  // second from any. Stable ordering is still sampling, not prioritization.
-  const groups = new Map<string,WorkItem[]>();
-  for(const item of matches) {
-    const list=groups.get(item.repository)??[];
-    list.push(item);groups.set(item.repository,list);
-  }
+  // Explicit native evidence first: GitHub's own counts of items this blocks (downstream unlocks) lead, explicitly
+  // blocked items (not ready) come last, and everything else is between. No recency, popularity or label is a priority.
+  const tier = (i: WorkItem) => (i.blocking ?? 0) > 0 ? 0 : (i.blockedBy ?? 0) > 0 ? 2 : 1;
+  const repoKey = (r: string) => r.toLowerCase();
+  matches.sort((a,b) => tier(a) - tier(b) || (b.blocking ?? 0) - (a.blocking ?? 0) ||
+    (repoKey(a.repository) < repoKey(b.repository) ? -1 : repoKey(a.repository) > repoKey(b.repository) ? 1 : a.number - b.number));
+  // Within a tier: breadth before depth, one item from each repository before a second from any, starting at a
+  // repository that rotates each hour, so a fixed alphabetical prefix is not always the sample. Still a disclosed
+  // sample, never a ranking.
+  const hour = Math.floor(Date.parse(snapshot.startedAt) / 3_600_000);
   const sample:WorkItem[]=[];
-  for(let round=0;sample.length<limit&&sample.length<matches.length;round++){
-    for(const list of groups.values()){
-      if(list[round])sample.push(list[round]);
-      if(sample.length===limit)break;
-    }
+  for (const level of [0, 1, 2]) {
+    const inTier = matches.filter(i => tier(i) === level);
+    const groups = new Map<string,WorkItem[]>();
+    for (const item of inTier) { const list = groups.get(item.repository) ?? []; list.push(item); groups.set(item.repository, list); }
+    const lists = [...groups.values()];
+    // Explicit blockers keep their evidence order; the undifferentiated middle and blocked tiers rotate.
+    const offset = level === 0 || !lists.length || !Number.isFinite(hour) ? 0 : ((hour % lists.length) + lists.length) % lists.length;
+    const rotated = [...lists.slice(offset), ...lists.slice(0, offset)];
+    for (let round = 0; sample.length < limit && rotated.some(l => l[round]); round++)
+      for (const list of rotated) { if (sample.length === limit) break; if (list[round]) sample.push(list[round]); }
+    if (sample.length === limit) break;
   }
   const candidates = sample.map(i => ({
     repository: i.repository, number: i.number, kind: i.kind, url: i.url, title: i.title, updatedAt: i.updatedAt,
@@ -76,5 +86,6 @@ export function projectDiscovery(snapshot: LiveWorkSnapshot, filter: DiscoveryFi
   return { startedAt: snapshot.startedAt, finishedAt: snapshot.finishedAt, sourceCoverage: snapshot.coverage,
     matchingRepositories, matchingItems: matches.length, unknownMetadataRepositories, unknownMetadataItems,
     unavailableRepositories, omittedRepositories: snapshot.omittedRepositories, omittedMatchingItems: matches.length - candidates.length,
-    selection: 'bounded-discovery-not-priority-ranking', candidates };
+    selection: 'bounded-discovery-not-priority-ranking', candidates,
+    explicitBlocking: matches.filter(i => (i.blocking ?? 0) > 0).length, explicitlyBlocked: matches.filter(i => (i.blockedBy ?? 0) > 0).length };
 }
