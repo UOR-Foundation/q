@@ -91,7 +91,7 @@ The derived SQLite search index updates vector rows and keyword postings in one 
 
 Within one Memory instance, observation and removal serialize their store/index mutation phases. Embedding is outside the mutation queue; publication rechecks record existence, revocation and author opt-out. Exact revoked observations are not re-admitted. This is a process-local lifecycle consistency check, not a cross-process transaction or a complete guarantee over other writers or external storage.
 
-MCP connector discovery publishes complete, unique catalogs. Registration failures are omitted from the active catalog and reported without raw provider errors. Each invocation uses the registered entry; kernel authorization remains required. This consistency check is not independent verification of a provider's tool behavior or effective permissions.
+MCP connector discovery publishes complete, unique catalogs only after bounded pagination (at most 32 pages and 512 tools per server). Failed pages, ambiguous qualified names, repeated cursors or exhausted catalog limits refuse registration without publishing partial entries. Registration failures are omitted from the active catalog and reported without raw provider errors. Each invocation uses the registered entry; kernel authorization remains required. This consistency check is not independent verification of a provider's tool behavior or effective permissions.
 
 ## Commands
 
