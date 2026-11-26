@@ -305,6 +305,58 @@ test('forget-me deletes the messages and answers of the author, revokes them, an
   assert.equal(await memory.observe(said('Still indexed', { authorId: 'u2' })), 'index');
 });
 
+test('memory does not publish an observation embedding after its record was removed', async () => {
+  for (const mode of ['author', 'channel', 'withdraw', 'sweep'] as const) {
+    const { memory, store, index, clock } = await world();
+    const message = said('Synthetic delayed observation', { url: 'https://discord.test/c1/delayed' });
+    let entered!: () => void;
+    let release!: (v: number[][]) => void;
+    const started = new Promise<void>(r => { entered = r; });
+    memory.embedder = { model: 'delayed', embed: async () => {
+      entered();
+      return new Promise<number[][]>(r => { release = r; });
+    } };
+    const observation = memory.observe(message);
+    await started;
+    const label = (await store.labels('private'))[0];
+    assert.ok(label);
+    if (mode === 'author') assert.equal(await memory.forget({ author: message.authorId }), 1);
+    if (mode === 'channel') assert.equal(await memory.forget({ channel: message.channelId }), 1);
+    if (mode === 'withdraw') assert.equal(await memory.withdraw(message.url, message), 1);
+    if (mode === 'sweep') {
+      clock.now += 31 * 86_400_000;
+      assert.equal(await memory.sweep(), 1);
+    }
+    release([[1, 0]]);
+    assert.equal(await observation, 'skip', mode);
+    assert.equal(await store.has('private', label), false, mode);
+    assert.equal(index.has(label), false, mode);
+    assert.equal(await isRevoked(store, 'private', label), true, mode);
+  }
+});
+
+test('memory keeps revoked content absent when an identical observation is repeated', async () => {
+  const { memory, store, index } = await world();
+  const message = said('Synthetic withdrawn observation');
+  assert.equal(await memory.observe(message), 'index');
+  const label = (await store.labels('private'))[0];
+  assert.equal(await memory.withdraw(message.url, message), 1);
+  assert.equal(await memory.observe(message), 'skip');
+  assert.equal(await store.has('private', label), false);
+  assert.equal(index.has(label), false);
+  assert.equal(await isRevoked(store, 'private', label), true);
+  assert.equal(await memory.observe({ ...message, text: 'Replacement observation' }), 'index');
+});
+
+test('memory mutation queue recovers after a rejected store operation', async () => {
+  const { memory, store } = await world();
+  const put = store.put.bind(store);
+  store.put = async () => { throw Error('synthetic store failure'); };
+  await assert.rejects(memory.observe(said('First observation')), /synthetic store failure/);
+  store.put = put;
+  assert.equal(await memory.observe(said('Second observation')), 'index');
+});
+
 test('forget-channel needs the admin role and removes only that channel', async () => {
   const { memory, pipeline, index } = await world();
   await memory.observe(said('Message in channel one about BLAKE3'));
