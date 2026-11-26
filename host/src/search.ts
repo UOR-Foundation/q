@@ -26,7 +26,7 @@ export class SearchIndex {
     this.#db = new DatabaseSync(path);
     // The live bot and a backfill share the file: a writer waits its turn instead of failing with "database is locked".
     this.#db.exec('pragma busy_timeout = 30000');
-    // A deleted row's bytes are overwritten rather than left in free pages, on this connection.
+    // Overwrite deleted ordinary SQLite records on this connection.
     this.#db.exec('pragma secure_delete = on');
     this.#db.exec(`
       create table if not exists chunk (label text primary key, namespace text not null, vector blob not null);
@@ -37,8 +37,8 @@ export class SearchIndex {
     `);
     // The keys an answer builds on came later than the table: a file made before them gains the column.
     if (!(this.#db.prepare('pragma table_info(question)').all() as { name: string }[]).some((column) => column.name === 'after')) this.#db.exec("alter table question add column after text not null default '[]'");
-    // FTS5 otherwise keeps a deleted document's tokens in its segments until they happen to merge. The option is stored
-    // in the file; segments written before it was set keep earlier deletions until the keyword index is rebuilt.
+    // FTS5's own secure-delete setting applies to future deletions. It
+    // does not sanitize historical files or other storage surfaces.
     this.#db.exec("insert into words(words, rank) values('secure-delete', 1)");
     this.#dataVersion = this.#readDataVersion();
   }
@@ -162,20 +162,14 @@ export class SearchIndex {
     this.#vectors.delete(label);
     this.#revision++;
   }
-  /**
-   * Rows derived from removed records, or naming a forgotten member: the improvement loop's records and the website's
-   * answer caches. They hold question text and member identifiers, so they go with what they were made from.
+  /** Invalidate derived lookup rows that directly refer to a removed record.
+   * These are caches, not the authoritative records or a transitive deletion policy.
    */
-  removeDerived(labels: readonly string[], member?: string) {
+  removeDerived(label: string) {
     this.#transaction(() => {
-      for (const label of labels) {
-        this.#db.prepare('delete from loop where key = ? or instr(value, ?) > 0').run(label, JSON.stringify(label));
-        this.#db.prepare('delete from memo where answer = ? or context = ?').run(label, label);
-        this.#db.prepare('delete from question where answer = ? or context = ?').run(label, label);
-      }
-      if (member !== undefined) {
-        this.#db.prepare("delete from loop where json_valid(value) and (json_extract(value, '$.author') = ? or exists (select 1 from json_each(loop.value, '$.subjects') where value = ?))").run(member, member);
-      }
+      this.#db.prepare("delete from loop where key = ? or exists (select 1 from json_tree(loop.value) where type = 'text' and atom = ?)").run(label, label);
+      this.#db.prepare('delete from memo where answer = ? or context = ?').run(label, label);
+      this.#db.prepare('delete from question where answer = ? or context = ? or exists (select 1 from json_each(question.after) where value = ?)').run(label, label, label);
     });
     this.#revision++;
   }

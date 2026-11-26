@@ -89,9 +89,11 @@ The tool-enabled model loop enforces its configured round limit before dispatch,
 
 The derived SQLite search index updates vector rows and keyword postings in one transaction for additions/removals. Local vector cache updates do not depend on monotonically increasing rowids; external database commits invalidate cached vectors and derived revisions. This is database-level index coherence, not a transaction spanning the separate store of record and search index, or a complete concurrent-rebuild guarantee.
 
+Memory removal invalidates directly related derived lookup rows and records revocation before deleting the source record. SQLite ordinary and FTS5 secure-delete are enabled for future index deletions. This is scoped index hygiene and retry ordering, not verified erasure of historical files, snapshots, other writers, remote stores, or transitive derivatives. Torn record recovery and changes to writer admission are not included.
+
 Within one Memory instance, observation and removal serialize their store/index mutation phases. Embedding is outside the mutation queue; publication rechecks record existence, revocation and author opt-out. Exact revoked observations are not re-admitted. This is a process-local lifecycle consistency check, not a cross-process transaction or a complete guarantee over other writers or external storage.
 
-MCP connector discovery publishes complete, unique catalogs. Registration failures are omitted from the active catalog and reported without raw provider errors. Each invocation uses the registered entry; kernel authorization remains required. This consistency check is not independent verification of a provider's tool behavior or effective permissions.
+MCP connector discovery publishes complete, unique catalogs only after bounded pagination (at most 32 pages and 512 tools per server). Failed pages, ambiguous qualified names, repeated cursors or exhausted catalog limits refuse registration without publishing partial entries. Registration failures are omitted from the active catalog and reported without raw provider errors. Each invocation uses the registered entry; kernel authorization remains required. This consistency check is not independent verification of a provider's tool behavior or effective permissions.
 
 ## Commands
 
@@ -140,7 +142,7 @@ See [../docs/design.md](../docs/design.md) for the trade-offs.
 
 ### Q Focus (operator-enabled preview)
 
-Set `FOCUS_ENABLED=true` in a qualified Discord host to enable natural-language contribution assessment. It is off by default. Example: “What should I work on in UOR-Foundation/q?” Q reads current public GitHub evidence, reports its bounded scan, and suggests a read-only investigation. It does not assign work, determine merge readiness, or establish Foundation-wide priority. Anonymous GitHub access has a shared rate limit; each assessment is bounded to 40 requests and 15 seconds, and may return partial or unavailable evidence. No GitHub token is passed to this reader. The native tests exercise the real kernel with controlled provider responses; live deployment/Discord acceptance is separate. Turn the setting off to restore the existing answer path.
+Set `FOCUS_ENABLED=true` in a qualified Discord host to enable natural-language contribution assessment. It is off by default. Example: “What should I work on in UOR-Foundation/q?” Q reads current public GitHub evidence, reports its bounded scan, and suggests a read-only investigation. It does not assign work, determine merge readiness, or establish Foundation-wide priority. Anonymous GitHub access has a shared rate limit; each assessment is bounded to 40 requests and 15 seconds, and may return partial or unavailable evidence. No GitHub token is passed to this reader. Focus reports measured public-collection requests, response bytes and elapsed time; inconsistent search counts and missing candidate evidence remain uncertain. A repository with no search hits is never treated as idle. The native tests exercise the real kernel with controlled provider responses; live deployment/Discord acceptance is separate. Turn the setting off to restore the existing answer path.
 
 ### Capability map
 

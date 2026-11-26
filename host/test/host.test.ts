@@ -730,6 +730,42 @@ test('MCP registry publishes only complete unique catalogs and keeps exact regis
   assert.equal(calls,1);
 });
 
+test('MCP catalog discovery commits all bounded pages atomically',async()=>{
+  const registry=new Tools();
+  const requests:(string|undefined)[]=[];
+  const tool=(name:string)=>({name,inputSchema:{type:'object'}});
+  const client={listTools:async(params?:{cursor?:string})=>{
+    requests.push(params?.cursor);
+    assert.deepEqual(registry.list(),[]);
+    return params?.cursor===undefined?{tools:[tool('first')],nextCursor:'second-page'}:{tools:[tool('second')]};
+  },close:async()=>{}} as unknown as Client;
+  await registry.add({name:'paged'},client);
+  assert.deepEqual(requests,[undefined,'second-page']);
+  assert.deepEqual(registry.list().map(t=>t.name),['first','second']);
+  await registry.close();
+});
+
+test('MCP catalog discovery refuses incomplete, repeated and oversized pages without publication',async()=>{
+  const tool=(name:string)=>({name,inputSchema:{type:'object'}});
+  for(const mode of ['duplicate','collision','cycle','failure','page-cap','item-cap','empty-cursor'] as const){
+    const registry=new Tools();
+    let pages=0;
+    const client={listTools:async()=>{
+      pages++;
+      if(mode==='item-cap')return {tools:Array.from({length:513},(_,i)=>tool('t'+i))};
+      if(mode==='page-cap')return {tools:[],nextCursor:String(pages)};
+      if(mode==='empty-cursor')return {tools:[tool('first')],nextCursor:''};
+      if(pages===1)return {tools:[tool(mode==='collision'?'a.b':'first')],nextCursor:'next'};
+      if(mode==='failure')throw Error('synthetic failure');
+      return {tools:[tool(mode==='duplicate'?'first':mode==='collision'?'a_b':'second')],...(mode==='cycle'?{nextCursor:'next'}:{})};
+    },close:async()=>{}} as unknown as Client;
+    await assert.rejects(registry.add({name:'paged'},client),/MCP registration refused|synthetic failure/,mode);
+    assert.deepEqual(registry.list(),[],mode);
+    if(mode==='page-cap')assert.equal(pages,32);
+    await registry.close();
+  }
+});
+
 test('MCP duplicate server configuration is refused before transport creation',async()=>{
   const {tools,failed}=await Tools.connect([{name:'duplicate'},{name:'duplicate'}],()=>assert.fail('ambiguous server must not connect'));
   assert.equal(failed.length,2);
@@ -2273,7 +2309,7 @@ test('Discord Focus runs the real entry and model against fresh provider data on
     const repo={name:'q',full_name:'UOR-Foundation/q',private:false,visibility:'public',archived:false,fork:false,default_branch:'main'};
     const issue={number:n,state:'open',title:'@everyone untrusted title',updated_at:'2026-11-25T20:00:00Z',assignees:[],
       repository_url:'https://api.github.com/repos/UOR-Foundation/q',html_url:'https://github.com/UOR-Foundation/q/issues/'+n};
-    const body=u.pathname.startsWith('/orgs/')?[repo]:u.pathname==='/search/issues'?{total_count:1,incomplete_results:false,items:[issue]}:u.pathname.endsWith('/dependencies/blocked_by')?[]:u.pathname.endsWith('/issues')?[issue]:issue;
+    const body=u.pathname.startsWith('/orgs/')?[repo]:u.pathname==='/search/issues'?(u.search.includes('is%3Apull-request')?{total_count:0,incomplete_results:false,items:[]}:{total_count:1,incomplete_results:false,items:[issue]}):u.pathname.endsWith('/dependencies/blocked_by')?[]:u.pathname.endsWith('/issues')?[issue]:issue;
     return new Response(JSON.stringify(body));
   }});
   const question='What should I work on next?';
@@ -2283,7 +2319,8 @@ test('Discord Focus runs the real entry and model against fresh provider data on
   assert.match(a!.text,/q#11/);
   assert.match(b!.text,/q#12/);
   assert.doesNotMatch(b!.text,/q#11|@everyone|Answered once before/);
-  assert.equal(classifications,2);assert.equal(reads,10);
+  // One read more per question than before: GitHub requires typed searches, so pull requests are a second search query.
+  assert.equal(classifications,2);assert.equal(reads,12);
   assert.equal(w.llm.calls,0);
   assert.equal((await w.store.labels('private')).length,0);
 });

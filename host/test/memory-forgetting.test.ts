@@ -1,18 +1,16 @@
-// Forgetting is complete across interrupted removals, half-written records, derived index rows, the index file's
-// bytes and writers that share the store. Real holo, FileStore and SQLite index on temporary paths; fictional data.
-// Each assertion reads the storage surface directly rather than trusting what forget() reports.
+// Scoped index-deletion and retry tests using fictional records and the real kernel.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { Kernel } from '../src/kernel.ts';
-import { Memory, chunkOf, attributionOf, type Observed } from '../src/memory.ts';
+import { Memory, chunkOf, type Observed } from '../src/memory.ts';
 import { labelOf } from '../src/address.ts';
-import { FileStore, MemoryStore } from '../src/store.ts';
+import { FileStore, isRevoked } from '../src/store.ts';
 import { SearchIndex, loopRecord } from '../src/search.ts';
 
 const NOW = Date.parse('2026-11-23T00:00:00Z');
@@ -53,7 +51,7 @@ async function holding(dir: string) {
   return { files, rows, bytes };
 }
 
-test('a forgotten message leaves no deleted text in the index file, including keyword segments and free pages', async () => {
+test('a newly indexed fictional message is absent from inspected SQLite rows and files after removal', async () => {
   const w = await world(); const m = note();
   await w.memory.observe(m);
   assert.ok((await holding(w.dir)).rows > 0, 'precondition: indexed');
@@ -86,45 +84,25 @@ test('a removal interrupted after the index step is finished by the next forget,
   assert.deepEqual(await holding(w.dir), { files: 0, rows: 0, bytes: 0 });
 });
 
-test('a record half-written by a crash is still reclaimed by forget-me, and only when it names that member', async () => {
+
+test('a failed revocation link leaves the record available for retry', async () => {
   const w = await world();
-  const mine = chunkOf(note(), note().text.trim());
-  const theirs = chunkOf(note({ authorId: 'someone-else', url: 'https://example.invalid/c1/m2' }), `other ${WORD}`);
-  await mkdir(join(w.dir, 'store', 'private', 'items'), { recursive: true });
-  for (const item of [mine, theirs]) {
-    const whole = JSON.stringify(item);
-    await writeFile(join(w.dir, 'store', 'private', 'items', labelOf(item).replace(':', '-') + '.json'), whole.slice(0, whole.indexOf(WORD) + WORD.length));
+  try {
+    const m = note();
+    await w.memory.observe(m);
+    const label = labelOf(chunkOf(m, m.text.trim()));
+    const link = w.store.link.bind(w.store);
+    w.store.link = async () => { throw Error('synthetic link failure'); };
+    await assert.rejects(w.memory.forget({ author: m.authorId }), /synthetic link failure/);
+    assert.equal(await w.store.has('private', label), true);
+    assert.equal(w.index.has(label), false);
+    w.store.link = link;
+    await w.memory.forget({ author: m.authorId });
+    assert.equal(await w.store.has('private', label), false);
+    assert.equal(await isRevoked(w.store, 'private', label), true);
+    assert.deepEqual(await holding(w.dir), { files: 0, rows: 0, bytes: 0 });
+  } finally {
+    w.index.close();
+    await rm(w.dir, {recursive:true,force:true});
   }
-  // Torn anywhere after its text begins, a member record still names its author; torn earlier it names no one.
-  const whole = JSON.stringify(mine);
-  assert.equal(attributionOf(whole.slice(0, whole.indexOf(WORD))).author, 'fictional-member');
-  assert.equal(attributionOf(whole.slice(0, whole.indexOf('"author"') + 5)).author, undefined);
-  const restarted = await world(w.dir);
-  await restarted.memory.forget({ author: 'fictional-member' });
-  assert.equal(existsSync(join(w.dir, 'store', 'private', 'items', labelOf(mine).replace(':', '-') + '.json')), false);
-  assert.equal(existsSync(join(w.dir, 'store', 'private', 'items', labelOf(theirs).replace(':', '-') + '.json')), true, "another member's torn record is not guessed at");
-});
-
-test('the store writes a record whole or not at all', async () => {
-  const w = await world();
-  const label = await w.store.put('private', { type: 'chunk', author: 'a', text: 'whole', created: NOW });
-  const names = await readdir(join(w.dir, 'store', 'private', 'items'));
-  assert.deepEqual(names, [label.replace(':', '-') + '.json'], 'no temporary file is left');
-  assert.deepEqual(await w.store.inspect('private', label), { state: 'ok', item: { type: 'chunk', author: 'a', text: 'whole', created: NOW } });
-  assert.deepEqual(await w.store.inspect('private', 'blake3:' + '0'.repeat(64)), { state: 'missing' });
-});
-
-test('a writer sharing the store cannot add a record of a member while their forget-me runs', async () => {
-  const store = new MemoryStore();
-  const memory = new Memory(await Kernel.open(HOLO), store, new SearchIndex(), embedder, 30, () => NOW);
-  const labels = store.labels.bind(store);
-  let late = '';
-  store.labels = async (ns) => { const l = await labels(ns); late = await store.put('private', { type: 'turn', author: 'fictional-member', text: WORD, created: NOW }); return l; };
-  await memory.forget({ author: 'fictional-member' });
-  store.labels = labels;
-  assert.equal(await store.has('private', late), false);
-  // Admission is scoped to the forget: afterwards writes are admitted as before, and others' never were refused.
-  const other = await store.put('private', { type: 'turn', author: 'someone-else', text: 'unrelated', created: NOW });
-  assert.equal(await store.has('private', other), true);
-  assert.equal(store.admits, undefined);
 });

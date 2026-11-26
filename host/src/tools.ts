@@ -55,16 +55,29 @@ export class Tools {
     const name = server.name;
     const allowlisted = server.allow === true;
     if (this.#closed || typeof name !== 'string' || !name.trim() || this.#clients.has(name)) throw Error('MCP registration refused');
-    const { tools } = await client.listTools();
     const pending = new Map<string, Tool>();
-    for (const tool of tools) {
-      const qualified = qualify(name, tool.name);
-      if (pending.has(qualified)) throw Error('MCP registration refused');
-      pending.set(qualified, Object.freeze({
-        server: name, name: tool.name, qualified,
-        description: tool.description ?? tool.name, inputSchema: tool.inputSchema as Record<string, unknown>,
-        writes: tool.annotations?.readOnlyHint !== true, allowlisted,
-      }));
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    // MCP catalogs may span multiple pages. Bound discovery and refuse the
+    // entire registration on ambiguous identity, loops or incomplete pages.
+    for (let page = 0; ; page++) {
+      if (page >= 32) throw Error('MCP registration refused');
+      const result = await client.listTools(cursor === undefined ? undefined : { cursor });
+      if (!Array.isArray(result.tools) || pending.size + result.tools.length > 512) throw Error('MCP registration refused');
+      for (const tool of result.tools) {
+        if (typeof tool.name !== 'string' || !tool.name.trim()) throw Error('MCP registration refused');
+        const qualified = qualify(name, tool.name);
+        if (pending.has(qualified)) throw Error('MCP registration refused');
+        pending.set(qualified, Object.freeze({
+          server: name, name: tool.name, qualified,
+          description: tool.description ?? tool.name, inputSchema: tool.inputSchema as Record<string, unknown>,
+          writes: tool.annotations?.readOnlyHint !== true, allowlisted,
+        }));
+      }
+      if (result.nextCursor === undefined) break;
+      if (typeof result.nextCursor !== 'string' || !result.nextCursor.length || result.nextCursor.length > 4096 || cursors.has(result.nextCursor)) throw Error('MCP registration refused');
+      cursor = result.nextCursor;
+      cursors.add(cursor);
     }
     // Discovery awaited I/O. Recheck against the current registry before committing
     // either the client or any entry; no partial catalog can become visible.
