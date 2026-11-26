@@ -584,6 +584,48 @@ async function mcp(allow: boolean): Promise<Tools> {
   return tools;
 }
 
+test('MCP registry publishes only complete unique catalogs and keeps exact registered entries',async()=>{
+  const registry=new Tools();
+  let calls=0, closes=0;
+  const make=(names:string[],fail=false)=>({
+    listTools:async()=>{if(fail)throw Error('synthetic discovery error');return {tools:names.map(name=>({name,inputSchema:{type:'object'},annotations:{readOnlyHint:true}}))};},
+    callTool:async()=>{calls++;return {content:[{type:'text',text:'synthetic result'}]};},
+    close:async()=>{closes++;},
+  }) as unknown as Client;
+  await registry.add({name:'alpha',allow:true},make(['lookup']));
+  const original=registry.find('alpha__lookup')!;
+  await assert.rejects(registry.add({name:'alpha',allow:true},make(['other'])));
+  await assert.rejects(registry.add({name:'beta',allow:true},make(['same','same'])));
+  await assert.rejects(registry.add({name:'gamma',allow:true},make(['unused'],true)));
+  assert.deepEqual(registry.list(),[original]);
+  await assert.rejects(registry.call({...original},{}));
+  assert.equal(calls,0);
+  assert.equal(await registry.call(original,{}),'synthetic result');
+  assert.equal(calls,1);
+  await registry.close();
+  assert.equal(closes,1);
+  assert.deepEqual(registry.list(),[]);
+  await assert.rejects(registry.call(original,{}));
+  await assert.rejects(registry.add({name:'after-close'},make(['lookup'])));
+  assert.equal(calls,1);
+});
+
+test('MCP duplicate server configuration is refused before transport creation',async()=>{
+  const {tools,failed}=await Tools.connect([{name:'duplicate'},{name:'duplicate'}],()=>assert.fail('ambiguous server must not connect'));
+  assert.equal(failed.length,2);
+  assert.deepEqual(tools.list(),[]);
+});
+
+test('MCP concurrent catalog registration commits at most one entry set',async()=>{
+  const registry=new Tools();
+  const client=(name:string)=>({listTools:async()=>({tools:[{name,inputSchema:{type:'object'}}]}),close:async()=>{}}) as unknown as Client;
+  const results=await Promise.allSettled([registry.add({name:'same'},client('first')),registry.add({name:'same'},client('second'))]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+  assert.equal(results.filter(r=>r.status==='rejected').length,1);
+  assert.equal(registry.list().length,1);
+  await registry.close();
+});
+
 test('MCP tools: the kernel lets a member read and refuses a member writing, and each result is a labelled record', async () => {
   const tools = await mcp(true);
   assert.deepEqual(tools.list().map((t) => [t.qualified, t.writes, t.allowlisted]), [['uor__lookup', false, true], ['uor__publish', true, true]]);

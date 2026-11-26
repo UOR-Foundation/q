@@ -25,54 +25,78 @@ const qualify = (server: string, tool: string) => `${server}__${tool}`.replace(/
 
 export class Tools {
   #clients = new Map<string, Client>();
-  #tools: Tool[] = [];
+  #tools = new Map<string, Tool>();
+  #closed = false;
 
-  /** Connect to every server and list its tools. A server that cannot be reached is left out and reported. */
+  /** Discover a complete, unambiguous server catalog before publishing it. */
   static async connect(servers: ServerConfig[], transport: (server: ServerConfig) => Transport = defaultTransport): Promise<{ tools: Tools; failed: string[] }> {
     const tools = new Tools();
     const failed: string[] = [];
+    const names = new Map<string, number>();
+    for (const server of servers) names.set(server.name, (names.get(server.name) ?? 0) + 1);
     for (const server of servers) {
+      if (names.get(server.name) !== 1) {
+        failed.push('MCP registration refused: duplicate server name');
+        continue;
+      }
+      const client = new Client({ name: 'uor-foundation-q', version: '0.1.0' });
       try {
-        const client = new Client({ name: 'uor-foundation-q', version: '0.1.0' });
         await client.connect(transport(server));
         await tools.add(server, client);
-      } catch (error) {
-        failed.push(`${server.name}: ${String(error)}`);
+      } catch {
+        await client.close().catch(() => {});
+        failed.push('MCP registration failed');
       }
     }
     return { tools, failed };
   }
 
   async add(server: ServerConfig, client: Client) {
-    this.#clients.set(server.name, client);
+    const name = server.name;
+    const allowlisted = server.allow === true;
+    if (this.#closed || typeof name !== 'string' || !name.trim() || this.#clients.has(name)) throw Error('MCP registration refused');
     const { tools } = await client.listTools();
+    const pending = new Map<string, Tool>();
     for (const tool of tools) {
-      this.#tools.push({
-        server: server.name, name: tool.name, qualified: qualify(server.name, tool.name),
+      const qualified = qualify(name, tool.name);
+      if (pending.has(qualified)) throw Error('MCP registration refused');
+      pending.set(qualified, Object.freeze({
+        server: name, name: tool.name, qualified,
         description: tool.description ?? tool.name, inputSchema: tool.inputSchema as Record<string, unknown>,
-        writes: tool.annotations?.readOnlyHint !== true, allowlisted: server.allow === true,
-      });
+        writes: tool.annotations?.readOnlyHint !== true, allowlisted,
+      }));
     }
+    // Discovery awaited I/O. Recheck against the current registry before committing
+    // either the client or any entry; no partial catalog can become visible.
+    if (this.#closed || this.#clients.has(name) || [...pending.keys()].some(key => this.#tools.has(key))) throw Error('MCP registration refused');
+    this.#clients.set(name, client);
+    for (const [key, tool] of pending) this.#tools.set(key, tool);
   }
 
   list(): readonly Tool[] {
-    return this.#tools;
+    return [...this.#tools.values()];
   }
 
   find(qualified: string): Tool | undefined {
-    return this.#tools.find((tool) => tool.qualified === qualified);
+    return this.#tools.get(qualified);
   }
 
-  /** Run one call the kernel allowed, and return its text content. */
+  /** Run the registered entry the kernel allowed, never a reconstructed descriptor. */
   async call(tool: Tool, args: Record<string, unknown>): Promise<string> {
-    const result = await this.#clients.get(tool.server)!.callTool({ name: tool.name, arguments: args });
+    const client = this.#clients.get(tool.server);
+    if (this.#closed || !client || this.#tools.get(tool.qualified) !== tool) throw Error('MCP call refused: unregistered tool');
+    const result = await client.callTool({ name: tool.name, arguments: args });
     const content = (result.content ?? []) as { type: string; text?: string }[];
     const text = content.flatMap((part) => (part.type === 'text' && part.text ? [part.text] : [])).join('\n');
     return result.isError ? `The tool reported an error: ${text}` : text;
   }
 
   async close() {
-    for (const client of this.#clients.values()) await client.close();
+    this.#closed = true;
+    const clients = [...this.#clients.values()];
+    this.#clients.clear();
+    this.#tools.clear();
+    await Promise.all(clients.map(client => client.close()));
   }
 }
 
