@@ -85,6 +85,8 @@ Before the bot can index anything on a server:
 
 The bot answers mentions in any public text or forum channel. Its inputs and outputs are specified in [../docs/context.md](../docs/context.md).
 
+The tool-enabled model loop enforces its configured round limit before dispatch, refuses malformed argument payloads rather than replacing them with an empty object, and stops starting new calls after cancellation. Cancellation is not rollback of an effect already dispatched. These transport checks do not establish tool authorization or argument scope.
+
 MCP connector discovery publishes complete, unique catalogs. Registration failures are omitted from the active catalog and reported without raw provider errors. Each invocation uses the registered entry; kernel authorization remains required. This consistency check is not independent verification of a provider's tool behavior or effective permissions.
 
 ## Commands
